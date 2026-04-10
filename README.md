@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 Fast SUS and climate workflows for Brazil in Python.
-
+DOCUMENTATION: [https://climasus.github.io/climasus4py_documentation/](https://climasus.github.io/climasus4py_documentation/)
 ## Features
 
 - DuckDB lazy pipeline (`sus_import -> sus_clean -> sus_standardize -> sus_filter -> sus_variables -> sus_aggregate`)
