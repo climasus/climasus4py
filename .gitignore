@@ -1,0 +1,37 @@
+# climasus4py .gitignore
+
+# Python bytecode e build
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.whl
+
+# Ambientes virtuais
+.venv/
+venv/
+
+# Dados e cache
+output/
+dados/
+*.parquet
+
+# Configuração local
+config.yaml
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+*.swp
+
+# IDE/editor
+.idea/
+.vscode/
+
+# Testes e benchmarks
+benchmarks/
+tests/__pycache__/
