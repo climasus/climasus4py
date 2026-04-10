@@ -35,3 +35,6 @@ Thumbs.db
 # Testes e benchmarks
 benchmarks/
 tests/__pycache__/
+
+# MkDocs build output
+site/

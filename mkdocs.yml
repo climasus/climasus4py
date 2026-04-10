@@ -1,0 +1,37 @@
+﻿site_name: climasus4py Documentation
+site_description: Trilingual documentation for climasus4py (PT, EN, ES)
+repo_url: https://github.com/ClimaHealth/climasus4py
+repo_name: ClimaHealth/climasus4py
+docs_dir: docs
+
+theme:
+  name: mkdocs
+  
+site_dir: ../climasus4py_documentation
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Portugues:
+      - Inicio: pt/index.md
+      - Primeiros Passos: pt/getting-started.md
+      - API de Referencia: pt/api-reference.md
+      - Arquitetura: pt/architecture.md
+      - Desenvolvimento: pt/development.md
+  - English:
+      - Overview: en/index.md
+      - Getting Started: en/getting-started.md
+      - API Reference: en/api-reference.md
+      - Architecture: en/architecture.md
+      - Development: en/development.md
+  - Espanol:
+      - Inicio: es/index.md
+      - Primeros Pasos: es/getting-started.md
+      - Referencia API: es/api-reference.md
+      - Arquitectura: es/architecture.md
+      - Desarrollo: es/development.md
