@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
+import sys
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -70,9 +73,7 @@ def load_json(relative: str) -> Any:
 # ---------------------------------------------------------------------------
 # Update function: baixa/atualiza climasus-data localmente
 # ---------------------------------------------------------------------------
-import subprocess
-import shutil
-import sys
+
 def update_climasus_data(repo_url: str = "https://github.com/climasus/climasus-data.git", target_dir: str | None = None, branch: str = "main") -> None:
     """Baixa ou atualiza o repositório climasus-data localmente.
 
@@ -97,6 +98,12 @@ def update_climasus_data(repo_url: str = "https://github.com/climasus/climasus-d
         subprocess.run(["git", "-C", str(target), "pull", "origin", branch], check=True)
     elif target.exists():
         # Existe mas não é git: remove e clona
+        # Safety check: only remove if it looks like a climasus-data directory
+        if not (target / "manifest.json").is_file():
+            raise RuntimeError(
+                f"Diretório {target} não parece ser climasus-data "
+                f"(manifest.json não encontrado). Remoção abortada por segurança."
+            )
         print(f"Removendo diretório existente e clonando climasus-data em {target}...")
         shutil.rmtree(target)
         subprocess.run(["git", "clone", "--depth", "1", "-b", branch, repo_url, str(target)], check=True)
@@ -195,6 +202,31 @@ def detect_age_column(columns: list[str]) -> str | None:
 
 def detect_sex_column(columns: list[str]) -> str | None:
     return _detect_column(columns, ["sex", "SEXO", "CS_SEXO"])
+
+
+def decode_age_sql(age_col: str) -> str:
+    """Return a DuckDB SQL expression that decodes SIM-DO coded age to years.
+
+    DATASUS SIM-DO encodes age as a 3-digit string:
+      - 5xx → 100 + xx years (centenarians)
+      - 4xx → xx years
+      - 3xx → months (→ 0 years)
+      - 2xx → days  (→ 0 years)
+      - 1xx → hours (→ 0 years)
+      - 0xx → minutes (→ 0 years)
+    """
+    v = f'TRIM(CAST("{age_col}" AS VARCHAR))'
+    return (
+        f"CASE"
+        f"  WHEN LENGTH({v}) = 3 AND SUBSTR({v}, 1, 1) = '5'"
+        f"    THEN 100 + TRY_CAST(SUBSTR({v}, 2) AS INTEGER)"
+        f"  WHEN LENGTH({v}) = 3 AND SUBSTR({v}, 1, 1) = '4'"
+        f"    THEN TRY_CAST(SUBSTR({v}, 2) AS INTEGER)"
+        f"  WHEN LENGTH({v}) = 3 AND SUBSTR({v}, 1, 1) IN ('0', '1', '2', '3')"
+        f"    THEN 0"
+        f"  ELSE TRY_CAST({v} AS INTEGER)"
+        f" END"
+    )
 
 
 def detect_geo_column(columns: list[str], level: str = "municipality") -> str | None:

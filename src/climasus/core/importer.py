@@ -27,6 +27,47 @@ console = Console(stderr=True)
 
 _DEFAULT_CACHE = Path("dados/cache")
 
+
+# ---------------------------------------------------------------------------
+# Type coercion for DATASUS data  (DBC/DBF → Parquet)
+# ---------------------------------------------------------------------------
+
+# Date columns in DATASUS (format DDMMYYYY as string)
+_DATE_COLS = {
+    "DTOBITO", "DTNASC", "DTCADINF", "DTCADMUN", "DTCONCASO", "DTINVESTIG",
+    "DTRECEBIM", "DTRECORIG", "DTCONINV", "DTINTERNACAO", "DTSAIDA",
+    "DTCADASTRO", "DTATESTADO", "DTREGCART", "DTCASAM", "DTULTMENST",
+    "DTCONSULT", "DTDECLARAC",
+}
+
+# Columns that should be numeric (integer)
+_NUMERIC_COLS = {
+    "CONTADOR", "PESO", "QTDFILVIVO", "QTDFILMORT", "GESTACAO",
+    "SEMAGESTAC", "OBITOGRAV", "GRAESSION", "CODMUNNATU", "CODMUNRES",
+    "CODMUNOCOR", "CODESTAB", "LOCOCOR", "IDADEMAE", "ESCMAE", "CODOCUPMAE",
+    "QTDGESTANT", "QTDPARTNOR", "QTDPARTCES", "IDADEPAI", "ESCPAI",
+    "SERIESCPAI", "SERIESCMAE",
+}
+
+
+def _coerce_datasus_types(df: pd.DataFrame) -> pd.DataFrame:
+    """Coerce DATASUS columns to proper types before writing to Parquet.
+
+    - Date columns (DDMMYYYY strings) → datetime64
+    - Known numeric columns → numeric (coerced, invalid → NaN)
+    - Strips whitespace from string columns
+    """
+    for col in df.columns:
+        if col in _DATE_COLS:
+            # DATASUS date format: DDMMYYYY (8 digits)
+            df[col] = pd.to_datetime(df[col], format="%d%m%Y", errors="coerce")
+        elif col in _NUMERIC_COLS:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        elif df[col].dtype == object or pd.api.types.is_string_dtype(df[col]):
+            # Strip whitespace from string columns
+            df[col] = df[col].astype(str).str.strip().replace({"":None,"nan":None})
+    return df
+
 # ---------------------------------------------------------------------------
 # FTP URL builders  (mirrors download-aria2c.R)
 # ---------------------------------------------------------------------------
@@ -222,6 +263,9 @@ def _download_and_cache(
                 console.print(f"[red]✗[/]  {uf}_{year}: failed to read .dbc: {e}")
             return None
 
+    # Coerce types before writing to Parquet
+    df = _coerce_datasus_types(df)
+
     target.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(pa.Table.from_pandas(df), target)
 
@@ -319,6 +363,7 @@ def sus_import(
 
     if data is not None:
         # Mode 1: inline data
+        data = _coerce_datasus_types(data.copy())
         target = cache_dir / system / f"inline_{'_'.join(ufs)}_{years[0]}.parquet"
         target.parent.mkdir(parents=True, exist_ok=True)
         pq.write_table(pa.Table.from_pandas(data), target)
@@ -378,6 +423,7 @@ def sus_import(
                         df = _download_pysus(
                             system, item["uf"], item["year"], item["month"]
                         )
+                        df = _coerce_datasus_types(df)
                         item["target"].parent.mkdir(parents=True, exist_ok=True)
                         pq.write_table(pa.Table.from_pandas(df), item["target"])
                         result = item["target"]

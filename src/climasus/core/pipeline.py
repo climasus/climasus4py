@@ -5,6 +5,7 @@ Mirrors R: pipeline.R + pipeline-fast.R
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import duckdb
@@ -130,7 +131,9 @@ def _build_fast_sql(
     if age_min is not None or age_max is not None:
         age_col = detect_age_column(columns)
         if age_col:
-            select_parts.append(f'TRY_CAST("{age_col}" AS DOUBLE) AS __age')
+            from climasus.utils.data import decode_age_sql
+            decoded = decode_age_sql(age_col)
+            select_parts.append(f'({decoded}) AS __age')
             if age_min is not None:
                 where_parts.append(f"__age >= {age_min}")
             if age_max is not None:
@@ -215,7 +218,10 @@ def sus_pipeline(
                         sus_export(result, output)
                     return result
                 except Exception:
-                    pass  # Fall through to staged pipeline
+                    logging.getLogger(__name__).debug(
+                        "Fast path failed, falling through to staged pipeline",
+                        exc_info=True,
+                    )
 
     # --- Staged pipeline (fallback) ---
     rel = sus_clean(rel)

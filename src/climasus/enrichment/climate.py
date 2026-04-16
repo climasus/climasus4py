@@ -61,6 +61,8 @@ def sus_climate(
     )
 
     # Add lags if requested
+    # Lag means climate N days BEFORE the health event, so we ADD lag_days
+    # to the climate date to align it with the future health event date.
     if lags:
         climate_cols = [c for c in climate.columns if c not in ("municipality_code", "date")]
         for lag_days in lags:

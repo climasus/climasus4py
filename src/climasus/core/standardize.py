@@ -63,14 +63,21 @@ def sus_standardize(
         rel = conn.sql(f"SELECT {', '.join(projections)} FROM rel")
 
     # Date conversion — try parsing common DATASUS date columns
+    # DATASUS uses DDMMYYYY format (e.g. "01012023" = 2023-01-01)
+    # Use TRY_STRPTIME for proper format parsing, fallback to TRY_CAST
     new_columns = schema_columns(rel)
-    date_candidates = ["death_date", "date", "DTOBITO", "DTNASC", "admission_date"]
+    date_candidates = ["death_date", "date", "DTOBITO", "DTNASC", "admission_date",
+                       "birth_date", "case_conclusion_date"]
     for dc in date_candidates:
         if dc in new_columns:
             try:
                 rel = rel.project(
                     ", ".join(
-                        f'TRY_CAST("{dc}" AS DATE) AS "{dc}"'
+                        (
+                            f"CASE WHEN typeof(\"{dc}\") = 'VARCHAR' "
+                            f"THEN TRY_STRPTIME(\"{dc}\", '%d%m%Y')::DATE "
+                            f"ELSE TRY_CAST(\"{dc}\" AS DATE) END AS \"{dc}\""
+                        )
                         if c == dc else f'"{c}"'
                         for c in new_columns
                     )

@@ -47,8 +47,16 @@ def collect(rel: duckdb.DuckDBPyRelation) -> "pd.DataFrame":
 
 
 def collect_arrow(rel: duckdb.DuckDBPyRelation) -> "pa.Table":
-    """Materialize a DuckDB relation to a PyArrow Table (~100x faster than pandas)."""
-    return rel.arrow()
+    """Materialize a DuckDB relation to a PyArrow Table (~100x faster than pandas).
+
+    DuckDB may return a RecordBatchReader; we call .read_all() to ensure
+    the result is always a pyarrow.Table with .num_rows / .num_columns.
+    """
+    result = rel.arrow()
+    # Some DuckDB versions return RecordBatchReader instead of Table
+    if hasattr(result, "read_all"):
+        return result.read_all()
+    return result
 
 
 def schema_columns(rel: duckdb.DuckDBPyRelation) -> list[str]:

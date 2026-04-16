@@ -9,7 +9,7 @@ import duckdb
 
 from climasus.core.engine import get_connection, schema_columns
 from climasus.utils.cid import codes_for_groups, expand_cid_ranges
-from climasus.utils.data import detect_cause_column, detect_age_column, detect_sex_column
+from climasus.utils.data import detect_cause_column, detect_age_column, detect_sex_column, decode_age_sql
 
 
 def sus_filter(
@@ -65,11 +65,12 @@ def sus_filter(
     # --- Age filtering ---
     age_col = detect_age_column(columns)
     if age_col and (age_min is not None or age_max is not None):
+        decoded = decode_age_sql(age_col)
         conditions = []
         if age_min is not None:
-            conditions.append(f'TRY_CAST("{age_col}" AS INTEGER) >= {age_min}')
+            conditions.append(f'({decoded}) >= {age_min}')
         if age_max is not None:
-            conditions.append(f'TRY_CAST("{age_col}" AS INTEGER) <= {age_max}')
+            conditions.append(f'({decoded}) <= {age_max}')
         rel = rel.filter(" AND ".join(conditions))
 
     # --- Sex filtering ---

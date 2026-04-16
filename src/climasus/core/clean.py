@@ -46,9 +46,10 @@ def sus_clean(
             conn = get_connection()
             partition = ", ".join(f'"{c}"' for c in key_cols)
             all_cols = ", ".join(f'"{c}"' for c in columns)
+            # ORDER BY partition keys for deterministic results
             rel = conn.sql(
                 f"SELECT {all_cols} FROM ("
-                f"  SELECT *, ROW_NUMBER() OVER (PARTITION BY {partition}) AS __rn"
+                f"  SELECT *, ROW_NUMBER() OVER (PARTITION BY {partition} ORDER BY {partition}) AS __rn"
                 f"  FROM rel"
                 f") WHERE __rn = 1"
             )
@@ -59,6 +60,10 @@ def sus_clean(
     columns = schema_columns(rel)
 
     # Age validation
+    # DATASUS SIM-DO encodes age as a 3-digit string: 1st digit = unit code,
+    # remaining = value.  Code 4 = years, 3 = months, 2 = days, 1 = hours,
+    # 0 = minutes, 5 = 100+ years.
+    # We decode to age_years before filtering.
     age_col = None
     for candidate in ("IDADE", "age", "age_years"):
         if candidate in columns:
@@ -67,11 +72,33 @@ def sus_clean(
 
     if age_col:
         lo, hi = age_range
-        rel = rel.filter(
-            f'TRY_CAST("{age_col}" AS INTEGER) IS NULL '
-            f'OR (TRY_CAST("{age_col}" AS INTEGER) >= {lo} '
-            f'AND TRY_CAST("{age_col}" AS INTEGER) <= {hi})'
+        conn = get_connection()
+
+        # Decode SIM-DO coded age to years
+        decoded_expr = (
+            f'CASE '
+            f'  WHEN LENGTH(TRIM("{age_col}")) = 3 AND SUBSTR(TRIM("{age_col}"), 1, 1) = \'5\' '
+            f'    THEN 100 + TRY_CAST(SUBSTR(TRIM("{age_col}"), 2) AS INTEGER) '
+            f'  WHEN LENGTH(TRIM("{age_col}")) = 3 AND SUBSTR(TRIM("{age_col}"), 1, 1) = \'4\' '
+            f'    THEN TRY_CAST(SUBSTR(TRIM("{age_col}"), 2) AS INTEGER) '
+            f'  WHEN LENGTH(TRIM("{age_col}")) = 3 AND SUBSTR(TRIM("{age_col}"), 1, 1) = \'3\' '
+            f'    THEN 0  '  # months → 0 years (infant)
+            f'  WHEN LENGTH(TRIM("{age_col}")) = 3 AND SUBSTR(TRIM("{age_col}"), 1, 1) IN (\'0\', \'1\', \'2\') '
+            f'    THEN 0  '  # minutes/hours/days → 0 years (infant)
+            f'  ELSE TRY_CAST("{age_col}" AS INTEGER) '
+            f'END'
         )
+
+        rel = conn.sql(
+            f'SELECT *, ({decoded_expr}) AS __age_years FROM rel'
+        )
+        rel = rel.filter(
+            f'__age_years IS NULL '
+            f'OR (__age_years >= {lo} AND __age_years <= {hi})'
+        )
+        # Drop helper column
+        final_cols = [c for c in schema_columns(rel) if c != "__age_years"]
+        rel = rel.project(", ".join(f'"{c}"' for c in final_cols))
 
     # Note: encoding fixes for string columns require materialization
     # or a UDF. For now, we mark that encoding fix should happen at

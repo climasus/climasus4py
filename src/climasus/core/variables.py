@@ -8,7 +8,7 @@ from __future__ import annotations
 import duckdb
 
 from climasus.core.engine import get_connection, schema_columns
-from climasus.utils.data import detect_age_column, detect_date_column
+from climasus.utils.data import detect_age_column, detect_date_column, decode_age_sql
 
 
 def sus_variables(
@@ -39,11 +39,13 @@ def sus_variables(
             breaks = [0, 18, 65, 999]
 
         case_parts = []
+        decoded = decode_age_sql(age_col)
         for i in range(len(breaks) - 1):
             lo, hi = breaks[i], breaks[i + 1] - 1
-            label = f"{lo}-{hi}" if hi < 999 else f"{lo}+"
+            is_last = (i == len(breaks) - 2)
+            label = f"{lo}+" if is_last else f"{lo}-{hi}"
             case_parts.append(
-                f'WHEN TRY_CAST("{age_col}" AS INTEGER) BETWEEN {lo} AND {hi} '
+                f'WHEN ({decoded}) BETWEEN {lo} AND {hi} '
                 f"THEN '{label}'"
             )
         case_sql = f'CASE {" ".join(case_parts)} ELSE \'unknown\' END AS "age_group"'
