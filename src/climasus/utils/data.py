@@ -6,12 +6,15 @@ Mirrors R: utils-data.R — JSON loading, column/system detection, UF resolution
 from __future__ import annotations
 
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import duckdb
 import pandas as pd
+
+import climasus_data
 
 # ---------------------------------------------------------------------------
 # Data directory resolution
@@ -21,13 +24,17 @@ _DATA_DIR: Path | None = None
 
 
 def _find_data_dir() -> Path:
-    """Locate the climasus-data directory (bundled or external)."""
+    """Locate the climasus-data directory.
+
+    Priority:
+    1. CLIMASUS_DATA_DIR environment variable (explicit override)
+    2. climasus_data package (installed dependency — preferred)
+    """
     global _DATA_DIR
     if _DATA_DIR is not None:
         return _DATA_DIR
 
-    # Honour environment variable first
-    import os
+    # Honour environment variable first (explicit override)
     env = os.environ.get("CLIMASUS_DATA_DIR")
     if env:
         p = Path(env)
@@ -35,25 +42,9 @@ def _find_data_dir() -> Path:
             _DATA_DIR = p
             return p
 
-    # Walk up from this file to find climasus-data/
-    anchor = Path(__file__).resolve()
-    for parent in anchor.parents:
-        candidate = parent / "climasus-data"
-        if (candidate / "manifest.json").is_file():
-            _DATA_DIR = candidate
-            return candidate
-
-    # Also try cwd and home
-    for p in [Path.cwd() / "climasus-data", Path.home() / ".climasus" / "climasus-data"]:
-        if (p / "manifest.json").is_file():
-            _DATA_DIR = p
-            return p
-
-    msg = (
-        "climasus-data not found. Clone the repo alongside climasus4py or set "
-        "CLIMASUS_DATA_DIR environment variable."
-    )
-    raise FileNotFoundError(msg)
+    # Use installed climasus_data package
+    _DATA_DIR = climasus_data.data_root()
+    return _DATA_DIR
 
 
 def data_path(relative: str) -> Path:
@@ -84,27 +75,20 @@ import shutil
 import sys
 def update_climasus_data(repo_url: str = "https://github.com/climasus/climasus-data.git", target_dir: str | None = None, branch: str = "main") -> None:
     """Baixa ou atualiza o repositório climasus-data localmente.
-    Por padrão, busca ao lado do projeto (ou usa CLIMASUS_DATA_DIR).
 
-    Observação: o URL padrão agora aponta para https://github.com/climasus/climasus-data.git
+    Normalmente não é necessário se climasus-data está instalado como pacote.
+    Útil para desenvolvimento ou para atualizar dados offline.
     """
-    import os
     if target_dir is None:
-        # Prioriza env var, senão ao lado do projeto
         env = os.environ.get("CLIMASUS_DATA_DIR")
         if env:
             target_dir = env
         else:
-            # Caminho padrão: ao lado do projeto
-            anchor = Path(__file__).resolve()
-            for parent in anchor.parents:
-                candidate = parent / "climasus-data"
-                if candidate.exists():
-                    target_dir = str(candidate)
-                    break
-            else:
-                # Se não existe, define ao lado do projeto
-                target_dir = str(anchor.parent.parent.parent / "climasus-data")
+            # Tenta usar o diretório do pacote instalado
+            try:
+                target_dir = str(climasus_data.data_root())
+            except FileNotFoundError:
+                target_dir = str(Path(__file__).resolve().parent.parent.parent / "climasus-data")
 
     target = Path(target_dir)
     if target.exists() and (target / ".git").is_dir():

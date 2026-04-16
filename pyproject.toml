@@ -25,6 +25,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]
 dependencies = [
+    "climasus-data>=0.1.0",
     "duckdb>=1.0",
     "pyarrow>=12.0",
     "pandas>=2.0",
