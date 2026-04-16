@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "climasus4py"
 version = "0.1.0"
-description = "Fast SUS and climate data workflows for Brazil - Python edition"
+description = "Fast SUS and climate data workflows for Brazil — Python edition"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
@@ -25,6 +25,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]
 dependencies = [
+    "climasus-data>=0.1.0",
     "duckdb>=1.0",
     "pyarrow>=12.0",
     "pandas>=2.0",
@@ -33,28 +34,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-metadata = []
+metadata = []  # climasus-data deve ser clonado manualmente ao lado do projeto
 datasus = ["pysus>=1.0"]
 spatial = ["geopandas>=0.14", "geobr>=0.3"]
 ml = ["xgboost>=2.0", "scikit-learn>=1.3"]
 excel = ["openpyxl>=3.1"]
-docs = ["mkdocs>=1.6"]
-release = ["build>=1.2", "twine>=5.0"]
-all = [
-    "pysus>=1.0",
-    "geopandas>=0.14",
-    "geobr>=0.3",
-    "xgboost>=2.0",
-    "scikit-learn>=1.3",
-    "openpyxl>=3.1",
-]
+all = ["climasus4py[datasus,spatial,ml,excel]"]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "ruff>=0.4",
-    "mkdocs>=1.6",
-    "build>=1.2",
-    "twine>=5.0",
 ]
 
 [project.urls]
