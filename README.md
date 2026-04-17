@@ -5,7 +5,7 @@
 **Fast SUS and climate data workflows for Brazil — Python edition.**
 
 
-__DOCUMENTATION++: [https://climasus.github.io/climasus4py_documentation/](https://climasus.github.io/climasus4py_documentation/)
+__DOCUMENTATION__: [https://climasus.github.io/climasus4py_documentation/](https://climasus.github.io/climasus4py_documentation/)
 
 ## Instalação
 
