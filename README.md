@@ -18,11 +18,8 @@ __DOCUMENTATION AGE__ : [https://climasus.github.io/climasus4py_documentation/](
 ## Instalação
 
 ```bash
-pip install climasus4py
-# Extras opcionais
-pip install climasus4py[spatial]   # geopandas + geobr
-pip install climasus4py[ml]        # xgboost para gap filling
-pip install climasus4py[all]       # tudo
+pip install git+https://github.com/climasus/climasus4py.git
+
 ```
 
 ---
@@ -88,8 +85,8 @@ climasus/
 
 ## Dados compartilhados
 
-Usa [climasus-data](https://github.com/climasus/climasus-data) para metadados (grupos de doenças, dicionários, UFs, regiões). O acesso é **exclusivamente local**: é necessário clonar o repositório `climasus-data` ao lado do projeto ou definir a variável de ambiente `CLIMASUS_DATA_DIR`.
-
+Usa [climasus-data](https://github.com/climasus/climasus-data) para metadados (grupos de doenças, dicionários, UFs, regiões). 
+A instalação desses arquivos é automática
 ### Atualização dos metadados
 
 Para baixar ou atualizar o catálogo localmente:
@@ -107,9 +104,6 @@ git clone https://github.com/climasus/climasus-data.git
 cd climasus-data && git pull
 ```
 
-**Atenção:** Não há mais fallback automático para baixar arquivos do GitHub. O diretório local é obrigatório para funcionamento.
-
----
 
 ## Contribuindo
 
@@ -123,5 +117,3 @@ cd climasus-data && git pull
 
 MIT
 =======
-
->>>>>>> 6e991b71a17e4383fb30a13222c5d76bf68dcf42
