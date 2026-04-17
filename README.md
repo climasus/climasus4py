@@ -4,17 +4,9 @@
 
 **Fast SUS and climate data workflows for Brazil — Python edition.**
 
-<<<<<<< HEAD
-Port Python do [climasus4r](https://github.com/ClimaHealth/climasus4r), usando DuckDB para processamento lazy e PySUS para downloads do DATASUS.
-=======
-__DOCUMENTATION AGE__ : [https://climasus.github.io/climasus4py_documentation/](https://climasus.github.io/climasus4py_documentation/)
 
-## Features
->>>>>>> 6e991b71a17e4383fb30a13222c5d76bf68dcf42
+__DOCUMENTATION++: [https://climasus.github.io/climasus4py_documentation/](https://climasus.github.io/climasus4py_documentation/)
 
----
-
-<<<<<<< HEAD
 ## Instalação
 
 ```bash
