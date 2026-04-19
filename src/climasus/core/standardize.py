@@ -51,10 +51,11 @@ def sus_standardize(
         date columns.
 
     Example:
-        >>> std = sus_standardize(rel, lang="en")
+        >>> import climasus as cs
+        >>> std = cs.sus_standardize(rel, lang="en")
         >>> "death_date" in std.columns
         True
-        >>> sus_standardize(rel, lang="pt", system="SINASC")
+        >>> cs.sus_standardize(rel, lang="pt", system="SINASC")
     """
     columns = schema_columns(rel)
 

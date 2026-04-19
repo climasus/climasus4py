@@ -1,4 +1,18 @@
-"""climasus — Fast SUS and climate data workflows for Brazil."""
+"""climasus — Fast SUS and climate data workflows for Brazil.
+
+Provides a high-level pipeline for downloading, cleaning, standardising,
+filtering, aggregating and exporting DATASUS health data, with optional
+climate and census enrichment.  All heavy lifting is done lazily via
+DuckDB; results are only materialised when explicitly collected.
+
+Typical usage::
+
+    import climasus as cs
+
+    result = cs.sus_pipeline("SIM-DO", "SP", 2022,
+                             groups="respiratory", time="month")
+    result.df().head()
+"""
 
 from climasus._version import __version__
 from climasus.core.pipeline import sus_pipeline

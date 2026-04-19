@@ -135,20 +135,11 @@ copyright: "© 2024 CLIMA-SUS — MIT License"
 # Navigation
 # ---------------------------------------------------------------------------
 nav:
-  - Início: index.md
-  - Referência da API: reference/
+  - Home: index.md
+  - "Referência API": reference/
   - Português:
-      - Visão Geral: pt/index.md
-      - Primeiros Passos: pt/getting-started.md
-      - Arquitetura: pt/architecture.md
-      - Desenvolvimento: pt/development.md
+      - pt/index.md
   - English:
-      - Overview: en/index.md
-      - Getting Started: en/getting-started.md
-      - Architecture: en/architecture.md
-      - Development: en/development.md
+      - en/index.md
   - Español:
-      - Inicio: es/index.md
-      - Primeros Pasos: es/getting-started.md
-      - Arquitectura: es/architecture.md
-      - Desarrollo: es/development.md
+      - es/index.md

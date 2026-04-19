@@ -27,14 +27,14 @@ def sus_quality(
     Returns:
         Dictionary with the following keys:
 
-        - ``"total_rows"`` (``int``) — total number of rows.
-        - ``"total_cols"`` (``int``) — total number of columns.
-        - ``"completeness"`` (``dict[str, float]``) — per-column
-          mapping of column name → percentage of non-null values
-          (0–100).
+        - `total_rows` (int): total number of rows.
+        - `total_cols` (int): total number of columns.
+        - `completeness` (dict[str, float]): per-column mapping
+            of column name to percentage of non-null values (0–100).
 
     Example:
-        >>> metrics = sus_quality(rel)
+        >>> import climasus as cs
+        >>> metrics = cs.sus_quality(rel)
         >>> metrics["total_rows"]
         334303
         >>> metrics["completeness"]["CAUSABAS"]

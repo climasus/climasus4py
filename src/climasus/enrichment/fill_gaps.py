@@ -51,10 +51,11 @@ def sus_fill_gaps(
         ValueError: If *method* is not one of the supported values.
 
     Example:
-        >>> filled = sus_fill_gaps(climate_df, method="linear")
-        >>> filled = sus_fill_gaps(climate_df, method="locf", max_gap=3)
-        >>> sus_fill_gaps(climate_df, method="xgboost",
-        ...               group_col="station_id")
+        >>> import climasus as cs
+        >>> filled = cs.sus_fill_gaps(climate_df, method="linear")
+        >>> filled = cs.sus_fill_gaps(climate_df, method="locf", max_gap=3)
+        >>> cs.sus_fill_gaps(climate_df, method="xgboost",
+        ...                  group_col="station_id")
     """
     data = data.copy()
     data[date_col] = pd.to_datetime(data[date_col], errors="coerce")

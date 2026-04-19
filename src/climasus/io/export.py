@@ -54,9 +54,10 @@ def sus_export(
             not installed.
 
     Example:
-        >>> sus_export(rel, "output/mortality_2022.parquet")
+        >>> import climasus as cs
+        >>> cs.sus_export(rel, "output/mortality_2022.parquet")
         PosixPath('output/mortality_2022.parquet')
-        >>> sus_export(rel, "output/data.csv")
+        >>> cs.sus_export(rel, "output/data.csv")
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

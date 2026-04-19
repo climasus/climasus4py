@@ -126,7 +126,8 @@ def update_climasus_data(repo_url: str = "https://github.com/climasus/climasus-d
         subprocess.CalledProcessError: Se o comando ``git`` falhar.
 
     Example:
-        >>> update_climasus_data()
+        >>> import climasus as cs
+        >>> cs.update_climasus_data()
         Clonando climasus-data em ...
         climasus-data atualizado com sucesso.
     """
@@ -298,22 +299,89 @@ def _detect_column(columns: list[str], candidates: list[str]) -> str | None:
 
 
 def detect_date_column(columns: list[str]) -> str | None:
-    """Return the first recognised date column from a list of column names."""
+    """Return the first recognised date column from a list of column names.
+
+    Searches *columns* for known DATASUS and standardised date column
+    names in priority order: ``death_date``, ``date``, ``DTOBITO``,
+    ``DTNASC``, ``admission_date``.
+
+    Args:
+        columns: Column names present in the dataset.
+
+    Returns:
+        Matching column name, or ``None`` if no date candidate is found.
+
+    Example:
+        >>> detect_date_column(["DTOBITO", "CAUSABAS", "IDADE"])
+        'DTOBITO'
+        >>> detect_date_column(["UNKNOWN"]) is None
+        True
+    """
     return _detect_column(columns, ["death_date", "date", "DTOBITO", "DTNASC", "admission_date"])
 
 
 def detect_cause_column(columns: list[str]) -> str | None:
-    """Return the first recognised ICD-10 cause column from a list of column names."""
+    """Return the first recognised ICD-10 cause column from a list of column names.
+
+    Searches *columns* for known DATASUS and standardised cause column
+    names in priority order: ``underlying_cause``, ``cause``,
+    ``CAUSABAS``, ``DIAG_PRINC``.
+
+    Args:
+        columns: Column names present in the dataset.
+
+    Returns:
+        Matching column name, or ``None`` if no cause candidate is found.
+
+    Example:
+        >>> detect_cause_column(["CAUSABAS", "DTOBITO"])
+        'CAUSABAS'
+        >>> detect_cause_column(["OTHER"]) is None
+        True
+    """
     return _detect_column(columns, ["underlying_cause", "cause", "CAUSABAS", "DIAG_PRINC"])
 
 
 def detect_age_column(columns: list[str]) -> str | None:
-    """Return the first recognised age column from a list of column names."""
+    """Return the first recognised age column from a list of column names.
+
+    Searches *columns* for known DATASUS and standardised age column
+    names in priority order: ``age``, ``age_years``, ``age_code``,
+    ``IDADE``, ``IDADEMAE``.
+
+    Args:
+        columns: Column names present in the dataset.
+
+    Returns:
+        Matching column name, or ``None`` if no age candidate is found.
+
+    Example:
+        >>> detect_age_column(["IDADE", "SEXO"])
+        'IDADE'
+        >>> detect_age_column(["UNKNOWN"]) is None
+        True
+    """
     return _detect_column(columns, ["age", "age_years", "age_code", "IDADE", "IDADEMAE"])
 
 
 def detect_sex_column(columns: list[str]) -> str | None:
-    """Return the first recognised sex column from a list of column names."""
+    """Return the first recognised sex column from a list of column names.
+
+    Searches *columns* for known DATASUS and standardised sex column
+    names in priority order: ``sex``, ``SEXO``, ``CS_SEXO``.
+
+    Args:
+        columns: Column names present in the dataset.
+
+    Returns:
+        Matching column name, or ``None`` if no sex candidate is found.
+
+    Example:
+        >>> detect_sex_column(["SEXO", "IDADE"])
+        'SEXO'
+        >>> detect_sex_column(["UNKNOWN"]) is None
+        True
+    """
     return _detect_column(columns, ["sex", "SEXO", "CS_SEXO"])
 
 

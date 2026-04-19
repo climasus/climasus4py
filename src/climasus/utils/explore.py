@@ -36,9 +36,10 @@ def sus_explore(
         ValueError: If *what* is not one of the accepted values.
 
     Example:
-        >>> systems = sus_explore("systems")
+        >>> import climasus as cs
+        >>> systems = cs.sus_explore("systems")
         >>> list(systems.keys())[:3]
-        >>> sus_explore("groups")["climate_sensitive"]
+        >>> cs.sus_explore("groups")["climate_sensitive"]
     """
     if what == "systems":
         return load_systems()

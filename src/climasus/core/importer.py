@@ -402,11 +402,12 @@ def sus_import(
             available.
 
     Example:
-        >>> rel = sus_import("SIM-DO", "SP", 2022)
+        >>> import climasus as cs
+        >>> rel = cs.sus_import("SIM-DO", "SP", 2022)
         >>> rel.count()
         334303
-        >>> sus_import("SIM-DO", "SP", 2022,
-        ...            path="dados/cache/SP_2022.parquet")
+        >>> cs.sus_import("SIM-DO", "SP", 2022,
+        ...               path="dados/cache/SP_2022.parquet")
     """
     cache_dir = Path(cache_dir)
     ufs = resolve_uf(uf)

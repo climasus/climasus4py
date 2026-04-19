@@ -47,10 +47,11 @@ def sus_spatial(
             or in the shapefile.
 
     Example:
-        >>> gdf = sus_spatial(rel, geo_level="state")
+        >>> import climasus as cs
+        >>> gdf = cs.sus_spatial(rel, geo_level="state")
         >>> gdf.plot(column="count")
-        >>> sus_spatial(rel, shapefile=custom_shp,
-        ...             geo_level="municipality")
+        >>> cs.sus_spatial(rel, shapefile=custom_shp,
+        ...               geo_level="municipality")
     """
     try:
         import geopandas as gpd

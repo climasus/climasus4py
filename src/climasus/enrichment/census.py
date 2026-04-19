@@ -41,7 +41,8 @@ def sus_census(
             *census* lacks the required ``municipality_code`` column.
 
     Example:
-        >>> df = sus_census(rel, census=ibge_df)
+        >>> import climasus as cs
+        >>> df = cs.sus_census(rel, census=ibge_df)
         >>> df.columns.tolist()
         [..., 'pop_total', 'hdi']
     """

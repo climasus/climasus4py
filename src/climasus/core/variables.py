@@ -50,10 +50,11 @@ def sus_variables(
         after the original columns.
 
     Example:
-        >>> with_vars = sus_variables(rel, age_group="who", season=True)
+        >>> import climasus as cs
+        >>> with_vars = cs.sus_variables(rel, age_group="who", season=True)
         >>> with_vars.columns
         [..., 'age_group', 'season']
-        >>> sus_variables(rel, epi_week=True, quarter=True)
+        >>> cs.sus_variables(rel, epi_week=True, quarter=True)
     """
     columns = schema_columns(rel)
     conn = get_connection()

@@ -221,11 +221,12 @@ def sus_pipeline(
         ``pandas.DataFrame`` when *output* forces materialisation.
 
     Example:
-        >>> result = sus_pipeline("SIM-DO", "SP", 2022,
-        ...                       groups="respiratory", time="month")
+        >>> import climasus as cs
+        >>> result = cs.sus_pipeline("SIM-DO", "SP", 2022,
+        ...                          groups="respiratory", time="month")
         >>> result.df().head()
-        >>> sus_pipeline("SIM-DO", ["SP", "RJ"], [2020, 2021],
-        ...              output="output/mortality.parquet")
+        >>> cs.sus_pipeline("SIM-DO", ["SP", "RJ"], [2020, 2021],
+        ...                  output="output/mortality.parquet")
     """
     group_list = [groups] if isinstance(groups, str) else groups
 

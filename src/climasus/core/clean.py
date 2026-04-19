@@ -43,8 +43,9 @@ def sus_clean(
         filtered out.
 
     Example:
-        >>> clean = sus_clean(rel, age_range=(0, 110))
-        >>> clean = sus_clean(rel, dedup_cols=["CONTADOR"])
+        >>> import climasus as cs
+        >>> clean = cs.sus_clean(rel, age_range=(0, 110))
+        >>> clean = cs.sus_clean(rel, dedup_cols=["CONTADOR"])
     """
     columns = schema_columns(rel)
 

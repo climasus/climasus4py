@@ -39,10 +39,12 @@ def sus_aggregate(
         ``sum_*/mean_*`` for any recognised numeric columns present.
 
     Example:
-        >>> agg = sus_aggregate(rel, time="year", geo="state")
+        >>> import climasus as cs
+        >>> agg = cs.sus_aggregate(rel, time="year", geo="state")
         >>> agg.df().head()
-        >>> agg_sex = sus_aggregate(rel, time="month", geo="municipality",
-        ...                         extra_groups=["sex"])
+        >>> agg_sex = cs.sus_aggregate(rel, time="month",
+        ...                            geo="municipality",
+        ...                            extra_groups=["sex"])
     """
     columns = schema_columns(rel)
     conn = get_connection()

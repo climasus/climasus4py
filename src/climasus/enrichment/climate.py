@@ -47,7 +47,8 @@ def sus_climate(
             *data*.
 
     Example:
-        >>> df = sus_climate(rel, climate_df, lags=[7, 14])
+        >>> import climasus as cs
+        >>> df = cs.sus_climate(rel, climate_df, lags=[7, 14])
         >>> df.filter(like="_lag7d").columns
     """
     conn = get_connection()

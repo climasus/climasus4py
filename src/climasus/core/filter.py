@@ -57,9 +57,10 @@ def sus_filter(
         Lazy DuckDB relation with all specified filters applied.
 
     Example:
-        >>> filtered = sus_filter(rel, groups="respiratory",
-        ...                       age_min=15, age_max=64, uf="SP")
-        >>> sus_filter(rel, codes=["A90", "A91"], sex="F").count()
+        >>> import climasus as cs
+        >>> filtered = cs.sus_filter(rel, groups="respiratory",
+        ...                          age_min=15, age_max=64, uf="SP")
+        >>> cs.sus_filter(rel, codes=["A90", "A91"], sex="F").count()
     """
     columns = schema_columns(rel)
     conn = get_connection()

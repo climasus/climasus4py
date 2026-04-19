@@ -4,29 +4,10 @@
 
 ---
 
-## Contenido
+## Navegación
 
-<div class="grid cards" markdown>
-
-- :rocket: **[Primeros Pasos](getting-started.md)**
-
-    Instalación, configuración de `climasus-data` y tu primer pipeline completo paso a paso.
-
-- :books: **[Referencia de API](../reference/)**
-
-    Documentación autogenerada de todas las funciones públicas, con parámetros, tipos y ejemplos.
-
-- :building_construction: **[Arquitectura](architecture.md)**
-
-    Cómo funciona el DuckDB lazy evaluation, el fast path, el sistema de caché y la estructura de módulos.
-
-- :wrench: **[Desarrollo](development.md)**
-
-    Configuración local, cómo ejecutar pruebas, benchmarks y cómo contribuir.
-
-</div>
-
----
+- :books: **[Referencia de API](../reference/)** — Documentación autogenerada de todas las funciones públicas.
+- :house: **[Inicio](../index.md)**
 
 ## Ejemplo rápido: mortalidad respiratoria en SP (2020–2023)
 
