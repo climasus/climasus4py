@@ -50,8 +50,6 @@ theme:
     - content.code.annotate
     - toc.follow
 
-  custom_dir: docs/overrides
-
 # ---------------------------------------------------------------------------
 # Custom CLIMA-SUS colors (via extra CSS)
 # ---------------------------------------------------------------------------
