@@ -1,32 +1,62 @@
 ﻿# Desarrollo
 
-## Setup local
+## Configuración local
 
 ```bash
-pip install -e .
-pip install pytest ruff mkdocs
+git clone https://github.com/climasus/climasus4py.git
+cd climasus4py
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+python -c "import climasus as cs; cs.update_climasus_data()"
 ```
 
-## Ejecutar tests
+---
+
+## Pruebas
 
 ```bash
-pytest -q
+pytest -q                                     # suite completa
+pytest --cov=climasus --cov-report=term-missing  # con cobertura
+pytest tests/test_filter.py -v               # módulo específico
+pytest -m network                            # pruebas con descarga FTP
 ```
 
-## Ejecutar benchmark
+---
+
+## Calidad de código
 
 ```bash
-python benchmark/benchmark_pipeline.py
+ruff check src/ tests/
+ruff format src/ tests/
 ```
 
-Reporte actual: `benchmark/BENCHMARK_REPORT.md`.
+---
 
-## Construir documentacion
+## Benchmarks
 
 ```bash
-mkdocs serve
-mkdocs build
+python benchmarks_climasus/python/benchmark_pipeline.py
 ```
+
+---
+
+## Documentación local
+
+```bash
+pip install -r requirements-docs.txt
+mkdocs serve   # servidor local en http://127.0.0.1:8000
+mkdocs build   # build estático en site/
+```
+
+---
+
+## Convenciones
+
+- Funciones públicas exportadas en `src/climasus/__init__.py` con prefijo `sus_`
+- Retornan `duckdb.DuckDBPyRelation` (lazy) siempre que sea posible
+- Commits siguiendo [Conventional Commits](https://www.conventionalcommits.org/)
+- PRs contra `main`, con `ruff check` y `pytest` pasados
 
 ## Convenciones recomendadas
 
