@@ -67,6 +67,12 @@ plugins:
         - pt
         - en
         - es
+  - gen-files:
+      scripts:
+        - docs/gen_ref_pages.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - section-index
   - mkdocstrings:
       default_handler: python
       handlers:
@@ -130,21 +136,19 @@ copyright: "© 2024 CLIMA-SUS — MIT License"
 # ---------------------------------------------------------------------------
 nav:
   - Início: index.md
+  - Referência da API: reference/
   - Português:
       - Visão Geral: pt/index.md
       - Primeiros Passos: pt/getting-started.md
-      - Referência da API: pt/api-reference.md
       - Arquitetura: pt/architecture.md
       - Desenvolvimento: pt/development.md
   - English:
       - Overview: en/index.md
       - Getting Started: en/getting-started.md
-      - API Reference: en/api-reference.md
       - Architecture: en/architecture.md
       - Development: en/development.md
   - Español:
       - Inicio: es/index.md
       - Primeros Pasos: es/getting-started.md
-      - Referencia API: es/api-reference.md
       - Arquitectura: es/architecture.md
       - Desarrollo: es/development.md

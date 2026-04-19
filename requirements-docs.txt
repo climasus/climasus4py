@@ -4,3 +4,6 @@ mkdocs-material>=9.5
 mkdocstrings[python]>=0.25
 griffe>=0.45
 pymdown-extensions>=10.0
+mkdocs-gen-files>=0.5
+mkdocs-literate-nav>=0.6
+mkdocs-section-index>=0.3
