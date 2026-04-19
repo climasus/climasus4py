@@ -14,9 +14,31 @@ from climasus.core.engine import collect, is_relation, get_connection
 def sus_quality(
     data: duckdb.DuckDBPyRelation | pd.DataFrame,
 ) -> dict:
-    """Calculate data quality metrics.
+    """Calculate data quality metrics for a SUS dataset.
 
-    Returns dict with total_rows, total_cols, and per-column completeness.
+    Computes row count, column count, and per-column completeness rate
+    (percentage of non-null values). Works with both lazy DuckDB
+    relations and materialised ``pandas.DataFrame`` objects.
+
+    Args:
+        data: Dataset to profile — a lazy ``DuckDBPyRelation`` or a
+            ``pandas.DataFrame``.
+
+    Returns:
+        Dictionary with the following keys:
+
+        - ``"total_rows"`` (``int``) — total number of rows.
+        - ``"total_cols"`` (``int``) — total number of columns.
+        - ``"completeness"`` (``dict[str, float]``) — per-column
+          mapping of column name → percentage of non-null values
+          (0–100).
+
+    Example:
+        >>> metrics = sus_quality(rel)
+        >>> metrics["total_rows"]
+        334303
+        >>> metrics["completeness"]["CAUSABAS"]
+        99.8
     """
     conn = get_connection()
 

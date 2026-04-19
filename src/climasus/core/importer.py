@@ -1,8 +1,8 @@
 """Data import — download from DATASUS and cache as parquet.
 
 Mirrors R: import.R + download-aria2c.R
-Three reader backends: pysus (optional), pyreaddbc (optional), dbfread (bundled).
-Falls back gracefully depending on what is installed.
+Preferred reader: readdbc (pure Python, no C compiler).
+Fallback chain: readdbc → pyreaddbc → pysus → dbc2dbf CLI.
 """
 
 from __future__ import annotations
@@ -173,24 +173,32 @@ def _build_urls(
 def _read_dbc(path: Path) -> pd.DataFrame:
     """Read a .dbc file trying multiple backends.
 
-    Order: pyreaddbc → pysus.utilities → dbfread (after blast decompression).
+    Order: readdbc (pure Python) → pyreaddbc (C) → pysus → dbc2dbf CLI.
     """
-    # Backend 1: pyreaddbc (fastest, C extension)
+    # Backend 1: readdbc (pure Python, no C compiler needed)
+    try:
+        import readdbc
+        return readdbc.read_dbc(path)
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+    # Backend 2: pyreaddbc (C extension, fastest)
     try:
         from pyreaddbc import read_dbc  # type: ignore[import-untyped]
         return read_dbc(str(path))
     except ImportError:
         pass
 
-    # Backend 2: pysus utilities
+    # Backend 3: pysus utilities
     try:
         from pysus.utilities.readdbc import read_dbc as pysus_read  # type: ignore[import-untyped]
         return pysus_read(str(path))
     except ImportError:
         pass
 
-    # Backend 3: dbfread (pure Python .dbf reader)
-    # .dbc = blast-compressed .dbf — try dbc2dbf CLI if available
+    # Backend 4: dbc2dbf CLI + dbfread
     dbc2dbf = shutil.which("dbc2dbf")
     if dbc2dbf:
         try:
@@ -207,10 +215,11 @@ def _read_dbc(path: Path) -> pd.DataFrame:
             pass
 
     raise ImportError(
-        "Cannot read .dbc files. Install one of:\n"
-        "  pip install pysus          # (needs C compiler)\n"
-        "  pip install pyreaddbc      # (needs C compiler)\n"
-        "  conda install -c conda-forge pysus  # (pre-built)\n"
+        "Cannot read .dbc files. Install readdbc:\n"
+        "  pip install readdbc\n"
+        "Or alternatively:\n"
+        "  pip install pyreaddbc  # (needs C compiler)\n"
+        "  pip install pysus     # (needs C compiler)\n"
         "Or use sus_import(path='file.parquet') / sus_import(data=df) instead."
     )
 
@@ -321,6 +330,7 @@ def _pysus_available() -> bool:
 # ---------------------------------------------------------------------------
 
 def _aria2c_available() -> bool:
+    """Verifica se o binário aria2c está disponível no PATH do sistema."""
     return shutil.which("aria2c") is not None
 
 
@@ -344,15 +354,59 @@ def sus_import(
 ) -> "duckdb.DuckDBPyRelation":
     """Import SUS data and return a lazy DuckDB relation.
 
-    Three modes:
-      1. ``data=`` : wrap an existing DataFrame
-      2. ``path=`` : read from a local file (parquet/csv)
-      3. Default   : download from DATASUS, cache as parquet
+    Supports three input modes:
 
-    For mode 3, the *backend* controls how files are fetched:
-      - ``"auto"``  : FTP direct download (no extra deps), falls back to PySUS
-      - ``"ftp"``   : FTP download + .dbc reader (pyreaddbc / pysus / dbc2dbf)
-      - ``"pysus"`` : Use PySUS library (requires ``pip install pysus``)
+    1. **``data=``** — wrap an existing ``pandas.DataFrame``.
+    2. **``path=``** — read from a local ``.parquet`` or ``.csv`` file.
+    3. **Default** — download from the DATASUS FTP, convert ``.dbc`` to
+       Parquet and cache locally; subsequent calls read from cache.
+
+    When downloading (mode 3), the *backend* controls which client is
+    used:
+
+    - ``"auto"``  — FTP direct download (no extra deps), falls back to
+      PySUS if installed.
+    - ``"ftp"``   — FTP + ``.dbc`` reader chain: ``readdbc`` →
+      ``pyreaddbc`` → ``pysus`` → ``dbc2dbf`` CLI.
+    - ``"pysus"`` — PySUS high-level API (requires
+      ``pip install pysus``; needs C compiler on Windows).
+
+    Args:
+        system: SUS system identifier, e.g. ``"SIM-DO"``, ``"SINASC"``,
+            or ``"SIH-RD"``.
+        uf: State abbreviation(s), e.g. ``"SP"`` or ``["SP", "RJ"]``.
+            Use ``"all"`` for all states or a region name such as
+            ``"Sudeste"``.
+        year: Year(s) to import, e.g. ``2022`` or
+            ``[2020, 2021, 2022]``.
+        month: Month(s) to import (SIH only). ``None`` downloads all 12
+            months.
+        cache: If ``True``, skip download when a cached Parquet exists.
+        cache_dir: Root directory for the Parquet cache.
+        timeout: Download timeout in seconds.
+        verbose: Print progress messages via Rich.
+        path: Local file path to use instead of downloading.
+        data: Existing ``DataFrame`` to wrap instead of downloading.
+        backend: Download backend — ``"auto"``, ``"ftp"``, or
+            ``"pysus"``.
+
+    Returns:
+        Lazy ``duckdb.DuckDBPyRelation`` over the imported data.
+
+    Raises:
+        RuntimeError: If no data could be imported (download failed or
+            no cache hit).
+        ValueError: If an unsupported file format is supplied via
+            *path*.
+        ImportError: If ``.dbc`` reading is attempted but no backend is
+            available.
+
+    Example:
+        >>> rel = sus_import("SIM-DO", "SP", 2022)
+        >>> rel.count()
+        334303
+        >>> sus_import("SIM-DO", "SP", 2022,
+        ...            path="dados/cache/SP_2022.parquet")
     """
     cache_dir = Path(cache_dir)
     ufs = resolve_uf(uf)

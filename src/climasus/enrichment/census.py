@@ -18,13 +18,32 @@ def sus_census(
 ) -> pd.DataFrame:
     """Join health data with census indicators.
 
-    Materializes the result (returns DataFrame).
+    Materialises the health data before joining (returns a
+    ``pandas.DataFrame``). The join is performed on the auto-detected
+    municipality column in *data* matched against the
+    ``municipality_code`` column in *census*.
 
-    Parameters
-    ----------
-    data : Health data
-    census : Census DataFrame with municipality_code + indicators.
-             If None, attempts to load via censobr (if installed).
+    Args:
+        data: Health data as a lazy DuckDB relation or ``DataFrame``.
+        census: ``DataFrame`` with a ``municipality_code`` column plus
+            census indicator columns. Pass ``None`` to attempt
+            auto-loading (not yet implemented — raises
+            ``NotImplementedError``).
+
+    Returns:
+        ``pandas.DataFrame`` with census columns left-joined to the
+        health data.
+
+    Raises:
+        NotImplementedError: If *census* is ``None`` (auto-loading not
+            yet implemented).
+        ValueError: If no municipality column is found in *data*, or if
+            *census* lacks the required ``municipality_code`` column.
+
+    Example:
+        >>> df = sus_census(rel, census=ibge_df)
+        >>> df.columns.tolist()
+        [..., 'pop_total', 'hdi']
     """
     # Materialize
     df = collect(data) if isinstance(data, duckdb.DuckDBPyRelation) else data

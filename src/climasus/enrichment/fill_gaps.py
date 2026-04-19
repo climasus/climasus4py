@@ -17,18 +17,44 @@ def sus_fill_gaps(
     date_col: str = "date",
     max_gap: int | None = None,
 ) -> pd.DataFrame:
-    """Fill gaps in climate time series data.
+    """Fill gaps in climate time series by interpolation or ML imputation.
 
-    Materializes (operates on DataFrames).
+    Operates on ``pandas.DataFrame`` (in-memory). Applies the chosen
+    method independently within each group defined by *group_col*.
 
-    Parameters
-    ----------
-    data : DataFrame with climate data (must have date + group columns)
-    method : "linear", "spline", "locf" (last observation carried forward),
-             or "xgboost" (requires climasus4py[ml])
-    group_col : Column to group by (e.g., station or municipality)
-    date_col : Date column name
-    max_gap : Maximum consecutive NAs to fill. None = fill all.
+    Args:
+        data: ``DataFrame`` with climate time series. Must contain at
+            least *date_col*, *group_col*, and numeric variable columns.
+        method: Gap-filling strategy:
+
+            - ``"linear"`` — linear interpolation between valid values.
+            - ``"spline"`` — cubic spline (requires ≥ 4 valid points per
+              group; falls back to linear otherwise).
+            - ``"locf"`` — last observation carried forward
+              (forward fill).
+            - ``"xgboost"`` — gradient-boosted tree imputation;
+              requires ``pip install climasus4py[ml]``.
+
+        group_col: Column name used to partition the series (e.g.
+            ``"municipality_code"`` or a station identifier).
+        date_col: Column containing the observation date.
+        max_gap: Maximum number of consecutive ``NaN`` values to fill.
+            ``None`` fills all gaps.
+
+    Returns:
+        Copy of *data* with missing numeric values filled according to
+        *method*.
+
+    Raises:
+        ImportError: If *method* is ``"xgboost"`` and ``xgboost`` is
+            not installed.
+        ValueError: If *method* is not one of the supported values.
+
+    Example:
+        >>> filled = sus_fill_gaps(climate_df, method="linear")
+        >>> filled = sus_fill_gaps(climate_df, method="locf", max_gap=3)
+        >>> sus_fill_gaps(climate_df, method="xgboost",
+        ...               group_col="station_id")
     """
     data = data.copy()
     data[date_col] = pd.to_datetime(data[date_col], errors="coerce")

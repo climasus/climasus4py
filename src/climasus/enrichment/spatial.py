@@ -20,15 +20,37 @@ def sus_spatial(
 ) -> "gpd.GeoDataFrame":
     """Join health data with Brazilian shapefiles.
 
-    Materializes the result (returns GeoDataFrame).
-    Requires: pip install climasus4py[spatial]
+    Materialises the health data before joining (returns a
+    ``geopandas.GeoDataFrame``). When *shapefile* is ``None``,
+    geometries are fetched automatically via ``geobr``. The join key is
+    the auto-detected geographic column in *data* matched against the
+    corresponding identifier column in the shapefile.
 
-    Parameters
-    ----------
-    data : Health data
-    shapefile : GeoDataFrame with geometries. Auto-loaded via geobr if None.
-    geo_level : "municipality", "state", "region"
-    join_type : "left" or "inner"
+    Requires ``pip install climasus4py[spatial]``.
+
+    Args:
+        data: Health data as a lazy DuckDB relation or ``DataFrame``.
+        shapefile: ``GeoDataFrame`` with geometries (e.g. from geobr).
+            Auto-loaded via ``geobr`` when ``None``.
+        geo_level: Geographic level of the join — ``"municipality"``
+            (default), ``"state"``, or ``"region"``.
+        join_type: Merge strategy — ``"left"`` (keep all health rows)
+            or ``"inner"`` (keep only matched rows).
+
+    Returns:
+        ``geopandas.GeoDataFrame`` with health data and shapefile
+        geometry merged on the appropriate code column.
+
+    Raises:
+        ImportError: If ``geopandas`` or ``geobr`` are not installed.
+        ValueError: If no suitable geographic column is found in *data*
+            or in the shapefile.
+
+    Example:
+        >>> gdf = sus_spatial(rel, geo_level="state")
+        >>> gdf.plot(column="count")
+        >>> sus_spatial(rel, shapefile=custom_shp,
+        ...             geo_level="municipality")
     """
     try:
         import geopandas as gpd

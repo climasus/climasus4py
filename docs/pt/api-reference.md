@@ -1,8 +1,91 @@
-﻿# API de Referencia
+﻿# Referência da API
+
+Documentação completa gerada automaticamente a partir das docstrings do código.
+
+---
 
 ## Pipeline
 
-- `sus_pipeline(...)` -> executa import, clean, standardize, filter, variables e aggregate.
+::: climasus.core.pipeline
+    options:
+      members: [sus_pipeline]
+      show_source: true
+
+---
+
+## Core
+
+::: climasus.core.importer
+    options:
+      members: [sus_import]
+
+::: climasus.core.clean
+    options:
+      members: [sus_clean]
+
+::: climasus.core.standardize
+    options:
+      members: [sus_standardize]
+
+::: climasus.core.filter
+    options:
+      members: [sus_filter]
+
+::: climasus.core.variables
+    options:
+      members: [sus_variables]
+
+::: climasus.core.aggregate
+    options:
+      members: [sus_aggregate]
+
+::: climasus.core.engine
+    options:
+      members: [collect_arrow]
+
+---
+
+## I/O e Cache
+
+::: climasus.io.export
+    options:
+      members: [sus_export]
+
+::: climasus.io.cache
+    options:
+      members: [sus_cache_info, sus_cache_clear]
+
+---
+
+## Enriquecimento
+
+::: climasus.enrichment.climate
+    options:
+      members: [sus_climate]
+
+::: climasus.enrichment.spatial
+    options:
+      members: [sus_spatial]
+
+::: climasus.enrichment.census
+    options:
+      members: [sus_census]
+
+::: climasus.enrichment.fill_gaps
+    options:
+      members: [sus_fill_gaps]
+
+---
+
+## Utilitários
+
+::: climasus.utils.explore
+    options:
+      members: [sus_explore]
+
+::: climasus.utils.quality
+    options:
+      members: [sus_quality]
 - Retorno: `duckdb.DuckDBPyRelation` (lazy).
 
 ## Core

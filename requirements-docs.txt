@@ -1,1 +1,6 @@
-﻿mkdocs>=1.6
+﻿# Dependências para build da documentação climasus4py
+mkdocs>=1.6
+mkdocs-material>=9.5
+mkdocstrings[python]>=0.25
+griffe>=0.45
+pymdown-extensions>=10.0

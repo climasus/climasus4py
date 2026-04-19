@@ -12,7 +12,7 @@ from climasus.utils.data import detect_system, load_json
 
 
 def _load_column_dict(lang: str) -> dict[str, str]:
-    """Load column translation dictionary for the given language pair."""
+    """Carrega o dicionário de tradução de colunas para o idioma solicitado."""
     if lang == "pt":
         return {}  # No translation needed
     json_path = f"dictionaries/pt-{lang}/columns.json"
@@ -31,13 +31,30 @@ def sus_standardize(
     lang: str = "en",
     system: str | None = None,
 ) -> duckdb.DuckDBPyRelation:
-    """Standardize column names, translate labels, convert types.
+    """Standardise column names, translate labels, and convert date columns.
 
-    Parameters
-    ----------
-    rel : DuckDB relation (lazy)
-    lang : Target language for column names ("en", "es", "pt")
-    system : SUS system name. Auto-detected if None.
+    Renames columns according to the translation dictionary from
+    climasus-data (``dictionaries/pt-{lang}/columns.json``). Attempts to
+    parse common DATASUS date columns from the ``DDMMYYYY`` string format
+    to proper ``DATE`` values. Sets the relation alias to the detected
+    (or provided) system name.
+
+    Args:
+        rel: Lazy DuckDB relation whose columns will be renamed.
+        lang: Target language for column names — ``"en"`` (default),
+            ``"pt"`` (no-op, no rename), or ``"es"``.
+        system: SUS system name (e.g. ``"SIM-DO"``). Auto-detected from
+            column signatures when ``None``.
+
+    Returns:
+        Lazy DuckDB relation with standardised column names and parsed
+        date columns.
+
+    Example:
+        >>> std = sus_standardize(rel, lang="en")
+        >>> "death_date" in std.columns
+        True
+        >>> sus_standardize(rel, lang="pt", system="SINASC")
     """
     columns = schema_columns(rel)
 

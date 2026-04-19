@@ -19,14 +19,32 @@ def sus_clean(
     dedup_cols: list[str] | None = None,
     age_range: tuple[int, int] = (0, 120),
 ) -> duckdb.DuckDBPyRelation:
-    """Clean SUS data: deduplicate, fix encoding, validate age range.
+    """Clean SUS data: deduplicate, fix encoding, and validate age range.
 
-    All operations stay lazy (DuckDB relation) until materialized.
+    All operations remain lazy (DuckDB relation) until materialised.
+    Deduplication uses ROW_NUMBER() over known DATASUS key columns for
+    performance. Age validation decodes the SIM-DO 3-digit coded age
+    field before applying numeric range filters.
 
-    Parameters
-    ----------
-    dedup_cols : Columns for dedup. If None, uses key columns only
-        (faster than full-row distinct). Pass ["*"] for full distinct.
+    Args:
+        rel: Lazy DuckDB relation to clean.
+        fix_enc: If ``True``, schedule encoding fixes (applied at
+            standardisation time when columns are collected).
+        dedup: If ``True``, remove duplicate records.
+        dedup_cols: Columns to use for deduplication. If ``None``, uses
+            known DATASUS key columns (faster). Pass ``["*"]`` to force
+            a full-row DISTINCT.
+        age_range: ``(min_age, max_age)`` tuple in years. Records with
+            decoded age outside this range are dropped. Handles the
+            DATASUS 3-digit coding scheme for SIM-DO IDADE fields.
+
+    Returns:
+        Lazy DuckDB relation with duplicates removed and invalid ages
+        filtered out.
+
+    Example:
+        >>> clean = sus_clean(rel, age_range=(0, 110))
+        >>> clean = sus_clean(rel, dedup_cols=["CONTADOR"])
     """
     columns = schema_columns(rel)
 

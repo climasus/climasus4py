@@ -15,7 +15,24 @@ _DEFAULT_CACHE = Path("dados/cache")
 
 
 def sus_cache_info(cache_dir: str | Path = _DEFAULT_CACHE) -> pd.DataFrame:
-    """List all cached parquet files with metadata."""
+    """List all cached Parquet files with metadata.
+
+    Walks *cache_dir* recursively and collects file-level statistics
+    for every ``.parquet`` file found.
+
+    Args:
+        cache_dir: Root directory of the Parquet cache. Defaults to
+            ``"dados/cache"``.
+
+    Returns:
+        ``pandas.DataFrame`` with columns: ``file`` (basename),
+        ``path`` (full path string), ``size_mb`` (file size in MB),
+        and ``modified`` (ISO-format last-modified timestamp).
+
+    Example:
+        >>> info = sus_cache_info()
+        >>> info.sort_values("size_mb", ascending=False).head()
+    """
     cache_dir = Path(cache_dir)
     records = []
 
@@ -39,7 +56,28 @@ def sus_cache_clear(
     uf: str | None = None,
     before: str | None = None,
 ) -> int:
-    """Delete cached parquet files matching the given filters. Returns count deleted."""
+    """Delete cached Parquet files matching the given filters.
+
+    All filters are applied as AND conditions. Files that satisfy every
+    specified criterion are permanently deleted.
+
+    Args:
+        cache_dir: Root directory of the Parquet cache.
+        system: If provided, only delete files whose parent directory
+            name equals this system identifier (e.g. ``"SIM-DO"``).
+        uf: If provided, only delete files whose stem starts with
+            ``"{UF}_"`` (case-insensitive match).
+        before: ISO date string (``"YYYY-MM-DD"``). Only files
+            last-modified before this date are deleted.
+
+    Returns:
+        Number of files deleted.
+
+    Example:
+        >>> sus_cache_clear(system="SIM-DO", uf="SP")
+        3
+        >>> sus_cache_clear(before="2024-01-01")
+    """
     cache_dir = Path(cache_dir)
     count = 0
 

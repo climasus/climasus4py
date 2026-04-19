@@ -1,26 +1,139 @@
-﻿site_name: climasus4py Documentation
-site_description: Trilingual documentation for climasus4py (PT, EN, ES)
-repo_url: https://github.com/ClimaHealth/climasus4py
-repo_name: ClimaHealth/climasus4py
+﻿site_name: climasus4py
+site_description: Fast SUS and climate data workflows for Brazil — Python edition
+site_url: https://climasus.github.io/climasus4py/
+repo_url: https://github.com/climasus/climasus4py
+repo_name: climasus/climasus4py
 docs_dir: docs
+site_dir: site
 
+# ---------------------------------------------------------------------------
+# Theme — Material with CLIMA-SUS identity
+# ---------------------------------------------------------------------------
 theme:
-  name: mkdocs
-  
-site_dir: ../climasus4py_documentation
+  name: material
+  language: pt
+  logo: assets/logo.png
+  favicon: assets/logo.png
 
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Modo escuro
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Modo claro
+
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+
+  custom_dir: docs/overrides
+
+# ---------------------------------------------------------------------------
+# Custom CLIMA-SUS colors (via extra CSS)
+# ---------------------------------------------------------------------------
+extra_css:
+  - assets/climasus.css
+
+# ---------------------------------------------------------------------------
+# Plugins
+# ---------------------------------------------------------------------------
+plugins:
+  - search:
+      lang:
+        - pt
+        - en
+        - es
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_category_heading: true
+            show_signature_annotations: true
+            separate_signature: true
+            merge_init_into_class: true
+            show_submodules: false
+            members_order: source
+
+# ---------------------------------------------------------------------------
+# Markdown extensions
+# ---------------------------------------------------------------------------
 markdown_extensions:
   - admonition
   - tables
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
   - toc:
       permalink: true
+      title: Nesta página
 
+# ---------------------------------------------------------------------------
+# Extra
+# ---------------------------------------------------------------------------
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/climasus
+      name: climasus no GitHub
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/climasus4py/
+      name: climasus4py no PyPI
+  version:
+    provider: mike
+
+copyright: "© 2024 CLIMA-SUS — MIT License"
+
+# ---------------------------------------------------------------------------
+# Navigation
+# ---------------------------------------------------------------------------
 nav:
-  - Home: index.md
-  - Portugues:
-      - Inicio: pt/index.md
+  - Início: index.md
+  - Português:
+      - Visão Geral: pt/index.md
       - Primeiros Passos: pt/getting-started.md
-      - API de Referencia: pt/api-reference.md
+      - Referência da API: pt/api-reference.md
       - Arquitetura: pt/architecture.md
       - Desenvolvimento: pt/development.md
   - English:
@@ -29,7 +142,7 @@ nav:
       - API Reference: en/api-reference.md
       - Architecture: en/architecture.md
       - Development: en/development.md
-  - Espanol:
+  - Español:
       - Inicio: es/index.md
       - Primeros Pasos: es/getting-started.md
       - Referencia API: es/api-reference.md

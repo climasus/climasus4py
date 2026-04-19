@@ -26,11 +26,11 @@ classifiers = [
 ]
 dependencies = [
     "climasus-data>=0.1.0",
+    "climasus_readdbc_py>=0.1.0",
     "duckdb>=1.0",
     "pyarrow>=12.0",
     "pandas>=2.0",
     "rich>=13.0",
-    "dbfread>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -50,6 +50,9 @@ dev = [
 Homepage = "https://github.com/ClimaHealth/climasus4py"
 Repository = "https://github.com/ClimaHealth/climasus4py"
 Issues = "https://github.com/ClimaHealth/climasus4py/issues"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/climasus"]

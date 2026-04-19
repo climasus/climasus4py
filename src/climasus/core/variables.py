@@ -21,7 +21,40 @@ def sus_variables(
     month_name: bool = False,
     day_of_week: bool = False,
 ) -> duckdb.DuckDBPyRelation:
-    """Create derived variables from SUS data (stays lazy)."""
+    """Create derived variables from SUS data (stays lazy).
+
+    Appends computed columns to the relation without materialising it.
+    All new columns are calculated via DuckDB SQL expressions and added
+    to the existing SELECT projection.
+
+    Args:
+        rel: Lazy DuckDB relation from a previous pipeline step.
+        age_group: Age grouping scheme to apply to the age column.
+            Accepted values: ``"who"`` (WHO standard bands),
+            ``"decadal"`` (0–9, 10–19, …), a custom list of integer
+            breakpoints, or ``None`` to skip. Adds an ``age_group``
+            column.
+        epi_week: If ``True``, add an ``epi_week`` column formatted as
+            ``YYYY-Www``.
+        season: If ``True``, add a ``season`` column (Southern Hemisphere
+            seasons: Summer/Autumn/Winter/Spring).
+        quarter: If ``True``, add a ``quarter`` column
+            (``"Q1"`` … ``"Q4"``).
+        month_name: If ``True``, add a ``month_name`` column (English
+            month names derived from the detected date column).
+        day_of_week: If ``True``, add a ``day_of_week`` column (English
+            day names).
+
+    Returns:
+        Lazy DuckDB relation with the requested derived columns appended
+        after the original columns.
+
+    Example:
+        >>> with_vars = sus_variables(rel, age_group="who", season=True)
+        >>> with_vars.columns
+        [..., 'age_group', 'season']
+        >>> sus_variables(rel, epi_week=True, quarter=True)
+    """
     columns = schema_columns(rel)
     conn = get_connection()
     projections = [f'"{c}"' for c in columns]

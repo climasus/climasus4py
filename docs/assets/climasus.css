@@ -1,0 +1,234 @@
+/* ==========================================================================
+   CLIMA-SUS — MkDocs Material custom theme
+   Importa as variáveis do design system e sobrescreve as cores do Material.
+   ========================================================================== */
+
+/* Importar fontes */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ---------------------------------------------------------------------------
+   Cores — Light mode
+   --------------------------------------------------------------------------- */
+[data-md-color-scheme="default"] {
+    /* Primária: verde CLIMA-SUS */
+    --md-primary-fg-color:          #00CC6A;
+    --md-primary-fg-color--light:   #00FF88;
+    --md-primary-fg-color--dark:    #009E52;
+    --md-primary-bg-color:          #ffffff;
+    --md-primary-bg-color--light:   rgba(0, 204, 106, 0.10);
+
+    /* Acento: azul logo */
+    --md-accent-fg-color:           #0091FF;
+    --md-accent-fg-color--transparent: rgba(0, 145, 255, 0.10);
+
+    /* Tipografia */
+    --md-text-font:                 "Inter";
+    --md-code-font:                 "JetBrains Mono";
+}
+
+/* ---------------------------------------------------------------------------
+   Cores — Dark mode
+   --------------------------------------------------------------------------- */
+[data-md-color-scheme="slate"] {
+    --md-primary-fg-color:          #00FF88;
+    --md-primary-fg-color--light:   #33FFA0;
+    --md-primary-fg-color--dark:    #00CC6A;
+    --md-primary-bg-color:          #0a0a0f;
+    --md-primary-bg-color--light:   rgba(0, 255, 136, 0.08);
+
+    --md-accent-fg-color:           #3B82F6;
+    --md-accent-fg-color--transparent: rgba(59, 130, 246, 0.10);
+
+    --md-default-bg-color:          #111118;
+    --md-default-bg-color--light:   #1a1a24;
+    --md-code-bg-color:             #0a0a0f;
+}
+
+/* ---------------------------------------------------------------------------
+   Header / Navbar
+   --------------------------------------------------------------------------- */
+.md-header {
+    background: linear-gradient(135deg, #00CC6A, #0091FF);
+    box-shadow: 0 2px 12px rgba(0, 204, 106, 0.25);
+}
+
+.md-header__title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+/* Logo no header */
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+    height: 32px;
+    width: auto;
+}
+
+/* Tabs de navegação */
+.md-tabs {
+    background: linear-gradient(135deg, #00CC6A, #0091FF);
+}
+
+.md-tabs__link--active,
+.md-tabs__link:hover {
+    color: #ffffff;
+    opacity: 1;
+}
+
+/* ---------------------------------------------------------------------------
+   Sidebar
+   --------------------------------------------------------------------------- */
+.md-nav__link--active {
+    color: var(--md-primary-fg-color--dark);
+    font-weight: 600;
+}
+
+.md-nav__link:hover {
+    color: var(--md-primary-fg-color);
+}
+
+/* ---------------------------------------------------------------------------
+   Tipografia
+   --------------------------------------------------------------------------- */
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.md-typeset h1 {
+    background: linear-gradient(135deg, #00CC6A, #0091FF);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* ---------------------------------------------------------------------------
+   Blocos de código
+   --------------------------------------------------------------------------- */
+.md-typeset code {
+    background: rgba(0, 204, 106, 0.08);
+    color: #009E52;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.875em;
+}
+
+[data-md-color-scheme="slate"] .md-typeset code {
+    background: rgba(0, 255, 136, 0.10);
+    color: #00FF88;
+}
+
+.highlight {
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+/* ---------------------------------------------------------------------------
+   Admonitions — cores personalizadas
+   --------------------------------------------------------------------------- */
+.md-typeset .admonition.note,
+.md-typeset details.note {
+    border-color: #0091FF;
+}
+.md-typeset .admonition.note > .admonition-title,
+.md-typeset details.note > summary {
+    background-color: rgba(0, 145, 255, 0.10);
+    border-color: #0091FF;
+}
+
+.md-typeset .admonition.tip,
+.md-typeset details.tip {
+    border-color: #00CC6A;
+}
+.md-typeset .admonition.tip > .admonition-title,
+.md-typeset details.tip > summary {
+    background-color: rgba(0, 204, 106, 0.10);
+    border-color: #00CC6A;
+}
+
+/* ---------------------------------------------------------------------------
+   mkdocstrings — blocos de referência de API
+   --------------------------------------------------------------------------- */
+.doc-heading {
+    font-family: 'Space Grotesk', sans-serif;
+}
+
+.doc-label {
+    border-radius: 4px;
+    font-size: 0.75em;
+    font-weight: 600;
+    padding: 2px 8px;
+}
+
+.doc-label-special {
+    background: rgba(0, 204, 106, 0.15);
+    color: #009E52;
+}
+
+/* ---------------------------------------------------------------------------
+   Botões / links de destaque
+   --------------------------------------------------------------------------- */
+.md-typeset .md-button {
+    border-radius: 8px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    transition: all 0.2s ease;
+}
+
+.md-typeset .md-button--primary {
+    background: linear-gradient(135deg, #00CC6A, #0091FF);
+    border-color: transparent;
+    color: #ffffff;
+}
+
+.md-typeset .md-button--primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0, 204, 106, 0.35);
+}
+
+/* ---------------------------------------------------------------------------
+   Footer
+   --------------------------------------------------------------------------- */
+.md-footer {
+    background: #0a0a0f;
+}
+
+.md-footer-meta {
+    background: #111118;
+}
+
+/* ---------------------------------------------------------------------------
+   Search
+   --------------------------------------------------------------------------- */
+.md-search__form {
+    border-radius: 8px;
+}
+
+.md-search__input:focus {
+    border-color: var(--md-primary-fg-color);
+}
+
+/* ---------------------------------------------------------------------------
+   Tabelas
+   --------------------------------------------------------------------------- */
+.md-typeset table:not([class]) th {
+    background: linear-gradient(135deg, #00CC6A22, #0091FF22);
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 600;
+}
+
+.md-typeset table:not([class]) tr:hover {
+    background: rgba(0, 204, 106, 0.04);
+}
+
+/* ---------------------------------------------------------------------------
+   Badges de versão no topo das páginas de API
+   --------------------------------------------------------------------------- */
+.doc-object-description .doc-md-description p:first-child code {
+    background: rgba(0, 145, 255, 0.10);
+    color: #0091FF;
+}

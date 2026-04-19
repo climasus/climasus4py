@@ -181,10 +181,51 @@ def sus_pipeline(
     verbose: bool = True,
     **kwargs,
 ) -> duckdb.DuckDBPyRelation | pd.DataFrame:
-    """Full ETL pipeline: import → clean → standardize → filter → variables → aggregate.
+    """Run the full SUS ETL pipeline: import → clean → standardise → filter → variables → aggregate.
 
-    This is the main entry point for users. Mirrors R's sus_pipeline().
-    Uses a single-SQL fast path when possible (like R rc_a).
+    Main entry point for most users. Mirrors ``sus_pipeline()`` from the
+    R package and uses a single-CTE SQL fast path when the requested
+    operations allow it (same optimisation as R ``rc_a``). Falls back to
+    the staged pipeline for complex operations such as custom age groups
+    or epidemiological-week breakdowns.
+
+    Args:
+        system: SUS system identifier, e.g. ``"SIM-DO"`` or
+            ``"SINASC"``.
+        uf: State abbreviation(s), ``"all"``, or a region name.
+        year: Year(s) to process, e.g. ``2022`` or
+            ``[2020, 2021, 2022]``.
+        lang: Output language for column names \u2014 ``"en"`` (default),
+            ``"pt"``, or ``"es"``.
+        groups: Disease group name(s) or ``None`` to include all causes.
+        age_min: Minimum age in years to retain.
+        age_max: Maximum age in years to retain.
+        age_group: Age grouping scheme \u2014 ``"who"``, ``"decadal"``,
+            a custom list of breakpoints, or ``None`` to skip.
+        time: Temporal aggregation granularity \u2014 ``"year"``,
+            ``"quarter"``, ``"month"`` (default), ``"week"``, or
+            ``"day"``.
+        geo: Geographic aggregation level \u2014 ``"state"`` (default) or
+            ``"municipality"``.
+        epi_week: If ``True``, add an ``epi_week`` column (disables fast
+            path).
+        output: Optional file path to export results
+            (parquet / csv / xlsx).
+        cache_dir: Root directory for the Parquet cache.
+        verbose: Print progress messages via Rich.
+        **kwargs: Additional keyword arguments forwarded to
+            :func:`~climasus.core.importer.sus_import`.
+
+    Returns:
+        Lazy ``duckdb.DuckDBPyRelation`` with aggregated results, or a
+        ``pandas.DataFrame`` when *output* forces materialisation.
+
+    Example:
+        >>> result = sus_pipeline("SIM-DO", "SP", 2022,
+        ...                       groups="respiratory", time="month")
+        >>> result.df().head()
+        >>> sus_pipeline("SIM-DO", ["SP", "RJ"], [2020, 2021],
+        ...              output="output/mortality.parquet")
     """
     group_list = [groups] if isinstance(groups, str) else groups
 

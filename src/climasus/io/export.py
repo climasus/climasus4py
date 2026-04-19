@@ -23,10 +23,40 @@ def sus_export(
     overwrite: bool = True,
     compress: str = "snappy",
 ) -> Path:
-    """Export data to parquet, csv, or xlsx.
+    """Export data to Parquet, CSV, or Excel.
 
-    Supports lazy DuckDB relations (zero-copy for parquet/csv) and DataFrames.
-    Uses DuckDB COPY TO for relations — faster than write_parquet/write_csv.
+    Accepts lazy DuckDB relations and ``pandas.DataFrame``. For
+    relations, uses DuckDB ``COPY TO`` which avoids Python-side
+    materialisation for parquet and CSV formats (significantly faster
+    than ``write_parquet`` / ``write_csv``).
+
+    Args:
+        data: Data to export — a lazy ``DuckDBPyRelation`` or a
+            ``pandas.DataFrame``.
+        path: Destination file path. The format is inferred from the
+            extension unless *fmt* is specified explicitly.
+        fmt: Output format override — ``"parquet"``, ``"csv"``, or
+            ``"xlsx"`` / ``"excel"``. If ``None``, inferred from
+            *path*.
+        overwrite: If ``False``, raise ``FileExistsError`` when *path*
+            already exists. Defaults to ``True``.
+        compress: Parquet compression codec — ``"snappy"`` (default),
+            ``"zstd"``, ``"gzip"``, or ``"none"``.
+
+    Returns:
+        Resolved ``pathlib.Path`` of the written file.
+
+    Raises:
+        FileExistsError: If *path* exists and *overwrite* is ``False``.
+        ValueError: If *fmt* (or the inferred extension) is not
+            supported.
+        ImportError: If Excel export is requested but ``openpyxl`` is
+            not installed.
+
+    Example:
+        >>> sus_export(rel, "output/mortality_2022.parquet")
+        PosixPath('output/mortality_2022.parquet')
+        >>> sus_export(rel, "output/data.csv")
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

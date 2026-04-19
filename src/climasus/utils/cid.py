@@ -11,9 +11,21 @@ from climasus.utils.data import load_json
 
 
 def expand_cid_range(start: str, end: str) -> list[str]:
-    """Expand an ICD-10 range like ('A00', 'A09') into all codes between.
+    """Expand an ICD-10 range into a list of all codes it contains.
 
-    Handles letter+number format: A00..A99, B00..B99, etc.
+    Handles the standard letter+two-digit-number format (A00–Z99).
+    Both endpoints are inclusive.
+
+    Args:
+        start: Starting ICD-10 code, e.g. ``"A00"``.
+        end: Ending ICD-10 code (inclusive), e.g. ``"A09"``.
+
+    Returns:
+        List of ICD-10 code strings spanning from *start* to *end*.
+
+    Example:
+        >>> expand_cid_range("J00", "J06")
+        ['J00', 'J01', 'J02', 'J03', 'J04', 'J05', 'J06']
     """
     s_letter, s_num = start[0].upper(), int(start[1:])
     e_letter, e_num = end[0].upper(), int(end[1:])
@@ -30,12 +42,26 @@ def expand_cid_range(start: str, end: str) -> list[str]:
 
 
 def expand_cid_ranges(codes: list[str]) -> list[str]:
-    """Expand a mixed list of ICD-10 codes and ranges.
+    """Expand a mixed list of ICD-10 codes, ranges, and letter prefixes.
 
-    Items can be:
-    - Single code: "A90"
-    - Range: "A00-A09"
-    - Prefix: "J" (matches J00-J99)
+    Each item in *codes* is parsed and expanded:
+
+    - **Single code** (e.g. ``"A90"``) — returned as-is.
+    - **Range** (e.g. ``"A00-A09"``) — expanded via
+      :func:`expand_cid_range`.
+    - **Letter prefix** (e.g. ``"J"``) — expanded to all codes
+      ``J00``–``J99``.
+
+    Args:
+        codes: Mixed list of ICD-10 codes, ranges, and/or letter
+            prefixes.
+
+    Returns:
+        Flat list of individual ICD-10 code strings.
+
+    Example:
+        >>> expand_cid_ranges(["A90", "J00-J06", "K"])
+        ['A90', 'J00', 'J01', ..., 'K00', ..., 'K99']
     """
     expanded: list[str] = []
     for item in codes:
@@ -53,8 +79,28 @@ def expand_cid_ranges(codes: list[str]) -> list[str]:
 def codes_for_groups(group_names: list[str]) -> list[str]:
     """Load ICD-10 codes for named disease groups from climasus-data.
 
-    Searches both core.json and climate_sensitive.json.
-    Supports flat format ``{group_id: {codes: [...]}}`` and nested formats.
+    Searches both ``disease_groups/core.json`` and
+    ``disease_groups/climate_sensitive.json``. Matches groups by
+    identifier key or by any language variant of the ``label`` field.
+    Supports the flat schema ``{group_id: {codes: [...]}}`` used by
+    the current climasus-data release.
+
+    Args:
+        group_names: List of group identifiers or labels to look up,
+            e.g. ``["respiratory", "dengue"]``.
+
+    Returns:
+        Sorted, deduplicated list of ICD-10 code strings for all
+        matched groups.
+
+    Raises:
+        FileNotFoundError: If the required JSON files are not present
+            in the climasus-data directory.
+
+    Example:
+        >>> codes_for_groups(["respiratory"])
+        ['J00', 'J01', ..., 'J99']
+        >>> len(codes_for_groups(["cardiovascular", "dengue"]))
     """
     all_codes: list[str] = []
 

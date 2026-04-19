@@ -28,7 +28,38 @@ def sus_filter(
 ) -> duckdb.DuckDBPyRelation:
     """Filter SUS data by disease groups, demographics, geography, and dates.
 
-    All filtering stays lazy (DuckDB relation).
+    All predicates are applied as DuckDB ``WHERE`` clauses; the relation
+    stays lazy until materialised. CID-10 codes are resolved via
+    ``codes_for_groups`` and ``expand_cid_ranges``; geographic and
+    demographic columns are auto-detected from the relation schema.
+
+    Args:
+        rel: Lazy DuckDB relation to filter.
+        groups: Named disease group(s) from climasus-data, e.g.
+            ``"respiratory"`` or ``["cardiovascular", "dengue"]``.
+        codes: Explicit ICD-10 code(s) or ranges, e.g.
+            ``["J00-J99", "A90"]``.
+        age_min: Minimum age in years (inclusive). Decoded from DATASUS
+            coded age when the column is in SIM-DO format.
+        age_max: Maximum age in years (inclusive).
+        sex: Sex code to keep — ``"M"`` (male) or ``"F"`` (female).
+        race: ``RACACOR`` code(s) to keep, e.g. ``["1", "4"]``.
+        uf: One or more Brazilian state abbreviations, e.g.
+            ``["SP", "RJ"]``.
+        municipality: Municipality code(s) (IBGE 6-digit), e.g.
+            ``["355030"]``.
+        date_start: Earliest event date (inclusive), ISO format
+            ``"YYYY-MM-DD"``.
+        date_end: Latest event date (inclusive), ISO format
+            ``"YYYY-MM-DD"``.
+
+    Returns:
+        Lazy DuckDB relation with all specified filters applied.
+
+    Example:
+        >>> filtered = sus_filter(rel, groups="respiratory",
+        ...                       age_min=15, age_max=64, uf="SP")
+        >>> sus_filter(rel, codes=["A90", "A91"], sex="F").count()
     """
     columns = schema_columns(rel)
     conn = get_connection()

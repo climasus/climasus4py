@@ -19,16 +19,36 @@ def sus_climate(
     time_window: int = 0,
     lags: list[int] | None = None,
 ) -> pd.DataFrame:
-    """Join health data with climate observations.
+    """Join health data with climate observations by municipality and date.
 
-    Materializes the result (returns DataFrame).
+    Materialises the health data before joining (returns a
+    ``pandas.DataFrame``). The join uses the auto-detected municipality
+    and date columns from *data* matched against ``municipality_code``
+    and ``date`` in *climate*. Lag columns are added by shifting the
+    climate ``date`` forward by the specified number of days.
 
-    Parameters
-    ----------
-    data : Health data (lazy relation or DataFrame)
-    climate : Climate DataFrame with columns: municipality_code, date, + climate vars
-    time_window : Days before the health event to aggregate climate (0 = same day)
-    lags : Additional lag days to add as columns (e.g., [7, 14, 30])
+    Args:
+        data: Health data as a lazy DuckDB relation or ``DataFrame``.
+        climate: ``DataFrame`` with columns ``municipality_code``,
+            ``date``, and one or more climate variable columns.
+        time_window: Days before the health event to aggregate climate
+            (currently unused; reserved for future windowed aggregation).
+            ``0`` means same-day join.
+        lags: List of lag offsets in days. For each value *n*, climate
+            variables are added as ``{col}_lag{n}d`` columns aligned to
+            the observation date.
+
+    Returns:
+        ``pandas.DataFrame`` with climate columns left-joined to the
+        health data, plus any requested lag columns.
+
+    Raises:
+        ValueError: If no municipality or date column is found in
+            *data*.
+
+    Example:
+        >>> df = sus_climate(rel, climate_df, lags=[7, 14])
+        >>> df.filter(like="_lag7d").columns
     """
     conn = get_connection()
 

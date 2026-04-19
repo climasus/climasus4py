@@ -20,11 +20,29 @@ def sus_aggregate(
 ) -> duckdb.DuckDBPyRelation:
     """Aggregate SUS data by time period and geography.
 
-    Parameters
-    ----------
-    time : "year", "quarter", "month", "week", "day"
-    geo : "state", "municipality", "region", "country"
-    extra_groups : Additional columns to group by (e.g., ["sex", "age_group"])
+    Groups the relation by a temporal expression and a geographic level,
+    counting rows and summarising recognised numeric columns. The relation
+    stays lazy until materialised.
+
+    Args:
+        rel: Lazy DuckDB relation produced by a previous pipeline step.
+        time: Temporal granularity — one of ``"year"``, ``"quarter"``,
+            ``"month"``, ``"week"``, or ``"day"``.
+        geo: Geographic aggregation level — one of ``"state"``,
+            ``"municipality"``, ``"region"``, or ``"country"``.
+        extra_groups: Additional column names to include in the GROUP BY
+            clause, e.g. ``["sex", "age_group"]``.
+
+    Returns:
+        Lazy DuckDB relation with columns: ``time_group``, the resolved
+        geo column, any extra group columns, ``count``, and
+        ``sum_*/mean_*`` for any recognised numeric columns present.
+
+    Example:
+        >>> agg = sus_aggregate(rel, time="year", geo="state")
+        >>> agg.df().head()
+        >>> agg_sex = sus_aggregate(rel, time="month", geo="municipality",
+        ...                         extra_groups=["sex"])
     """
     columns = schema_columns(rel)
     conn = get_connection()
