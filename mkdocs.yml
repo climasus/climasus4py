@@ -54,7 +54,10 @@ theme:
 # Custom CLIMA-SUS colors (via extra CSS)
 # ---------------------------------------------------------------------------
 extra_css:
-  - assets/climasus.css
+  - https://climasus.github.io/design-system/assets/css/style.css
+
+extra_javascript:
+  - assets/climasus.js
 
 # ---------------------------------------------------------------------------
 # Plugins

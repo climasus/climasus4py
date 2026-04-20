@@ -31,5 +31,12 @@ jobs:
       - name: Install package (necessário para mkdocstrings importar os módulos)
         run: pip install -e ".[dev]" || pip install -e .
 
+      - name: Fetch design-system logo
+        run: |
+          mkdir -p docs/assets
+          curl -fsSL \
+            "https://climasus.github.io/design-system/assets/logos/logo-symbol.png" \
+            -o docs/assets/logo.png || echo "WARN: could not fetch logo.png"
+
       - name: Build and deploy to GitHub Pages
         run: mkdocs gh-deploy --force --clean

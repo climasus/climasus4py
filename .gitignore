@@ -38,4 +38,8 @@ tests/__pycache__/
 
 # MkDocs build output
 site/
+
+# Assets fetched do design-system em CI (não versionar)
+docs/assets/climasus.css
+docs/assets/logo.png
 .github/
