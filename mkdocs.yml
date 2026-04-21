@@ -11,22 +11,19 @@ site_dir: site
 # ---------------------------------------------------------------------------
 theme:
   name: material
+  custom_dir: docs/overrides
   language: pt
   logo: assets/logo.png
   favicon: assets/logo.png
 
   palette:
-    # Light mode
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
+    - scheme: default
       primary: custom
       accent: custom
       toggle:
         icon: material/weather-night
         name: Modo escuro
-    # Dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
+    - scheme: slate
       primary: custom
       accent: custom
       toggle:
@@ -54,7 +51,8 @@ theme:
 # Custom CLIMA-SUS colors (via extra CSS)
 # ---------------------------------------------------------------------------
 extra_css:
-  - https://climasus.github.io/design-system/assets/css/style.css
+  - https://climasus.github.io/design-system/assets/css/theme.css
+  - stylesheets/climasus-extras.css
 
 extra_javascript:
   - assets/climasus.js

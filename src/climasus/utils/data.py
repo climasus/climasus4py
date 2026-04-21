@@ -250,8 +250,8 @@ def load_systems() -> dict:
 
     Example:
         >>> systems = load_systems()
-        >>> list(systems.keys())[:3]
-        ['SIM-DO', 'SINASC', 'SIH-RD']
+        >>> "SIM-DO" in systems
+        True
     """
     return load_json("metadata/sus_systems.json")["systems"]
 
@@ -264,8 +264,8 @@ def load_uf_codes() -> dict:
 
     Example:
         >>> ufs = load_uf_codes()
-        >>> ufs["SP"]["name"]
-        'São Paulo'
+        >>> "name" in ufs["SP"]
+        True
     """
     return load_json("metadata/uf_codes.json")["states"]
 

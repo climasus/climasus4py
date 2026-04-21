@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pandas as pd
@@ -179,7 +180,7 @@ def sus_pipeline(
     output: str | Path | None = None,
     cache_dir: str | Path = Path("dados/cache"),
     verbose: bool = True,
-    **kwargs,
+    **kwargs: Any,
 ) -> duckdb.DuckDBPyRelation | pd.DataFrame:
     """Run the full SUS ETL pipeline: import → clean → standardise → filter → variables → aggregate.
 

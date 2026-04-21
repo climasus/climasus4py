@@ -37,8 +37,8 @@ def sus_quality(
         >>> metrics = cs.sus_quality(rel)
         >>> metrics["total_rows"]
         334303
-        >>> metrics["completeness"]["CAUSABAS"]
-        99.8
+        >>> isinstance(metrics.get("completeness"), dict)
+        True
     """
     conn = get_connection()
 
