@@ -103,6 +103,83 @@ def load_json(relative: str) -> Any:
 
 
 # ---------------------------------------------------------------------------
+# Compatibility loaders for optional metadata files
+# ---------------------------------------------------------------------------
+
+_FALLBACK_DATASUS_COLUMNS: dict[str, Any] = {
+    "all_date_columns": [
+        "DTOBITO",
+        "DTNASC",
+        "DTCADINF",
+        "DTCADMUN",
+        "DTCONCASO",
+        "DTINVESTIG",
+        "DTRECEBIM",
+        "DTRECORIG",
+        "DTCONINV",
+        "DTINTERNACAO",
+        "DTSAIDA",
+        "DTCADASTRO",
+        "DTATESTADO",
+        "DTREGCART",
+        "DTCASAM",
+        "DTULTMENST",
+        "DTCONSULT",
+        "DTDECLARAC",
+    ],
+    "all_numeric_columns": [
+        "CONTADOR",
+        "PESO",
+        "QTDFILVIVO",
+        "QTDFILMORT",
+        "GESTACAO",
+        "SEMAGESTAC",
+        "OBITOGRAV",
+        "GRAESSION",
+        "CODMUNNATU",
+        "CODMUNRES",
+        "CODMUNOCOR",
+        "CODESTAB",
+        "LOCOCOR",
+        "IDADEMAE",
+        "ESCMAE",
+        "CODOCUPMAE",
+        "QTDGESTANT",
+        "QTDPARTNOR",
+        "QTDPARTCES",
+        "IDADEPAI",
+        "ESCPAI",
+        "SERIESCPAI",
+        "SERIESCMAE",
+    ],
+    "system_signatures": {
+        "SIM-DO": {"any_of": ["CAUSABAS", "DTOBITO"]},
+        "SIH-RD": {"any_of": ["DIAG_PRINC"]},
+        "SINAN-DENGUE": {"any_of": ["NU_NOTIFIC"]},
+        "SINASC": {"any_of": ["NUMERODN"]},
+    },
+    "role_priority": {
+        "date": ["death_date", "date", "DTOBITO", "DTNASC", "admission_date"],
+        "cause": ["underlying_cause", "cause", "CAUSABAS", "DIAG_PRINC"],
+        "age": ["age", "age_years", "age_code", "IDADE", "IDADEMAE"],
+        "sex": ["sex", "SEXO", "CS_SEXO"],
+    },
+}
+
+
+@lru_cache(maxsize=1)
+def load_datasus_columns_spec() -> dict[str, Any]:
+    """Load DATASUS column specs, with fallback for older climasus-data releases."""
+    try:
+        data = load_json("metadata/datasus_columns.json")
+        if isinstance(data, dict):
+            return data
+    except FileNotFoundError:
+        pass
+    return _FALLBACK_DATASUS_COLUMNS.copy()
+
+
+# ---------------------------------------------------------------------------
 # Update function: baixa/atualiza climasus-data localmente
 # ---------------------------------------------------------------------------
 
@@ -255,12 +332,8 @@ def resolve_uf(uf: str | list[str]) -> list[str]:
 # System / column detection  (mirrors .detect_*)
 # ---------------------------------------------------------------------------
 
-_SYSTEM_SIGNATURES: dict[str, list[str]] = {
-    "SIM-DO": ["CAUSABAS", "DTOBITO"],
-    "SIH-RD": ["DIAG_PRINC"],
-    "SINAN-DENGUE": ["NU_NOTIFIC"],
-    "SINASC": ["NUMERODN"],
-}
+def _load_datasus_columns_json() -> dict:
+    return load_datasus_columns_spec()
 
 
 def detect_system(columns: list[str]) -> str | None:
@@ -283,8 +356,9 @@ def detect_system(columns: list[str]) -> str | None:
         True
     """
     col_set = set(columns)
-    for system, signatures in _SYSTEM_SIGNATURES.items():
-        if col_set & set(signatures):
+    signatures = _load_datasus_columns_json()["system_signatures"]
+    for system, spec in signatures.items():
+        if col_set & set(spec["any_of"]):
             return system
     return None
 
@@ -317,7 +391,7 @@ def detect_date_column(columns: list[str]) -> str | None:
         >>> detect_date_column(["UNKNOWN"]) is None
         True
     """
-    return _detect_column(columns, ["death_date", "date", "DTOBITO", "DTNASC", "admission_date"])
+    return _detect_column(columns, _load_datasus_columns_json()["role_priority"]["date"])
 
 
 def detect_cause_column(columns: list[str]) -> str | None:
@@ -339,7 +413,7 @@ def detect_cause_column(columns: list[str]) -> str | None:
         >>> detect_cause_column(["OTHER"]) is None
         True
     """
-    return _detect_column(columns, ["underlying_cause", "cause", "CAUSABAS", "DIAG_PRINC"])
+    return _detect_column(columns, _load_datasus_columns_json()["role_priority"]["cause"])
 
 
 def detect_age_column(columns: list[str]) -> str | None:
@@ -361,7 +435,7 @@ def detect_age_column(columns: list[str]) -> str | None:
         >>> detect_age_column(["UNKNOWN"]) is None
         True
     """
-    return _detect_column(columns, ["age", "age_years", "age_code", "IDADE", "IDADEMAE"])
+    return _detect_column(columns, _load_datasus_columns_json()["role_priority"]["age"])
 
 
 def detect_sex_column(columns: list[str]) -> str | None:
@@ -382,7 +456,7 @@ def detect_sex_column(columns: list[str]) -> str | None:
         >>> detect_sex_column(["UNKNOWN"]) is None
         True
     """
-    return _detect_column(columns, ["sex", "SEXO", "CS_SEXO"])
+    return _detect_column(columns, _load_datasus_columns_json()["role_priority"]["sex"])
 
 
 def decode_age_sql(age_col: str) -> str:

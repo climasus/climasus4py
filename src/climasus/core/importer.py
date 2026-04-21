@@ -21,7 +21,7 @@ import pyarrow.parquet as pq
 from rich.console import Console
 
 from climasus.core.engine import read_parquets
-from climasus.utils.data import resolve_uf
+from climasus.utils.data import load_datasus_columns_spec, resolve_uf
 
 console = Console(stderr=True)
 
@@ -32,22 +32,12 @@ _DEFAULT_CACHE = Path("dados/cache")
 # Type coercion for DATASUS data  (DBC/DBF → Parquet)
 # ---------------------------------------------------------------------------
 
-# Date columns in DATASUS (format DDMMYYYY as string)
-_DATE_COLS = {
-    "DTOBITO", "DTNASC", "DTCADINF", "DTCADMUN", "DTCONCASO", "DTINVESTIG",
-    "DTRECEBIM", "DTRECORIG", "DTCONINV", "DTINTERNACAO", "DTSAIDA",
-    "DTCADASTRO", "DTATESTADO", "DTREGCART", "DTCASAM", "DTULTMENST",
-    "DTCONSULT", "DTDECLARAC",
-}
+def _datasus_date_cols() -> frozenset[str]:
+    return frozenset(load_datasus_columns_spec()["all_date_columns"])
 
-# Columns that should be numeric (integer)
-_NUMERIC_COLS = {
-    "CONTADOR", "PESO", "QTDFILVIVO", "QTDFILMORT", "GESTACAO",
-    "SEMAGESTAC", "OBITOGRAV", "GRAESSION", "CODMUNNATU", "CODMUNRES",
-    "CODMUNOCOR", "CODESTAB", "LOCOCOR", "IDADEMAE", "ESCMAE", "CODOCUPMAE",
-    "QTDGESTANT", "QTDPARTNOR", "QTDPARTCES", "IDADEPAI", "ESCPAI",
-    "SERIESCPAI", "SERIESCMAE",
-}
+
+def _datasus_numeric_cols() -> frozenset[str]:
+    return frozenset(load_datasus_columns_spec()["all_numeric_columns"])
 
 
 def _coerce_datasus_types(df: pd.DataFrame) -> pd.DataFrame:
@@ -57,11 +47,13 @@ def _coerce_datasus_types(df: pd.DataFrame) -> pd.DataFrame:
     - Known numeric columns → numeric (coerced, invalid → NaN)
     - Strips whitespace from string columns
     """
+    date_cols = _datasus_date_cols()
+    numeric_cols = _datasus_numeric_cols()
     for col in df.columns:
-        if col in _DATE_COLS:
+        if col in date_cols:
             # DATASUS date format: DDMMYYYY (8 digits)
             df[col] = pd.to_datetime(df[col], format="%d%m%Y", errors="coerce")
-        elif col in _NUMERIC_COLS:
+        elif col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors="coerce")
         elif df[col].dtype == object or pd.api.types.is_string_dtype(df[col]):
             # Strip whitespace from string columns

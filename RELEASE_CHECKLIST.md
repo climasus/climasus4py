@@ -1,4 +1,4 @@
-﻿# Release Checklist (PyPI)
+# Release Checklist (PyPI)
 
 Use this checklist before publishing a new version of `climasus4py`.
 
@@ -44,7 +44,7 @@ Use this checklist before publishing a new version of `climasus4py`.
 Configure PyPI and TestPyPI to trust this repository's workflow for OIDC publishing.
 
 - PyPI project settings -> Publishing -> Add trusted publisher
-- Repository: `ClimaHealth/climasus4py`
+- Repository: `climasus/climasus4py`
 - Workflow: `.github/workflows/publish-pypi.yml`
 - Environment (recommended): `pypi` and `testpypi`
 

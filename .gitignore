@@ -1,6 +1,4 @@
-# climasus4py .gitignore
-
-# Python bytecode e build
+# Python bytecode and build artifacts
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -8,22 +6,22 @@ dist/
 build/
 *.whl
 
-# Ambientes virtuais
+# Virtual environments
 .venv/
 venv/
 
-# Dados e cache
+# Data and cache
 output/
 dados/
 *.parquet
 
-# Configuração local
+# Local config
 config.yaml
 
 # Notebooks
 .ipynb_checkpoints/
 
-# Sistema operacional
+# Operating system
 .DS_Store
 Thumbs.db
 *.swp
@@ -32,14 +30,13 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Testes e benchmarks
+# Tests and benchmarks
 benchmarks/
 tests/__pycache__/
 
 # MkDocs build output
 site/
 
-# Assets fetched do design-system em CI (não versionar)
+# Assets fetched from design-system in CI
 docs/assets/climasus.css
 docs/assets/logo.png
-.github/
