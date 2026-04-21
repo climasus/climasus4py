@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "climasus4py"
-version = "0.1.0"
+version = "0.1.1"
 description = "Fast SUS and climate data workflows for Brazil - Python edition"
 readme = "README.md"
 license = "MIT"
@@ -12,9 +12,9 @@ license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [
     { name = "Dr. Max Anjos", email = "max.anjos@campus.ul.pt" },
-    { name = "Thaua Menezes", email = "thaua.menezes@unesp.br" },
+    { name = "Thauã Menezes", email = "thaua.menezes@unesp.br" },
     { name = "Marlon Resende Faria", email = "marlon.faria@usp.br" },
-    { name = "Andrey Araujo", email = "andreyke.araujo@gmail.com" },
+    { name = "Andrey Araújo", email = "andreyke.araujo@gmail.com" },
 ]
 maintainers = [
     { name = "Dr. Max Anjos", email = "max.anjos@campus.ul.pt" },
