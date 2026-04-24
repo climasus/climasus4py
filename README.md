@@ -6,7 +6,7 @@
 
 Fast SUS and climate data workflows for Brazil - Python edition.
 
-Documentation: https://climasus.github.io/climasus4py_documentation/
+Documentation: https://climasus.github.io/climasus4py
 
 ## Installation
 
@@ -25,7 +25,7 @@ pip install "climasus4py[all]"
 Install latest from GitHub:
 
 ```bash
-pip install git+https://github.com/climasus/climasus4py.git
+pip install climasus4py.git
 ```
 
 ## Quick Example
