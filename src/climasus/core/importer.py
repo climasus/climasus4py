@@ -167,9 +167,9 @@ def _read_dbc(path: Path) -> pd.DataFrame:
 
     Order: readdbc (pure Python) → pyreaddbc (C) → pysus → dbc2dbf CLI.
     """
-    # Backend 1: readdbc (pure Python, no C compiler needed)
+    # Backend 1: climasus_readdbc (pure Python, no C compiler needed)
     try:
-        import readdbc
+        import climasus_readdbc as readdbc
         return readdbc.read_dbc(path)
     except ImportError:
         pass
@@ -207,8 +207,8 @@ def _read_dbc(path: Path) -> pd.DataFrame:
             pass
 
     raise ImportError(
-        "Cannot read .dbc files. Install readdbc:\n"
-        "  pip install readdbc\n"
+        "Cannot read .dbc files. Install climasus_readdbc_py:\n"
+        "  pip install climasus_readdbc_py\n"
         "Or alternatively:\n"
         "  pip install pyreaddbc  # (needs C compiler)\n"
         "  pip install pysus     # (needs C compiler)\n"

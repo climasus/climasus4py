@@ -25,6 +25,7 @@ from climasus.core.aggregate import sus_aggregate
 from climasus.core.engine import collect_arrow
 from climasus.io.export import sus_export
 from climasus.io.cache import sus_cache_info, sus_cache_clear
+from climasus.core.climate_inmet import sus_climate_inmet
 from climasus.enrichment.climate import sus_climate
 from climasus.enrichment.spatial import sus_spatial
 from climasus.enrichment.census import sus_census
@@ -50,6 +51,8 @@ __all__ = [
     "sus_export",
     "sus_cache_info",
     "sus_cache_clear",
+    # Climate import
+    "sus_climate_inmet",
     # Enrichment
     "sus_climate",
     "sus_spatial",
