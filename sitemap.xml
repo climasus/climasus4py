@@ -21,107 +21,111 @@
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/</loc>
-         <lastmod>2026-04-25</lastmod>
-    </url>
-    <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/core/</loc>
-         <lastmod>2026-04-25</lastmod>
-    </url>
-    <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/core/aggregate/</loc>
-         <lastmod>2026-04-25</lastmod>
-    </url>
-    <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/core/clean/</loc>
-         <lastmod>2026-04-25</lastmod>
-    </url>
-    <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/core/climate_inmet/</loc>
-         <lastmod>2026-04-25</lastmod>
-    </url>
-    <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/core/engine/</loc>
-         <lastmod>2026-04-25</lastmod>
-    </url>
-    <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/core/filter/</loc>
-         <lastmod>2026-04-25</lastmod>
-    </url>
-    <url>
          <loc>https://climasus.github.io/climasus4py/reference/climasus/core/importer/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/core/pipeline/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/core/standardize/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/core/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/core/variables/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/core/aggregate/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/enrichment/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/core/clean/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/enrichment/census/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/core/climate_inmet/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/enrichment/climate/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/core/engine/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/enrichment/fill_gaps/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/core/filter/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/enrichment/spatial/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/core/importer/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/io/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/core/pipeline/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/io/cache/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/core/standardize/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/io/export/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/core/variables/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/utils/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/enrichment/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/utils/cid/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/enrichment/census/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/utils/data/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/enrichment/climate/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/utils/encoding/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/enrichment/fill_gaps/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/utils/explore/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/enrichment/spatial/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/utils/inmet_parser/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/io/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
-         <loc>https://climasus.github.io/climasus4py/reference/climasus/utils/quality/</loc>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/io/cache/</loc>
+         <lastmod>2026-04-25</lastmod>
+    </url>
+    <url>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/io/export/</loc>
+         <lastmod>2026-04-25</lastmod>
+    </url>
+    <url>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/utils/</loc>
+         <lastmod>2026-04-25</lastmod>
+    </url>
+    <url>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/utils/cid/</loc>
+         <lastmod>2026-04-25</lastmod>
+    </url>
+    <url>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/utils/data/</loc>
+         <lastmod>2026-04-25</lastmod>
+    </url>
+    <url>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/utils/encoding/</loc>
+         <lastmod>2026-04-25</lastmod>
+    </url>
+    <url>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/utils/explore/</loc>
+         <lastmod>2026-04-25</lastmod>
+    </url>
+    <url>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/utils/inmet_parser/</loc>
+         <lastmod>2026-04-25</lastmod>
+    </url>
+    <url>
+         <loc>https://climasus.github.io/climasus4py/reference/climasus4py/utils/quality/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
 </urlset>
