@@ -111,7 +111,7 @@ def collect_arrow(rel: duckdb.DuckDBPyRelation) -> "pa.Table":
         ``pyarrow.Table`` with the full result set.
 
     Example:
-        >>> import climasus as cs
+        >>> import climasus4py as cs
         >>> table = cs.collect_arrow(rel)
         >>> table.num_rows
         334303

@@ -12,14 +12,14 @@ from typing import Any
 import duckdb
 import pandas as pd
 
-from climasus.core.engine import get_connection, collect
-from climasus.core.importer import sus_import
-from climasus.core.clean import sus_clean
-from climasus.core.standardize import sus_standardize
-from climasus.core.filter import sus_filter
-from climasus.core.variables import sus_variables
-from climasus.core.aggregate import sus_aggregate
-from climasus.io.export import sus_export
+from climasus4py.core.engine import get_connection, collect
+from climasus4py.core.importer import sus_import
+from climasus4py.core.clean import sus_clean
+from climasus4py.core.standardize import sus_standardize
+from climasus4py.core.filter import sus_filter
+from climasus4py.core.variables import sus_variables
+from climasus4py.core.aggregate import sus_aggregate
+from climasus4py.io.export import sus_export
 
 
 # ---------------------------------------------------------------------------
@@ -79,8 +79,8 @@ def _build_fast_sql(
 
     Returns the SQL string, or None if required columns are missing.
     """
-    from climasus.utils.cid import codes_for_groups
-    from climasus.utils.data import (
+    from climasus4py.utils.cid import codes_for_groups
+    from climasus4py.utils.data import (
         detect_cause_column,
         detect_date_column,
         detect_geo_column,
@@ -132,7 +132,7 @@ def _build_fast_sql(
     if age_min is not None or age_max is not None:
         age_col = detect_age_column(columns)
         if age_col:
-            from climasus.utils.data import decode_age_sql
+            from climasus4py.utils.data import decode_age_sql
             decoded = decode_age_sql(age_col)
             select_parts.append(f'({decoded}) AS __age')
             if age_min is not None:
@@ -222,7 +222,7 @@ def sus_pipeline(
         ``pandas.DataFrame`` when *output* forces materialisation.
 
     Example:
-        >>> import climasus as cs
+        >>> import climasus4py as cs
         >>> result = cs.sus_pipeline("SIM-DO", "SP", 2022,
         ...                          groups="respiratory", time="month")
         >>> result.df().head()
@@ -237,7 +237,7 @@ def sus_pipeline(
     # --- Try fast path: single CTE query like R rc_a ---
     if _can_fast_path(age_group, epi_week, time, geo):
         # Resolve parquet paths from cache
-        from climasus.utils.data import resolve_uf
+        from climasus4py.utils.data import resolve_uf
 
         ufs = resolve_uf(uf)
         years = [year] if isinstance(year, int) else list(year)

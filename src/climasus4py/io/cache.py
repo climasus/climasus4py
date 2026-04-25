@@ -30,7 +30,7 @@ def sus_cache_info(cache_dir: str | Path = _DEFAULT_CACHE) -> pd.DataFrame:
         and ``modified`` (ISO-format last-modified timestamp).
 
     Example:
-        >>> import climasus as cs
+        >>> import climasus4py as cs
         >>> info = cs.sus_cache_info()
         >>> info.sort_values("size_mb", ascending=False).head()
     """
@@ -75,7 +75,7 @@ def sus_cache_clear(
         Number of files deleted.
 
     Example:
-        >>> import climasus as cs
+        >>> import climasus4py as cs
         >>> cs.sus_cache_clear(system="SIM-DO", uf="SP")
         3
         >>> cs.sus_cache_clear(before="2024-01-01")

@@ -8,7 +8,7 @@ from __future__ import annotations
 import duckdb
 import pandas as pd
 
-from climasus.core.engine import collect, is_relation, get_connection
+from climasus4py.core.engine import collect, is_relation, get_connection
 
 
 def sus_quality(
@@ -33,7 +33,7 @@ def sus_quality(
             of column name to percentage of non-null values (0–100).
 
     Example:
-        >>> import climasus as cs
+        >>> import climasus4py as cs
         >>> metrics = cs.sus_quality(rel)
         >>> metrics["total_rows"]
         334303

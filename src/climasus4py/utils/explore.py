@@ -5,7 +5,7 @@ Mirrors R: explore.R
 
 from __future__ import annotations
 
-from climasus.utils.data import load_json, load_systems, load_uf_codes, load_regions
+from climasus4py.utils.data import load_json, load_systems, load_uf_codes, load_regions
 
 
 def sus_explore(
@@ -36,7 +36,7 @@ def sus_explore(
         ValueError: If *what* is not one of the accepted values.
 
     Example:
-        >>> import climasus as cs
+        >>> import climasus4py as cs
         >>> systems = cs.sus_explore("systems")
         >>> list(systems.keys())[:3]
         >>> cs.sus_explore("groups")["climate_sensitive"]

@@ -10,7 +10,7 @@ import pyarrow.parquet as pq
 # Add src to path for editable install
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import climasus as cs
+import climasus4py as cs
 
 PARQUET = Path(r"c:\Users\Readone\Desktop\CLIMA_SUS_4_R\dados\cache\SIM-DO\SP_2023_all.parquet")
 PARQUET = Path(os.getenv("CLIMASUS_TEST_PARQUET", str(PARQUET)))

@@ -8,8 +8,8 @@ from __future__ import annotations
 import duckdb
 import pandas as pd
 
-from climasus.core.engine import get_connection, collect, schema_columns
-from climasus.utils.data import detect_date_column, detect_geo_column
+from climasus4py.core.engine import get_connection, collect, schema_columns
+from climasus4py.utils.data import detect_date_column, detect_geo_column
 
 
 def sus_climate(
@@ -47,7 +47,7 @@ def sus_climate(
             *data*.
 
     Example:
-        >>> import climasus as cs
+        >>> import climasus4py as cs
         >>> df = cs.sus_climate(rel, climate_df, lags=[7, 14])
         >>> df.filter(like="_lag7d").columns
     """

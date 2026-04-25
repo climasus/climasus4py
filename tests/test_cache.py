@@ -7,7 +7,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from climasus.io.cache import sus_cache_info, sus_cache_clear
+from climasus4py.io.cache import sus_cache_info, sus_cache_clear
 
 
 @pytest.fixture

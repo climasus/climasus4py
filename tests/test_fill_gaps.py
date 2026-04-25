@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from climasus.enrichment.fill_gaps import sus_fill_gaps
+from climasus4py.enrichment.fill_gaps import sus_fill_gaps
 
 
 @pytest.fixture

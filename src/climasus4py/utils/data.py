@@ -203,7 +203,7 @@ def update_climasus_data(repo_url: str = "https://github.com/climasus/climasus-d
         subprocess.CalledProcessError: Se o comando ``git`` falhar.
 
     Example:
-        >>> import climasus as cs
+        >>> import climasus4py as cs
         >>> cs.update_climasus_data()
         Clonando climasus-data em ...
         climasus-data atualizado com sucesso.

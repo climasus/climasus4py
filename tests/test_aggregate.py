@@ -3,8 +3,8 @@
 import pandas as pd
 import pytest
 
-from climasus.core.engine import get_connection
-from climasus.core.aggregate import sus_aggregate
+from climasus4py.core.engine import get_connection
+from climasus4py.core.aggregate import sus_aggregate
 
 
 def _make_rel(data: dict):

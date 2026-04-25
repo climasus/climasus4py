@@ -12,7 +12,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from climasus.core.engine import collect, get_connection, is_relation
+from climasus4py.core.engine import collect, get_connection, is_relation
 
 
 def sus_export(
@@ -54,7 +54,7 @@ def sus_export(
             not installed.
 
     Example:
-        >>> import climasus as cs
+        >>> import climasus4py as cs
         >>> cs.sus_export(rel, "output/mortality_2022.parquet")
         PosixPath('output/mortality_2022.parquet')
         >>> cs.sus_export(rel, "output/data.csv")

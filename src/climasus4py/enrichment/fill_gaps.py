@@ -51,7 +51,7 @@ def sus_fill_gaps(
         ValueError: If *method* is not one of the supported values.
 
     Example:
-        >>> import climasus as cs
+        >>> import climasus4py as cs
         >>> filled = cs.sus_fill_gaps(climate_df, method="linear")
         >>> filled = cs.sus_fill_gaps(climate_df, method="locf", max_gap=3)
         >>> cs.sus_fill_gaps(climate_df, method="xgboost",

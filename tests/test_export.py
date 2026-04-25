@@ -4,8 +4,8 @@ import pandas as pd
 import pyarrow.parquet as pq
 import pytest
 
-from climasus.core.engine import get_connection
-from climasus.io.export import sus_export
+from climasus4py.core.engine import get_connection
+from climasus4py.io.export import sus_export
 
 
 def _make_rel(data: dict):

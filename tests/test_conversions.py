@@ -13,10 +13,10 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from climasus.core.engine import collect_arrow, get_connection, read_parquets
-from climasus.core.clean import sus_clean
-from climasus.core.standardize import sus_standardize
-from climasus.core.importer import _coerce_datasus_types
+from climasus4py.core.engine import collect_arrow, get_connection, read_parquets
+from climasus4py.core.clean import sus_clean
+from climasus4py.core.standardize import sus_standardize
+from climasus4py.core.importer import _coerce_datasus_types
 
 
 # ---------------------------------------------------------------------------

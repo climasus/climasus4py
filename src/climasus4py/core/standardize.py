@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import duckdb
 
-from climasus.core.engine import get_connection, schema_columns
-from climasus.utils.data import detect_system, load_json
+from climasus4py.core.engine import get_connection, schema_columns
+from climasus4py.utils.data import detect_system, load_json
 
 
 def _load_column_dict(lang: str) -> dict[str, str]:

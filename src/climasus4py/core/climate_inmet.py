@@ -32,7 +32,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from rich.console import Console
 
-from climasus.utils.inmet_parser import parse_inmet_csv  # internal CSV parser
+from climasus4py.utils.inmet_parser import parse_inmet_csv  # internal CSV parser
 
 console = Console(stderr=True)
 

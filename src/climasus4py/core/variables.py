@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import duckdb
 
-from climasus.core.engine import get_connection, schema_columns
-from climasus.utils.data import detect_age_column, detect_date_column, decode_age_sql, load_json
+from climasus4py.core.engine import get_connection, schema_columns
+from climasus4py.utils.data import detect_age_column, detect_date_column, decode_age_sql, load_json
 
 _DEFAULT_AGE_PRESETS: dict[str, dict[str, list[int | None]]] = {
     "who": {

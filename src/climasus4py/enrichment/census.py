@@ -8,8 +8,8 @@ from __future__ import annotations
 import duckdb
 import pandas as pd
 
-from climasus.core.engine import collect
-from climasus.utils.data import detect_geo_column
+from climasus4py.core.engine import collect
+from climasus4py.utils.data import detect_geo_column
 
 
 def sus_census(
@@ -41,7 +41,7 @@ def sus_census(
             *census* lacks the required ``municipality_code`` column.
 
     Example:
-        >>> import climasus as cs
+        >>> import climasus4py as cs
         >>> df = cs.sus_census(rel, census=ibge_df)
         >>> df.columns.tolist()
         [..., 'pop_total', 'hdi']

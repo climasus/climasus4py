@@ -8,8 +8,8 @@ Focuses on:
 import pandas as pd
 import pytest
 
-from climasus.core.engine import get_connection
-from climasus.core.variables import sus_variables
+from climasus4py.core.engine import get_connection
+from climasus4py.core.variables import sus_variables
 
 
 def _make_rel(data: dict):

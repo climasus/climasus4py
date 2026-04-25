@@ -2,7 +2,7 @@
 
 import pytest
 
-from climasus.utils.explore import sus_explore
+from climasus4py.utils.explore import sus_explore
 
 
 class TestExplore:

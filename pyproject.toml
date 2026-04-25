@@ -62,7 +62,7 @@ Repository = "https://github.com/climasus/climasus4py"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/climasus"]
+packages = ["src/climasus4py"]
 
 [tool.ruff]
 target-version = "py310"

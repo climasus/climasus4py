@@ -5,13 +5,13 @@ These tests must pass with both:
 - current PyPI climasus-data release, where some files may not exist yet.
 """
 
-from climasus.core.variables import (
+from climasus4py.core.variables import (
     _age_breaks_for_preset,
     _age_groups_config,
     _season_case_sql,
     _seasonal_patterns_config,
 )
-from climasus.utils.data import (
+from climasus4py.utils.data import (
     detect_age_column,
     detect_cause_column,
     detect_date_column,

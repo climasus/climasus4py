@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import duckdb
 
-from climasus.core.engine import get_connection, schema_columns
-from climasus.utils.encoding import fix_encoding
+from climasus4py.core.engine import get_connection, schema_columns
+from climasus4py.utils.encoding import fix_encoding
 
 
 def sus_clean(
@@ -43,7 +43,7 @@ def sus_clean(
         filtered out.
 
     Example:
-        >>> import climasus as cs
+        >>> import climasus4py as cs
         >>> clean = cs.sus_clean(rel, age_range=(0, 110))
         >>> clean = cs.sus_clean(rel, dedup_cols=["CONTADOR"])
     """

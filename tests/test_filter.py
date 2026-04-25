@@ -10,8 +10,8 @@ Focuses on:
 import pandas as pd
 import pytest
 
-from climasus.core.engine import get_connection
-from climasus.core.filter import sus_filter
+from climasus4py.core.engine import get_connection
+from climasus4py.core.filter import sus_filter
 
 
 # ---------------------------------------------------------------------------

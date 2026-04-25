@@ -2,8 +2,8 @@
 
 import pytest
 
-from climasus.core.engine import get_connection
-from climasus.utils.data import decode_age_sql, update_climasus_data
+from climasus4py.core.engine import get_connection
+from climasus4py.utils.data import decode_age_sql, update_climasus_data
 
 
 class TestDecodeAgeSql:

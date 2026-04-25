@@ -8,7 +8,7 @@ from __future__ import annotations
 import duckdb
 import pandas as pd
 
-from climasus.core.engine import collect
+from climasus4py.core.engine import collect
 
 
 def sus_spatial(
@@ -47,7 +47,7 @@ def sus_spatial(
             or in the shapefile.
 
     Example:
-        >>> import climasus as cs
+        >>> import climasus4py as cs
         >>> gdf = cs.sus_spatial(rel, geo_level="state")
         >>> gdf.plot(column="count")
         >>> cs.sus_spatial(rel, shapefile=custom_shp,
@@ -78,7 +78,7 @@ def sus_spatial(
             shapefile = geobr.read_municipality()
 
     # Determine join column
-    from climasus.utils.data import detect_geo_column
+    from climasus4py.utils.data import detect_geo_column
     join_col = detect_geo_column(list(df.columns), level=geo_level)
 
     if not join_col:

@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import duckdb
 
-from climasus.core.engine import get_connection, schema_columns
-from climasus.utils.data import detect_date_column, detect_geo_column
+from climasus4py.core.engine import get_connection, schema_columns
+from climasus4py.utils.data import detect_date_column, detect_geo_column
 
 
 def sus_aggregate(
@@ -39,7 +39,7 @@ def sus_aggregate(
         ``sum_*/mean_*`` for any recognised numeric columns present.
 
     Example:
-        >>> import climasus as cs
+        >>> import climasus4py as cs
         >>> agg = cs.sus_aggregate(rel, time="year", geo="state")
         >>> agg.df().head()
         >>> agg_sex = cs.sus_aggregate(rel, time="month",

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import string
 
-from climasus.utils.data import load_json
+from climasus4py.utils.data import load_json
 
 
 def expand_cid_range(start: str, end: str) -> list[str]:

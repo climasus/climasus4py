@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import duckdb
 
-from climasus.core.engine import get_connection, schema_columns
-from climasus.utils.cid import codes_for_groups, expand_cid_ranges
-from climasus.utils.data import detect_cause_column, detect_age_column, detect_sex_column, decode_age_sql
+from climasus4py.core.engine import get_connection, schema_columns
+from climasus4py.utils.cid import codes_for_groups, expand_cid_ranges
+from climasus4py.utils.data import detect_cause_column, detect_age_column, detect_sex_column, decode_age_sql
 
 
 def sus_filter(
@@ -57,7 +57,7 @@ def sus_filter(
         Lazy DuckDB relation with all specified filters applied.
 
     Example:
-        >>> import climasus as cs
+        >>> import climasus4py as cs
         >>> filtered = cs.sus_filter(rel, groups="respiratory",
         ...                          age_min=15, age_max=64, uf="SP")
         >>> cs.sus_filter(rel, codes=["A90", "A91"], sex="F").count()
