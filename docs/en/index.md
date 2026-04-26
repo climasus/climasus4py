@@ -58,5 +58,6 @@ print(df.head(10))
 |------|--------|
 | `SIM-DO` | Death Certificates (mortality) |
 | `SINASC` | Live Births |
+| `SINAN-DENGUE` | Dengue notifications |
 | `SIH` | Hospital Admissions |
 | `SIA` | Outpatient Visits |

@@ -64,7 +64,7 @@ Os grupos são mantidos em `climasus-data` e resolvem automaticamente os CID-10 
 ## Filosofia do pacote
 
 - **Lazy por padrão**: todas as transformações retornam `duckdb.DuckDBPyRelation` — os dados só são lidos do disco quando você chama `.df()`, `.fetchall()` ou exporta.
-- **Cache automático**: os arquivos DBC do DATASUS são baixados uma vez e convertidos para Parquet. Execuções subsequentes reutilizam o cache.
+- **Cache automático**: os arquivos DBC do DATASUS são convertidos para Parquet e reutilizados nas execuções seguintes. O DBC bruto pode ser preservado com `store_raw = True`.
 - **Fast path SQL**: quando possível, todo o pipeline vira uma única query SQL (sem materialização intermediária).
 - **Trilingue**: nomes de colunas disponíveis em `"pt"`, `"en"` e `"es"`.
 
@@ -76,5 +76,6 @@ Os grupos são mantidos em `climasus-data` e resolvem automaticamente os CID-10 
 |--------|---------|
 | `SIM-DO` | Declarações de Óbito |
 | `SINASC` | Nascidos Vivos |
+| `SINAN-DENGUE` | Dengue |
 | `SIH` | Internações Hospitalares |
 | `SIA` | Atendimentos Ambulatoriais |

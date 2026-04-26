@@ -1,31 +1,40 @@
 """Data import — download from DATASUS and cache as parquet.
 
 Mirrors R: import.R + download-aria2c.R
-Preferred reader: readdbc (pure Python, no C compiler).
-Fallback chain: readdbc → pyreaddbc → pysus → dbc2dbf CLI.
+Preferred reader: climasus_readdbc_py (pure Python, no C compiler).
+Fallback chain: climasus_readdbc_py → climasus_readdbc → pyreaddbc → pysus → dbc2dbf CLI.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import shutil
-import struct
 import subprocess
 import tempfile
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
+import duckdb
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-from rich.console import Console
-
 from climasus.core.engine import read_parquets
-from climasus.utils.data import load_datasus_columns_spec, resolve_uf
+from climasus.utils.data import (
+    load_datasus_columns_spec,
+    load_json,
+    load_uf_codes,
+    resolve_uf,
+)
+from rich.console import Console
 
 console = Console(stderr=True)
 
 _DEFAULT_CACHE = Path("dados/cache")
+_DATASUS_SOURCES_PATH = "metadata/datasus_sources.json"
 
 
 # ---------------------------------------------------------------------------
@@ -61,101 +70,86 @@ def _coerce_datasus_types(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 # ---------------------------------------------------------------------------
-# FTP URL builders  (mirrors download-aria2c.R)
+# DATASUS source catalog resolution
 # ---------------------------------------------------------------------------
 
-_FTP_BASE = "ftp://ftp.datasus.gov.br/dissemin/publicos"
+def _datasus_sources() -> dict:
+    return load_json(_DATASUS_SOURCES_PATH)
 
 
-def _urls_sim_do(uf: str, year: int) -> list[str]:
-    """SIM-DO: DO{UF}{YYYY}.dbc"""
-    fname = f"DO{uf}{year}.dbc"
-    urls = []
-    if year >= 2022:
-        urls.append(f"{_FTP_BASE}/SIM/PRELIM/DORES/{fname}")
-    urls.append(f"{_FTP_BASE}/SIM/CID10/DORES/{fname}")
-    return urls
-
-
-def _urls_sim_special(prefix: str, year: int) -> list[str]:
-    """SIM sub-systems (DOFET, DOEXT, DOINF, DOMAT) — no UF, 2-digit year."""
-    yy = str(year)[2:]
-    fname = f"{prefix}{yy}.dbc"
-    urls = []
-    if year >= 2022:
-        urls.append(f"{_FTP_BASE}/SIM/PRELIM/DOFET/{fname}")
-    urls.append(f"{_FTP_BASE}/SIM/CID10/DOFET/{fname}")
-    return urls
-
-
-def _urls_sinasc(uf: str, year: int) -> list[str]:
-    """SINASC: DN{UF}{YYYY}.dbc"""
-    fname = f"DN{uf}{year}.dbc"
-    urls = []
-    if year >= 2022:
-        urls.append(f"{_FTP_BASE}/SINASC/PRELIM/DNRES/{fname}")
-    urls.append(f"{_FTP_BASE}/SINASC/NOV/DNRES/{fname}")
-    return urls
-
-
-def _urls_sih(uf: str, year: int, month: int, stype: str = "RD") -> list[str]:
-    """SIH: {TYPE}{UF}{YYMM}.dbc"""
-    yy = str(year)[2:]
-    fname = f"{stype}{uf}{yy}{month:02d}.dbc"
-    base = (
-        f"{_FTP_BASE}/SIHSUS/200801_/Dados/"
-        if year >= 2008
-        else f"{_FTP_BASE}/SIHSUS/199201_200712/Dados/"
-    )
-    return [f"{base}{fname}"]
-
-
-_SYSTEM_URL_BUILDERS: dict[str, str] = {
-    "SIM-DO": "sim_do",
-    "SIM-DOFET": "sim_special",
-    "SIM-DOEXT": "sim_special",
-    "SIM-DOINF": "sim_special",
-    "SIM-DOMAT": "sim_special",
-    "SINASC": "sinasc",
-    "SIH-RD": "sih",
-    "SIH-RJ": "sih",
-    "SIH-SP": "sih",
-    "SIH-ER": "sih",
-}
-
-_SIM_SPECIAL_PREFIX = {
-    "SIM-DOFET": "DOFET",
-    "SIM-DOEXT": "DOEXT",
-    "SIM-DOINF": "DOINF",
-    "SIM-DOMAT": "DOMAT",
-}
-
-_SIH_TYPE = {"SIH-RD": "RD", "SIH-RJ": "RJ", "SIH-SP": "SP", "SIH-ER": "ER"}
-
-
-def _build_urls(
-    system: str, uf: str, year: int, month: int | None = None
-) -> list[str]:
-    """Build FTP URLs for a system/uf/year/month combination."""
-    builder = _SYSTEM_URL_BUILDERS.get(system)
-    if builder is None:
+def _system_source(system: str) -> dict:
+    systems = _datasus_sources()["systems"]
+    try:
+        return systems[system]
+    except KeyError as exc:
         raise ValueError(
             f"System '{system}' not supported for direct FTP download. "
-            "Supported: " + ", ".join(_SYSTEM_URL_BUILDERS)
-        )
-    if builder == "sim_do":
-        return _urls_sim_do(uf, year)
-    if builder == "sim_special":
-        return _urls_sim_special(_SIM_SPECIAL_PREFIX[system], year)
-    if builder == "sinasc":
-        return _urls_sinasc(uf, year)
-    if builder == "sih":
-        months = [month] if month else list(range(1, 13))
-        urls: list[str] = []
-        for m in months:
-            urls.extend(_urls_sih(uf, year, m, _SIH_TYPE[system]))
-        return urls
-    return []
+            "Supported: " + ", ".join(sorted(systems))
+        ) from exc
+
+
+def _template_applies(template: dict, year: int) -> bool:
+    valid_from = template.get("valid_from_year")
+    valid_until = template.get("valid_until_year")
+    if valid_from is not None and year < int(valid_from):
+        return False
+    return not (valid_until is not None and year > int(valid_until))
+
+
+def _template_context(system_meta: dict, uf: str, year: int, month: int | None) -> dict[str, str]:
+    return {
+        "uf": uf.upper(),
+        "yyyy": str(year),
+        "yy": f"{year % 100:02d}",
+        "month": f"{month:02d}" if month is not None else "",
+        "disease_code": str(system_meta.get("disease_code", "")),
+    }
+
+
+def _build_urls(system: str, uf: str, year: int, month: int | None = None) -> list[str]:
+    """Build FTP URLs from the climasus-data DATASUS source catalog."""
+    catalog = _datasus_sources()
+    system_meta = _system_source(system)
+    source = catalog["sources"][system_meta["source"]]
+    base_url = source["base_url"].rstrip("/")
+    context = _template_context(system_meta, uf, year, month)
+
+    urls = []
+    for template in system_meta["url_templates"]:
+        if _template_applies(template, year):
+            path = template["path_template"].format(**context).lstrip("/")
+            urls.append(f"{base_url}/{path}")
+
+    if not urls:
+        raise ValueError(f"No DATASUS FTP URL template applies to {system} for {year}.")
+    return urls
+
+
+def _geographic_scope(system: str) -> str:
+    return str(_system_source(system).get("geographic_scope", "state"))
+
+
+def _cache_partition_id(system: str, uf: str) -> str:
+    if _geographic_scope(system) == "national":
+        return "BR"
+    return uf
+
+
+def _state_filter_expression(system: str, ufs: list[str]) -> str | None:
+    system_meta = _system_source(system)
+    filter_meta = system_meta.get("partition_filter")
+    if not filter_meta:
+        return None
+
+    uf_codes = load_uf_codes()
+    requested = {uf.upper() for uf in ufs}
+    if requested == set(uf_codes):
+        return None
+
+    codes = [int(uf_codes[uf]["code"]) for uf in sorted(requested)]
+    col = filter_meta["state_column"]
+    values = ", ".join(str(code) for code in codes)
+    return f'TRY_CAST("{col}" AS INTEGER) IN ({values})'
 
 
 # ---------------------------------------------------------------------------
@@ -165,9 +159,19 @@ def _build_urls(
 def _read_dbc(path: Path) -> pd.DataFrame:
     """Read a .dbc file trying multiple backends.
 
-    Order: readdbc (pure Python) → pyreaddbc (C) → pysus → dbc2dbf CLI.
+    Order: climasus_readdbc_py (pure Python) → climasus_readdbc (legacy)
+    → pyreaddbc (C) → pysus → dbc2dbf CLI.
     """
-    # Backend 1: climasus_readdbc (pure Python, no C compiler needed)
+    # Backend 1: climasus_readdbc_py (pure Python, no C compiler needed)
+    try:
+        import climasus_readdbc_py as readdbc
+        return readdbc.read_dbc(path)
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+    # Backend 1b: legacy import path kept for already-published versions.
     try:
         import climasus_readdbc as readdbc
         return readdbc.read_dbc(path)
@@ -223,10 +227,71 @@ def _read_dbc(path: Path) -> pd.DataFrame:
 def _download_ftp(url: str, dest: Path, timeout: int = 120) -> bool:
     """Download a single file from FTP. Returns True on success."""
     try:
-        urllib.request.urlretrieve(url, dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            dest.write_bytes(response.read())
         return True
     except Exception:
+        if dest.exists():
+            dest.unlink()
         return False
+
+
+def _raw_cache_path(url: str, raw_cache_dir: Path) -> Path:
+    parsed = urlparse(url)
+    parts = [parsed.netloc, *[part for part in parsed.path.split("/") if part]]
+    return raw_cache_dir.joinpath(*parts)
+
+
+def _file_md5(path: Path) -> str:
+    digest = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _append_raw_manifest(raw_cache_dir: Path, url: str, path: Path) -> None:
+    manifest = raw_cache_dir / "_manifest.jsonl"
+    try:
+        relative_path = str(path.relative_to(raw_cache_dir))
+    except ValueError:
+        relative_path = str(path)
+    record = {
+        "downloaded_at": datetime.now(timezone.utc).isoformat(),
+        "url": url,
+        "path": relative_path,
+        "size_bytes": path.stat().st_size,
+        "md5": _file_md5(path),
+    }
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    with open(manifest, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def _resolve_dbc_path(
+    urls: list[str],
+    tmp_dir: Path,
+    timeout: int,
+    store_raw: bool,
+    raw_cache_dir: Path | None,
+) -> Path | None:
+    for url in urls:
+        if store_raw:
+            if raw_cache_dir is None:
+                raise ValueError("raw_cache_dir must be provided when store_raw=True")
+            dbc_path = _raw_cache_path(url, raw_cache_dir)
+            if dbc_path.is_file() and dbc_path.stat().st_size > 0:
+                return dbc_path
+        else:
+            dbc_path = tmp_dir / "data.dbc"
+
+        if _download_ftp(url, dbc_path, timeout=timeout):
+            if store_raw and raw_cache_dir is not None:
+                _append_raw_manifest(raw_cache_dir, url, dbc_path)
+            return dbc_path
+
+    return None
 
 
 def _download_and_cache(
@@ -236,21 +301,23 @@ def _download_and_cache(
     month: int | None,
     target: Path,
     verbose: bool,
+    timeout: int,
+    store_raw: bool,
+    raw_cache_dir: Path | None,
 ) -> Path | None:
     """Download a single .dbc from DATASUS FTP, convert to parquet, cache."""
     urls = _build_urls(system, uf, year, month)
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        dbc_path = Path(tmpdir) / "data.dbc"
+        dbc_path = _resolve_dbc_path(
+            urls=urls,
+            tmp_dir=Path(tmpdir),
+            timeout=timeout,
+            store_raw=store_raw,
+            raw_cache_dir=raw_cache_dir,
+        )
 
-        # Try each URL (preliminary → general)
-        downloaded = False
-        for url in urls:
-            if _download_ftp(url, dbc_path, timeout=120):
-                downloaded = True
-                break
-
-        if not downloaded:
+        if dbc_path is None:
             if verbose:
                 console.print(f"[red]✗[/]  {uf}_{year}: all FTP URLs failed")
             return None
@@ -343,7 +410,9 @@ def sus_import(
     path: str | Path | None = None,
     data: pd.DataFrame | None = None,
     backend: Literal["auto", "ftp", "pysus"] = "auto",
-) -> "duckdb.DuckDBPyRelation":
+    store_raw: bool = False,
+    raw_cache_dir: str | Path | None = None,
+) -> duckdb.DuckDBPyRelation:
     """Import SUS data and return a lazy DuckDB relation.
 
     Supports three input modes:
@@ -356,10 +425,10 @@ def sus_import(
     When downloading (mode 3), the *backend* controls which client is
     used:
 
-    - ``"auto"``  — FTP direct download (no extra deps), falls back to
-      PySUS if installed.
-    - ``"ftp"``   — FTP + ``.dbc`` reader chain: ``readdbc`` →
-      ``pyreaddbc`` → ``pysus`` → ``dbc2dbf`` CLI.
+    - ``"auto"``  — FTP direct download (no extra deps).
+    - ``"ftp"``   — FTP + ``.dbc`` reader chain:
+      ``climasus_readdbc_py`` → ``climasus_readdbc`` → ``pyreaddbc`` →
+      ``pysus`` → ``dbc2dbf`` CLI.
     - ``"pysus"`` — PySUS high-level API (requires
       ``pip install pysus``; needs C compiler on Windows).
 
@@ -381,6 +450,10 @@ def sus_import(
         data: Existing ``DataFrame`` to wrap instead of downloading.
         backend: Download backend — ``"auto"``, ``"ftp"``, or
             ``"pysus"``.
+        store_raw: If ``True``, persist downloaded ``.dbc`` files in
+            *raw_cache_dir* before conversion.
+        raw_cache_dir: Directory for raw ``.dbc`` files. Defaults to
+            ``cache_dir / "_raw"`` when *store_raw* is ``True``.
 
     Returns:
         Lazy ``duckdb.DuckDBPyRelation`` over the imported data.
@@ -402,6 +475,7 @@ def sus_import(
         ...               path="dados/cache/SP_2022.parquet")
     """
     cache_dir = Path(cache_dir)
+    raw_cache_path = Path(raw_cache_dir) if raw_cache_dir is not None else cache_dir / "_raw"
     ufs = resolve_uf(uf)
     years = [year] if isinstance(year, int) else list(year)
     months = [month] if isinstance(month, int) else (month or [None])
@@ -433,28 +507,27 @@ def sus_import(
     else:
         # Mode 3: download from DATASUS
         needed: list[dict] = []
-        for one_uf in ufs:
+        partition_ufs = ["BR"] if _geographic_scope(system) == "national" else ufs
+        for one_uf in partition_ufs:
             for one_year in years:
                 for one_month in months:
-                    month_str = str(one_month) if one_month else "all"
-                    target = (
-                        cache_dir / system / f"{one_uf}_{one_year}_{month_str}.parquet"
-                    )
+                    month_str = f"{one_month:02d}" if one_month else "all"
+                    partition_id = _cache_partition_id(system, one_uf)
+                    target = cache_dir / system / f"{partition_id}_{one_year}_{month_str}.parquet"
                     if cache and target.is_file():
                         parquet_paths.append(target)
                     else:
-                        needed.append({
-                            "uf": one_uf,
-                            "year": one_year,
-                            "month": one_month,
-                            "target": target,
-                        })
+                        needed.append(
+                            {
+                                "uf": one_uf,
+                                "year": one_year,
+                                "month": one_month,
+                                "target": target,
+                            }
+                        )
 
         if needed:
-            use_pysus = (
-                backend == "pysus"
-                or (backend == "auto" and _pysus_available() and system in _PYSUS_SYSTEM_MAP)
-            )
+            use_pysus = backend == "pysus"
 
             engine_label = "PySUS" if use_pysus else "FTP"
             if verbose:
@@ -491,6 +564,9 @@ def sus_import(
                         item["month"],
                         item["target"],
                         verbose,
+                        timeout,
+                        store_raw,
+                        raw_cache_path if store_raw else None,
                     )
 
                 if result:
@@ -499,4 +575,8 @@ def sus_import(
     if not parquet_paths:
         raise RuntimeError("No data imported — check system/uf/year parameters.")
 
-    return read_parquets(parquet_paths)
+    rel = read_parquets(parquet_paths)
+    filter_expr = _state_filter_expression(system, ufs)
+    if filter_expr:
+        rel = rel.filter(filter_expr)
+    return rel

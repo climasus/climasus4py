@@ -1,3 +1,3 @@
 """Versão do pacote climasus4py."""
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"

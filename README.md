@@ -73,10 +73,24 @@ x = cs.sus_aggregate(x, time="month", geo="state")
 cs.sus_export(x, "output/dengue_sp.parquet")
 ```
 
+To preserve the original DATASUS `.dbc` files for audit or reuse, enable the raw
+cache explicitly:
+
+```python
+x = cs.sus_import(
+    "SINAN-DENGUE",
+    "SP",
+    2024,
+    store_raw=True,
+    raw_cache_dir="dados/cache/raw",
+)
+```
+
 ## Shared Metadata
 
 climasus4py consumes metadata from `climasus-data` (disease groups, dictionaries,
-UFs, regions). This dependency is installed automatically.
+UFs, regions, DATASUS FTP sources and SINAN disease codes). This dependency is
+installed automatically.
 
 You can force update local metadata when needed:
 
