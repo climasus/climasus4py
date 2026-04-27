@@ -35,7 +35,7 @@ from climasus4py.utils.data import (
 console = Console(stderr=True)
 
 _DEFAULT_CACHE = Path("dados/cache")
-_DATASUS_SOURCES_PATH = "metadata/datasus_sources.json"
+_DATASUS_SOURCES_PATH = "metadata/datasus_systems.json"
 
 
 # ---------------------------------------------------------------------------

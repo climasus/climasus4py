@@ -55,13 +55,13 @@ def data_path(relative: str) -> Path:
 
     Args:
         relative: Path relative to the climasus-data root, e.g.
-            ``"metadata/sus_systems.json"``.
+            ``"metadata/datasus_systems.json"``.
 
     Returns:
         Absolute ``pathlib.Path`` to the requested file.
 
     Example:
-        >>> data_path("metadata/sus_systems.json").exists()
+        >>> data_path("metadata/datasus_systems.json").exists()
         True
     """
     return _find_data_dir() / relative
@@ -90,7 +90,7 @@ def load_json(relative: str) -> Any:
         FileNotFoundError: If the file does not exist in climasus-data.
 
     Example:
-        >>> data = load_json("metadata/sus_systems.json")
+        >>> data = load_json("metadata/datasus_systems.json")
         >>> list(data.keys())
         ['systems']
     """
@@ -253,7 +253,7 @@ def load_systems() -> dict:
         >>> "SIM-DO" in systems
         True
     """
-    return load_json("metadata/sus_systems.json")["systems"]
+    return load_json("metadata/datasus_systems.json")["systems"]
 
 
 def load_uf_codes() -> dict:

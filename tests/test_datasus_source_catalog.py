@@ -16,7 +16,7 @@ from climasus4py.utils.data import load_json
 
 
 def test_datasus_sources_catalog_contains_sinan_dengue():
-    catalog = load_json("metadata/datasus_sources.json")
+    catalog = load_json("metadata/datasus_systems.json")
 
     sinan = catalog["systems"]["SINAN-DENGUE"]
 
