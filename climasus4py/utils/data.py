@@ -535,3 +535,134 @@ def system_family(system: str) -> str:
         'SIH'
     """
     return system.split("-")[0]
+
+
+# ---------------------------------------------------------------------------
+# Sub-plano D helpers (parity with climasus4r legacy)
+# ---------------------------------------------------------------------------
+
+#: Values considered "ignored/unknown" across DATASUS demographic columns.
+_IGNORED_VALUES: tuple[str, ...] = (
+    "9", "99", "999", "0", "",
+    "Ignorado", "ignorado",
+    "Unknown", "unknown",
+    "Desconocido", "desconocido",
+    "Desconhecido", "desconhecido",
+    "NaN", "nan", "null", "NULL",
+)
+
+#: Demographic columns that carry coded "ignored" markers in DATASUS.
+_IGNORABLE_DEMO_COLUMNS: tuple[str, ...] = (
+    "sex", "SEXO", "CS_SEXO",
+    "race", "RACACOR",
+    "education", "education_2010", "ESC", "ESC2010",
+    "age", "age_code", "IDADE",
+)
+
+
+def detect_education_column(columns: list[str]) -> str | None:
+    """Return the first recognised education column from *columns*.
+
+    Priority: ``education``, ``education_2010``, ``ESC``, ``ESC2010``.
+
+    Mirrors ``climasus4r::sus_data_filter_demographics`` education= logic.
+
+    Args:
+        columns: Column names present in the dataset.
+
+    Returns:
+        Matching column name, or ``None`` if not found.
+
+    Example:
+        >>> detect_education_column(["ESC", "CAUSABAS"])
+        'ESC'
+        >>> detect_education_column(["UNKNOWN"]) is None
+        True
+    """
+    return _detect_column(columns, ["education", "education_2010", "ESC", "ESC2010"])
+
+
+def expand_city_to_codes(city: str | list[str]) -> list[str]:
+    """Resolve city name(s) to IBGE 6-digit municipality codes.
+
+    Reads ``spatial/municipalities.parquet`` from the climasus-data
+    package and matches on the ``municipality_name`` column (case-
+    insensitive, accent-insensitive via NFC normalisation).  When a name
+    matches multiple municipalities (e.g. "São José"), all codes are
+    returned and a :class:`UserWarning` is emitted.
+
+    Mirrors ``climasus4r::sus_data_filter_demographics`` city= handling.
+
+    Args:
+        city: One or more city names to resolve.
+
+    Returns:
+        List of IBGE 6-digit municipality code strings.
+
+    Raises:
+        ValueError: If a city name has no match in the municipalities
+            parquet.
+        FileNotFoundError: If ``spatial/municipalities.parquet`` is not
+            present in the climasus-data directory.
+
+    Example:
+        >>> expand_city_to_codes("São Paulo")
+        ['355030']
+        >>> expand_city_to_codes(["São Paulo", "Rio de Janeiro"])
+        ['355030', '330455']
+    """
+    import unicodedata
+    import warnings
+
+    import pandas as pd
+
+    parquet_path = data_path("spatial/municipalities.parquet")
+    if not parquet_path.is_file():
+        raise FileNotFoundError(
+            "spatial/municipalities.parquet not found in climasus-data. "
+            "Run cs.update_climasus_data() to refresh."
+        )
+
+    df = pd.read_parquet(parquet_path)
+
+    # Find the name column (case-insensitive search)
+    name_col = next(
+        (c for c in df.columns if c.lower() in ("municipality_name", "name", "nome", "municipio")),
+        None,
+    )
+    _code_aliases = ("municipality_code", "code", "codigo", "cod_mun", "codmun")
+    code_col = next(
+        (c for c in df.columns if c.lower() in _code_aliases),
+        None,
+    )
+    if name_col is None or code_col is None:
+        raise ValueError(
+            f"municipalities.parquet must have name and code columns. "
+            f"Found: {list(df.columns)}"
+        )
+
+    def _norm(s: str) -> str:
+        return unicodedata.normalize("NFC", s).strip().lower()
+
+    city_list = [city] if isinstance(city, str) else list(city)
+    all_codes: list[str] = []
+
+    for name in city_list:
+        _n = _norm(name)
+        mask = df[name_col].apply(lambda x, __n=_n: _norm(str(x)) == __n)
+        matches = df.loc[mask, code_col].astype(str).tolist()
+        if not matches:
+            raise ValueError(
+                f"City {name!r} not found in municipalities.parquet. "
+                "Check spelling or use municipality_code directly."
+            )
+        if len(matches) > 1:
+            warnings.warn(
+                f"City {name!r} matches {len(matches)} municipalities "
+                f"(e.g. {matches[:3]}). All codes will be used for filtering.",
+                UserWarning,
+                stacklevel=3,
+            )
+        all_codes.extend(matches)
+
+    return list(dict.fromkeys(all_codes))  # deduplicate, preserve order

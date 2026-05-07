@@ -346,5 +346,145 @@ class TestSQLInjection:
         assert _count(result) == 0
 
 
+# ---------------------------------------------------------------------------
+# D.3 — match_type (exact vs starts_with)
+# ---------------------------------------------------------------------------
+
+class TestMatchType:
+    def test_starts_with_matches_subcode(self, sim_do_rel):
+        """Default starts_with matches J189 when filtering by J18."""
+        result = sus_filter(sim_do_rel, codes=["J18"])
+        assert _count(result) == 1
+
+    def test_exact_requires_full_code(self, sim_do_rel):
+        """exact match on J18 must NOT match J189."""
+        result = sus_filter(sim_do_rel, codes=["J18"], match_type="exact")
+        assert _count(result) == 0
+
+    def test_exact_matches_full_code(self, sim_do_rel):
+        """exact match on J189 MUST match J189."""
+        result = sus_filter(sim_do_rel, codes=["J189"], match_type="exact")
+        assert _count(result) == 1
+
+    def test_invalid_match_type_raises(self, sim_do_rel):
+        with pytest.raises(ValueError, match="Invalid match_type"):
+            sus_filter(sim_do_rel, codes=["J18"], match_type="regex")
+
+    def test_exact_multi_code(self, sim_do_rel):
+        """exact with multiple codes filters precisely."""
+        result = sus_filter(sim_do_rel, codes=["J189", "I219"], match_type="exact")
+        assert _count(result) == 3  # J189 x1, I219 x2
+
+
+# ---------------------------------------------------------------------------
+# D.3 — education filter
+# ---------------------------------------------------------------------------
+
+class TestEducationFilter:
+    def test_education_filters_by_esc(self):
+        rel = _make_rel({
+            "ESC": ["1", "2", "3", "1", "9"],
+            "CAUSABAS": ["J189"] * 5,
+        })
+        result = sus_filter(rel, education=["1", "2"])
+        assert _count(result) == 3
+
+    def test_education_single_value(self):
+        rel = _make_rel({
+            "education": ["1", "2", "3"],
+            "CAUSABAS": ["J189"] * 3,
+        })
+        result = sus_filter(rel, education="1")
+        assert _count(result) == 1
+
+    def test_education_column_priority_education_over_esc(self):
+        """When both 'education' and 'ESC' exist, 'education' takes priority."""
+        rel = _make_rel({
+            "education": ["1", "2", "3"],
+            "ESC": ["9", "9", "9"],
+            "CAUSABAS": ["J189"] * 3,
+        })
+        result = sus_filter(rel, education="1")
+        assert _count(result) == 1  # filtered on 'education', not 'ESC'
+
+    def test_education_no_column_raises(self, sim_do_rel):
+        with pytest.raises(ValueError, match="No education column"):
+            sus_filter(sim_do_rel, education="1")
+
+
+# ---------------------------------------------------------------------------
+# D.3 — drop_ignored filter
+# ---------------------------------------------------------------------------
+
+class TestDropIgnored:
+    def test_drop_ignored_removes_9_in_sex(self):
+        rel = _make_rel({
+            "SEXO": ["1", "2", "9", "1"],
+            "CAUSABAS": ["J189"] * 4,
+        })
+        result = sus_filter(rel, drop_ignored=True)
+        assert _count(result) == 3
+
+    def test_drop_ignored_removes_99_in_race(self):
+        rel = _make_rel({
+            "RACACOR": ["1", "4", "99", "2"],
+            "CAUSABAS": ["J189"] * 4,
+        })
+        result = sus_filter(rel, drop_ignored=True)
+        assert _count(result) == 3
+
+    def test_drop_ignored_removes_ignorado(self):
+        rel = _make_rel({
+            "ESC": ["1", "Ignorado", "2"],
+            "CAUSABAS": ["J189"] * 3,
+        })
+        result = sus_filter(rel, drop_ignored=True)
+        assert _count(result) == 2
+
+    def test_drop_ignored_false_keeps_all(self):
+        rel = _make_rel({
+            "SEXO": ["1", "9", "2"],
+            "CAUSABAS": ["J189"] * 3,
+        })
+        result = sus_filter(rel, drop_ignored=False)
+        assert _count(result) == 3
+
+    def test_drop_ignored_combined_with_sex_filter(self):
+        rel = _make_rel({
+            "SEXO": ["1", "9", "2", "1"],
+            "CAUSABAS": ["J189"] * 4,
+        })
+        result = sus_filter(rel, sex="M", drop_ignored=True)
+        # sex="M" → code "1" → 2 rows; "9" removed by drop_ignored
+        assert _count(result) == 2
+
+
+# ---------------------------------------------------------------------------
+# D.3 — city filter (mocked — municipalities.parquet may not be present)
+# ---------------------------------------------------------------------------
+
+class TestCityFilter:
+    def test_city_raises_file_not_found_when_parquet_missing(self, sim_do_rel, tmp_path, monkeypatch):
+        """When municipalities.parquet is absent, raises FileNotFoundError."""
+        import climasus4py.utils.data as _data
+        monkeypatch.setattr(_data, "data_path", lambda rel_path: tmp_path / rel_path)
+        with pytest.raises(FileNotFoundError, match="municipalities.parquet"):
+            sus_filter(sim_do_rel, city="São Paulo")
+
+    def test_city_filter_applies_resolved_codes(self, monkeypatch):
+        """When expand_city_to_codes resolves correctly, filter is applied."""
+        import climasus4py.core.filter as _filter_mod
+        monkeypatch.setattr(
+            _filter_mod, "expand_city_to_codes",
+            lambda _c: ["355030"],
+        )
+        rel = _make_rel({
+            "CODMUNRES": ["355030", "330455", "355030"],
+            "CAUSABAS": ["J189"] * 3,
+        })
+        result = sus_filter(rel, city="São Paulo")
+        assert _count(result) == 2
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

@@ -8,7 +8,16 @@ from __future__ import annotations
 import duckdb
 
 from ..utils.cid import codes_for_groups, expand_cid_ranges
-from ..utils.data import decode_age_sql, detect_age_column, detect_cause_column, detect_sex_column
+from ..utils.data import (
+    _IGNORABLE_DEMO_COLUMNS,
+    _IGNORED_VALUES,
+    decode_age_sql,
+    detect_age_column,
+    detect_cause_column,
+    detect_education_column,
+    detect_sex_column,
+    expand_city_to_codes,
+)
 from ._sql import sql_string
 from .engine import get_connection, schema_columns
 
@@ -70,6 +79,10 @@ def sus_filter(
     municipality: str | list[str] | None = None,
     date_start: str | None = None,
     date_end: str | None = None,
+    education: str | list[str] | None = None,
+    city: str | list[str] | None = None,
+    drop_ignored: bool = False,
+    match_type: str = "starts_with",
 ) -> duckdb.DuckDBPyRelation:
     """Filter SUS data by disease groups, demographics, geography, and dates.
 
@@ -97,16 +110,49 @@ def sus_filter(
             ``"YYYY-MM-DD"``.
         date_end: Latest event date (inclusive), ISO format
             ``"YYYY-MM-DD"``.
+        education: Education level code(s) to keep, e.g. ``["1", "2"]``.
+            Auto-detects the column among ``education``,
+            ``education_2010``, ``ESC``, ``ESC2010``.
+            Mirrors ``climasus4r::sus_data_filter_demographics`` education=.
+        city: City name(s) to filter by, e.g. ``"São Paulo"`` or
+            ``["São Paulo", "Rio de Janeiro"]``. Resolved to IBGE codes
+            via ``climasus-data/spatial/municipalities.parquet``.
+            Mirrors ``climasus4r::sus_data_filter_demographics`` city=.
+        drop_ignored: When ``True``, removes rows where any detectable
+            demographic column (sex, race, education, age) contains a
+            coded "ignored/unknown" value (9, 99, Ignorado, etc.).
+            Mirrors ``climasus4r::sus_data_filter_demographics``
+            drop_ignored=.  Default: ``False``.
+        match_type: Controls how ICD-10 codes are matched against the
+            cause column.  ``"starts_with"`` (default) uses a 3-character
+            prefix match (e.g. ``"J18"`` matches ``"J189"``).
+            ``"exact"`` requires the full code to match exactly.
+            Mirrors ``climasus4r::sus_data_filter_cid`` match_type=.
 
     Returns:
         Lazy DuckDB relation with all specified filters applied.
+
+    Raises:
+        ValueError: If ``match_type`` is not ``"starts_with"`` or
+            ``"exact"``.
 
     Example:
         >>> import climasus4py as cs
         >>> filtered = cs.sus_filter(rel, groups="respiratory",
         ...                          age_min=15, age_max=64, uf="SP")
         >>> cs.sus_filter(rel, codes=["A90", "A91"], sex="F").count()
+        >>> cs.sus_filter(rel, groups="respiratory",
+        ...               match_type="exact", codes=["J189"])
+        >>> cs.sus_filter(rel, education=["1", "2"], drop_ignored=True)
+        >>> cs.sus_filter(rel, city="São Paulo")
     """
+    _valid_match_types = {"starts_with", "exact"}
+    if match_type not in _valid_match_types:
+        raise ValueError(
+            f"Invalid match_type {match_type!r}. "
+            f"Choose from: {sorted(_valid_match_types)}."
+        )
+
     columns = schema_columns(rel)
     conn = get_connection()
 
@@ -126,23 +172,28 @@ def sus_filter(
                 "No cause/CID column found in the relation. "
                 "Expected one of: CAUSABAS, DIAG_PRINC, underlying_cause, cause."
             )
-        # Normalise all codes to their 3-char prefix (ICD-10 chapter level) and
-        # use SUBSTR matching so that "J189" matches the 3-char group "J18".
-        unique_codes = sorted(set(c[:3] for c in icd_codes))
-        if len(unique_codes) <= 100:
-            codes_str = ", ".join(f"'{c}'" for c in unique_codes)
-            rel = rel.filter(f'SUBSTR("{cause_col}", 1, 3) IN ({codes_str})')
+        if match_type == "exact":
+            # Exact match: full code must equal one of the requested codes
+            unique_codes = sorted(set(icd_codes))
+            vals = ", ".join(f"'{c}'" for c in unique_codes)
+            rel = rel.filter(f'"{cause_col}" IN ({vals})')
         else:
-            # Semi-join via temporary table for large code lists
-            codes_sql = ", ".join(f"('{c}')" for c in unique_codes)
-            conn.execute(
-                f"CREATE OR REPLACE TEMP TABLE _icd_filter AS "
-                f"SELECT * FROM (VALUES {codes_sql}) AS t(code)"
-            )
-            rel = conn.sql(
-                f'SELECT r.* FROM rel r SEMI JOIN _icd_filter f '
-                f'ON SUBSTR(r."{cause_col}", 1, 3) = f.code'
-            )
+            # starts_with (default): normalise to 3-char prefix
+            unique_codes = sorted(set(c[:3] for c in icd_codes))
+            if len(unique_codes) <= 100:
+                codes_str = ", ".join(f"'{c}'" for c in unique_codes)
+                rel = rel.filter(f'SUBSTR("{cause_col}", 1, 3) IN ({codes_str})')
+            else:
+                # Semi-join via temporary table for large code lists
+                codes_sql = ", ".join(f"('{c}')" for c in unique_codes)
+                conn.execute(
+                    f"CREATE OR REPLACE TEMP TABLE _icd_filter AS "
+                    f"SELECT * FROM (VALUES {codes_sql}) AS t(code)"
+                )
+                rel = conn.sql(
+                    f'SELECT r.* FROM rel r SEMI JOIN _icd_filter f '
+                    f'ON SUBSTR(r."{cause_col}", 1, 3) = f.code'
+                )
 
     # --- Age filtering ---
     if age_min is not None or age_max is not None:
@@ -238,6 +289,44 @@ def sus_filter(
         if date_end:
             rel = rel.filter(
                 f'TRY_CAST("{date_col}" AS DATE) <= \'{date_end}\''
+            )
+
+    # --- Education filtering ---
+    if education is not None:
+        edu_list = [education] if isinstance(education, str) else list(education)
+        edu_col = detect_education_column(columns)
+        if not edu_col:
+            raise ValueError(
+                "No education column found in the relation. "
+                "Expected one of: education, education_2010, ESC, ESC2010."
+            )
+        vals = ", ".join(sql_string(e) for e in edu_list)
+        rel = rel.filter(f'"{edu_col}" IN ({vals})')
+
+    # --- City filtering (resolved to IBGE codes) ---
+    if city is not None:
+        city_codes = expand_city_to_codes(city)
+        muni_col = next(
+            (c for c in ("CODMUNRES", "municipality_code", "ID_MUNICIP") if c in columns),
+            None,
+        )
+        if not muni_col:
+            raise ValueError(
+                "No municipality column found in the relation. "
+                "Expected one of: CODMUNRES, municipality_code, ID_MUNICIP."
+            )
+        vals = ", ".join(sql_string(c) for c in city_codes)
+        rel = rel.filter(f'"{muni_col}" IN ({vals})')
+
+    # --- Drop ignored demographic values ---
+    if drop_ignored:
+        ignorable_present = [c for c in _IGNORABLE_DEMO_COLUMNS if c in columns]
+        ignored_vals_sql = ", ".join(f"'{v}'" for v in _IGNORED_VALUES if v != "")
+        for col in ignorable_present:
+            rel = rel.filter(
+                f'("{col}" IS NOT NULL AND '
+                f'TRIM(CAST("{col}" AS VARCHAR)) NOT IN ({ignored_vals_sql}) AND '
+                f"TRIM(CAST(\"{col}\" AS VARCHAR)) != '')"
             )
 
     return rel
