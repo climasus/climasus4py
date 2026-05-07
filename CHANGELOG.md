@@ -2,6 +2,13 @@
 
 ## [0.3.0] - 2026-05-06
 
+### Added — Parâmetros avançados em `sus_filter` (Sub-plano D)
+
+- `match_type="starts_with"|"exact"` — controle de precisão no match CID-10; `"exact"` exige código completo (ex: `"J189"`), `"starts_with"` (padrão) usa prefixo de 3 caracteres. Paridade: `climasus4r::sus_data_filter_cid(match_type=)`
+- `education` — filtra por escolaridade; auto-detecta coluna entre `education`, `education_2010`, `ESC`, `ESC2010`. Paridade: `climasus4r::sus_data_filter_demographics(education=)`
+- `city` — filtra por nome de município; resolve para código IBGE via `climasus-data/spatial/municipalities.parquet`; emite `UserWarning` quando o nome casa múltiplos municípios. Paridade: `climasus4r::sus_data_filter_demographics(city=)`
+- `drop_ignored=False` — quando `True`, remove linhas com valores codificados como ignorado/desconhecido (`9`, `99`, `Ignorado`, `Unknown`, etc.) em colunas demográficas detectáveis. Paridade: `climasus4r::sus_data_filter_demographics(drop_ignored=)`
+
 ### Added — Suíte climática avançada (paridade com `climasus4r` legacy)
 
 - `sus_climate_aggregate` — agregação climática lazy em DuckDB SQL (mensal/sazonal/anual, 10 estatísticas)

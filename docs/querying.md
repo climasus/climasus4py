@@ -63,6 +63,52 @@ rel = cs.sus_data_aggregate(rel, time="month", geo="municipality")
 
 Todo o bloco acima é **zero RAM** — apenas SQL sendo construído.
 
+## Parâmetros avançados de `sus_filter`
+
+### `match_type` — precisão no código CID-10
+
+Por padrão, `sus_filter` usa prefixo de 3 caracteres (`"starts_with"`):
+
+```python
+# "starts_with" (padrão): J18 casa com J189, J180, J181...
+rel = cs.sus_filter(rel, codes=["J18"])
+
+# "exact": apenas J189 — sem prefixo
+rel = cs.sus_filter(rel, codes=["J189"], match_type="exact")
+```
+
+### `education` — filtro por escolaridade
+
+Auto-detecta a coluna entre `education`, `education_2010`, `ESC`, `ESC2010`:
+
+```python
+rel = cs.sus_filter(rel, education=["1", "2"])   # fundamental incompleto/completo
+```
+
+### `city` — filtro por nome de município
+
+Resolve o nome para código IBGE via `climasus-data/spatial/municipalities.parquet`:
+
+```python
+rel = cs.sus_filter(rel, city="São Paulo")
+rel = cs.sus_filter(rel, city=["São Paulo", "Rio de Janeiro"])
+```
+
+> Quando um nome casa múltiplos municípios (ex: "São José"), todos os códigos
+> são usados e um `UserWarning` é emitido.
+
+### `drop_ignored` — remover valores ignorados
+
+Remove linhas onde colunas demográficas detectáveis (sexo, raça, escolaridade,
+idade) contêm valores codificados como ignorado/desconhecido (9, 99, Ignorado, etc.):
+
+```python
+rel = cs.sus_filter(rel, drop_ignored=True)
+
+# Combinável com outros filtros:
+rel = cs.sus_filter(rel, sex="F", drop_ignored=True, education=["3", "4"])
+```
+
 ## Transformações SQL no meio do pipeline
 
 Use `.pipe(cs.sus_sql, ...)` para injetar SQL arbitrário em qualquer ponto.
