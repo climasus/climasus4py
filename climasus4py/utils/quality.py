@@ -12,7 +12,7 @@ from ..core._sql import fetchone_scalar
 from ..core.engine import get_connection, is_relation
 
 
-def sus_quality(
+def sus_data_quality_report(
     data: duckdb.DuckDBPyRelation | pd.DataFrame,
 ) -> dict:
     """Calculate data quality metrics for a SUS dataset.
@@ -35,7 +35,7 @@ def sus_quality(
 
     Example:
         >>> import climasus4py as cs
-        >>> metrics = cs.sus_quality(rel)
+        >>> metrics = cs.sus_data_quality_report(rel)
         >>> metrics["total_rows"]
         334303
         >>> isinstance(metrics.get("completeness"), dict)

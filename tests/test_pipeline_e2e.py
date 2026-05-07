@@ -69,9 +69,9 @@ def test_filter_cid():
 
 
 def test_quality():
-    """sus_quality returns a report dict."""
+    """sus_data_quality_report returns a report dict."""
     rel = cs.sus_data_import("SIM-DO", "SP", 2023, path=str(PARQUET))
-    report = cs.sus_quality(rel)
+    report = cs.sus_data_quality_report(rel)
     assert isinstance(report, dict)
     assert "total_rows" in report
     assert report["total_rows"] > 0

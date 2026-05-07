@@ -36,7 +36,7 @@ from .io.read import sus_data_read
 from .utils import update_climasus_data
 from .utils.chat import sus_chat
 from .utils.explore import sus_explore
-from .utils.quality import sus_quality
+from .utils.quality import sus_data_quality_report
 
 __all__ = [
     "__version__",
@@ -66,7 +66,7 @@ __all__ = [
     "sus_fill_gaps",
     # Utilities
     "sus_explore",
-    "sus_quality",
+    "sus_data_quality_report",
     "sus_chat",
     "update_climasus_data",
 ]
