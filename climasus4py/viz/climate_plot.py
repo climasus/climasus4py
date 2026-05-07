@@ -16,7 +16,7 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 import pandas as pd
 
@@ -102,7 +102,7 @@ def sus_climate_plot_fill(
     lang: str = "pt",
     color_palette: tuple[str, str] = ("#2196F3", "#F44336"),
     verbose: bool = False,
-) -> "plotnine.ggplot":  # type: ignore[name-defined]
+) -> Any:  # returns plotnine.ggplot or dict[str, Any]
     """Visualise before/after of ``sus_climate_fill_inmet`` output.
 
     Produces a ``plotnine.ggplot`` (Grammar of Graphics) time-series plot
@@ -156,16 +156,15 @@ def sus_climate_plot_fill(
     """
     _require_plotnine()
 
-    from plotnine import (
-        ggplot,
+    from plotnine import (  # noqa: I001
         aes,
         geom_line,
         geom_point,
+        ggplot,
         labs,
         scale_color_manual,
-        theme_minimal,
         theme,
-        element_text,
+        theme_minimal,
     )
 
     strings = _I18N.get(lang, _I18N["en"])

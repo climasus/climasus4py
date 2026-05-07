@@ -180,7 +180,7 @@ def test_output_contains_station_and_time_bucket(inmet_rel):
 
 
 def test_all_stats_produce_expected_columns(single_station_rel):
-    stats = ["mean", "min", "max", "std", "p10", "p90"]
+    stats = ["mean", "min", "max", "std", "p10", "p25", "p75", "p90", "p99", "median"]
     result = sus_climate_aggregate(
         single_station_rel, time_resolution="monthly", stats=stats, verbose=False
     )
@@ -188,6 +188,27 @@ def test_all_stats_produce_expected_columns(single_station_rel):
     for stat in stats:
         col = f"tair_dry_bulb_c_{stat}"
         assert col in df.columns, f"Missing column: {col}"
+
+
+# ---------------------------------------------------------------------------
+# B.1.9a — No station column → aggregation across all stations
+# ---------------------------------------------------------------------------
+
+
+def test_aggregate_without_station_column():
+    """When the relation has no station column, _detect_station_column returns None."""
+    import numpy as np
+
+    rng = np.random.default_rng(42)
+    df = pd.DataFrame(
+        {
+            "date": pd.date_range("2023-01-01", periods=20, freq="D"),
+            "tair_dry_bulb_c": rng.uniform(20.0, 35.0, 20),
+        }
+    )
+    no_station = get_connection().from_df(df)
+    result = sus_climate_aggregate(no_station, time_resolution="monthly", verbose=False)
+    assert "time_bucket" in result.df().columns
 
 
 # ---------------------------------------------------------------------------

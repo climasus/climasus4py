@@ -137,3 +137,47 @@ def test_multilingual_does_not_raise(filled_df, lang):
         filled_df, target_var="tair_dry_bulb_c", lang=lang
     )
     assert isinstance(result, ggplot)
+
+
+# ---------------------------------------------------------------------------
+# B.4.7 — Helper _detect_datetime_col (no plotnine needed)
+# ---------------------------------------------------------------------------
+
+
+def test_detect_datetime_col_finds_date_col(filled_df):
+    from climasus4py.viz.climate_plot import _detect_datetime_col
+
+    assert _detect_datetime_col(filled_df) == "date"
+
+
+def test_detect_datetime_col_finds_time_col():
+    from climasus4py.viz.climate_plot import _detect_datetime_col
+
+    df = pd.DataFrame({"timestamp": pd.date_range("2023-01", periods=3), "val": [1, 2, 3]})
+    assert _detect_datetime_col(df) == "timestamp"
+
+
+def test_detect_datetime_col_raises_when_missing():
+    from climasus4py.viz.climate_plot import _detect_datetime_col
+
+    df = pd.DataFrame({"value": [1, 2, 3]})
+    with pytest.raises(ValueError, match="auto-detect"):
+        _detect_datetime_col(df)
+
+
+# ---------------------------------------------------------------------------
+# B.4.8 — Helper _detect_station_col (no plotnine needed)
+# ---------------------------------------------------------------------------
+
+
+def test_detect_station_col_finds_station(filled_df):
+    from climasus4py.viz.climate_plot import _detect_station_col
+
+    assert _detect_station_col(filled_df) == "station_code"
+
+
+def test_detect_station_col_returns_none_when_missing():
+    from climasus4py.viz.climate_plot import _detect_station_col
+
+    df = pd.DataFrame({"date": pd.date_range("2023-01", periods=2), "val": [1, 2]})
+    assert _detect_station_col(df) is None

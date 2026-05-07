@@ -6,7 +6,8 @@ Lazy ponta a ponta: returns DuckDBPyRelation, never materialises internally.
 
 from __future__ import annotations
 
-from typing import Literal, Sequence
+from collections.abc import Sequence
+from typing import Literal
 
 import duckdb
 

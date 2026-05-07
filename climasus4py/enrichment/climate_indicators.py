@@ -16,7 +16,7 @@ Scientific references:
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 import duckdb
 import pandas as pd
@@ -222,7 +222,7 @@ def _render_indicator_sql(
 
 
 def sus_climate_compute_indicators(
-    rel: "duckdb.DuckDBPyRelation | pd.DataFrame",
+    rel: duckdb.DuckDBPyRelation | pd.DataFrame,
     *,
     indicators: Sequence[str] | None = None,
     station_col: str | None = None,
@@ -282,10 +282,7 @@ def sus_climate_compute_indicators(
     conn = get_connection()
 
     # Normalise to DuckDBPyRelation
-    if isinstance(rel, pd.DataFrame):
-        _rel = conn.from_df(rel)
-    else:
-        _rel = rel
+    _rel = conn.from_df(rel) if isinstance(rel, pd.DataFrame) else rel
 
     # Resolve indicator list
     if indicators is None:

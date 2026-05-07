@@ -87,7 +87,7 @@ def _detect_station_col(df: pd.DataFrame) -> str | None:
 def _detect_datetime_col(df: pd.DataFrame) -> str | None:
     for col in df.columns:
         low = col.lower()
-        if "date" in low or "time" in low or "dt" == low:
+        if "date" in low or "time" in low or low == "dt":
             return col
     return None
 
@@ -255,7 +255,7 @@ def _fill_xgboost_station(
 
 def sus_climate_fill_inmet(
     df: pd.DataFrame,
-    target_var: "str | list[str]",
+    target_var: str | list[str],
     *,
     datetime_col: str | None = None,
     station_col: str | None = None,
@@ -269,7 +269,7 @@ def sus_climate_fill_inmet(
     lang: str = "pt",
     backend: Literal["auto", "xgboost", "linear"] = "auto",
     cache_dir: Path | str | None = None,
-) -> "pd.DataFrame | dict":
+) -> pd.DataFrame | dict:
     """Fill gaps in INMET station data via XGBoost (opt-in) or linear fallback.
 
     Mirrors ``climasus4r::sus_climate_fill_inmet`` exactly.
@@ -450,11 +450,16 @@ def sus_climate_fill_inmet(
                     result_df["_station_tmp"] = "_global"
                     _station_col = "_station_tmp"
 
-            def _process(st: str) -> tuple[str, pd.DataFrame, dict | None]:
-                mask = result_df[_station_col] == st
-                chunk = result_df[mask].copy()
+            def _process(
+                st: str,
+                _df: pd.DataFrame = result_df,
+                _scol: str | None = _station_col,
+                _var: str = var,
+            ) -> tuple[str, pd.DataFrame, dict | None]:
+                mask = _df[_scol] == st
+                chunk = _df[mask].copy()
                 chunk_out, metrics = _fill_xgboost_station(
-                    chunk, var, st, _cache_dir, run_evaluation, gap_percentage
+                    chunk, _var, st, _cache_dir, run_evaluation, gap_percentage
                 )
                 return st, chunk_out, metrics
 
@@ -465,7 +470,7 @@ def sus_climate_fill_inmet(
             # Reassemble
             chunks = []
             all_eval: list[dict] = []
-            for st, chunk_out, met in station_results:  # type: ignore[misc]
+            for _st, chunk_out, met in station_results:  # type: ignore[misc]
                 chunks.append(chunk_out)
                 if met:
                     all_eval.append(met)
@@ -500,6 +505,10 @@ def sus_climate_fill_inmet(
             result_df = result_df.drop(columns=drop_cols, errors="ignore")
 
     if run_evaluation:
-        return eval_results if eval_results else {"_no_gaps": {"data": result_df, "metrics": pd.DataFrame()}}
+        return (
+            eval_results
+            if eval_results
+            else {"_no_gaps": {"data": result_df, "metrics": pd.DataFrame()}}
+        )
 
     return result_df
