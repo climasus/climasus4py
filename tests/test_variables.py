@@ -1,4 +1,4 @@
-"""Tests for sus_variables — age groups, epi weeks, season, quarter, etc.
+"""Tests for sus_data_create_variables — age groups, epi weeks, season, quarter, etc.
 
 Focuses on:
   - Age group bucketing with IDADE decoding
@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from climasus4py.core.engine import get_connection
-from climasus4py.core.variables import sus_variables
+from climasus4py.core.variables import sus_data_create_variables
 
 
 def _make_rel(data: dict):
@@ -33,7 +33,7 @@ class TestAgeGroup:
 
     def test_decadal_groups(self, rel_with_idade):
         """Decadal age groups should use decoded IDADE."""
-        result = sus_variables(rel_with_idade, age_group="decadal")
+        result = sus_data_create_variables(rel_with_idade, age_group="decadal")
         df = result.df()
         assert "age_group" in df.columns
         groups = df["age_group"].tolist()
@@ -44,7 +44,7 @@ class TestAgeGroup:
         assert "60-69" in groups
 
     def test_who_groups(self, rel_with_idade):
-        result = sus_variables(rel_with_idade, age_group="who")
+        result = sus_data_create_variables(rel_with_idade, age_group="who")
         df = result.df()
         assert "age_group" in df.columns
         # Check some expected buckets
@@ -53,7 +53,7 @@ class TestAgeGroup:
         assert "20-24" in groups  # age 20
 
     def test_custom_breaks(self, rel_with_idade):
-        result = sus_variables(rel_with_idade, age_group=[0, 18, 65])
+        result = sus_data_create_variables(rel_with_idade, age_group=[0, 18, 65])
         df = result.df()
         groups = df["age_group"].tolist()
         # 5→0-17, 20→18-64, 50→18-64, 68→65+, 90→65+, 100→65+, 0→0-17, 0→0-17
@@ -63,7 +63,7 @@ class TestAgeGroup:
 
     def test_no_age_group(self, rel_with_idade):
         """When age_group=None, no age_group column added."""
-        result = sus_variables(rel_with_idade)
+        result = sus_data_create_variables(rel_with_idade)
         df = result.df()
         assert "age_group" not in df.columns
 
@@ -83,14 +83,14 @@ class TestTemporalVariables:
         })
 
     def test_epi_week(self, rel_with_dates):
-        result = sus_variables(rel_with_dates, epi_week=True)
+        result = sus_data_create_variables(rel_with_dates, epi_week=True)
         df = result.df()
         assert "epi_week" in df.columns
         assert all(df["epi_week"].notna())
 
     def test_season(self, rel_with_dates):
         """Southern hemisphere seasons."""
-        result = sus_variables(rel_with_dates, season=True)
+        result = sus_data_create_variables(rel_with_dates, season=True)
         df = result.df()
         assert "season" in df.columns
         seasons = df["season"].tolist()
@@ -101,17 +101,17 @@ class TestTemporalVariables:
         assert seasons[3] == "Summer"
 
     def test_quarter(self, rel_with_dates):
-        result = sus_variables(rel_with_dates, quarter=True)
+        result = sus_data_create_variables(rel_with_dates, quarter=True)
         df = result.df()
         assert "quarter" in df.columns
 
     def test_month_name(self, rel_with_dates):
-        result = sus_variables(rel_with_dates, month_name=True)
+        result = sus_data_create_variables(rel_with_dates, month_name=True)
         df = result.df()
         assert "month_name" in df.columns
 
     def test_day_of_week(self, rel_with_dates):
-        result = sus_variables(rel_with_dates, day_of_week=True)
+        result = sus_data_create_variables(rel_with_dates, day_of_week=True)
         df = result.df()
         assert "day_of_week" in df.columns
 
@@ -119,7 +119,7 @@ class TestTemporalVariables:
         """When temporal vars are requested, a date column is required."""
         rel = _make_rel({"VALUE": [1, 2, 3]})
         with pytest.raises(ValueError, match="date column"):
-            sus_variables(rel, epi_week=True, season=True)
+            sus_data_create_variables(rel, epi_week=True, season=True)
 
 
 if __name__ == "__main__":

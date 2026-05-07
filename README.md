@@ -64,7 +64,7 @@ x = cs.sus_data_standardize(x, lang="en")
 x = cs.sus_filter(x, groups=["dengue"], age_min=0, age_max=80)
 
 # 5. Create variables
-x = cs.sus_variables(x, age_group="who", epi_week=True)
+x = cs.sus_data_create_variables(x, age_group="who", epi_week=True)
 
 # 6. Aggregate
 x = cs.sus_aggregate(x, time="month", geo="state")

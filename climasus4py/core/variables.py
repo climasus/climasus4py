@@ -84,7 +84,7 @@ def _season_case_sql(date_cast: str, hemisphere: str = "south") -> str:
     return f"CASE {' '.join(parts)} END"
 
 
-def sus_variables(
+def sus_data_create_variables(
     rel: duckdb.DuckDBPyRelation,
     *,
     age_group: str | list[int] | None = None,

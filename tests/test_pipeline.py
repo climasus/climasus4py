@@ -61,7 +61,7 @@ def _make_passthrough(name: str, calls: list[str]):
 
 def _patch_all_stages(monkeypatch, mod, calls: list[str]) -> None:
     """Monkeypatcha todos os stages do pipeline com passthroughs rastreáveis."""
-    for stage in ("sus_data_clean_encoding", "sus_data_standardize", "sus_filter", "sus_variables", "sus_aggregate"):
+    for stage in ("sus_data_clean_encoding", "sus_data_standardize", "sus_filter", "sus_data_create_variables", "sus_aggregate"):
         monkeypatch.setattr(mod, stage, _make_passthrough(stage.replace("sus_", ""), calls))
 
 
@@ -240,7 +240,7 @@ class TestPipelineStaging:
         monkeypatch.setattr(mod, "sus_data_clean_encoding", _make_passthrough("clean", calls))
         monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", capturing_filter)
-        monkeypatch.setattr(mod, "sus_variables", _make_passthrough("variables", calls))
+        monkeypatch.setattr(mod, "sus_data_create_variables", _make_passthrough("variables", calls))
         monkeypatch.setattr(mod, "sus_aggregate", _make_passthrough("aggregate", calls))
 
         mod.sus_pipeline(
@@ -269,7 +269,7 @@ class TestPipelineStaging:
         monkeypatch.setattr(mod, "sus_data_clean_encoding", _make_passthrough("clean", calls))
         monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", capturing_filter)
-        monkeypatch.setattr(mod, "sus_variables", _make_passthrough("variables", calls))
+        monkeypatch.setattr(mod, "sus_data_create_variables", _make_passthrough("variables", calls))
         monkeypatch.setattr(mod, "sus_aggregate", _make_passthrough("aggregate", calls))
 
         mod.sus_pipeline(
@@ -298,7 +298,7 @@ class TestPipelineStaging:
         monkeypatch.setattr(mod, "sus_data_clean_encoding", _make_passthrough("clean", calls))
         monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", capturing_filter)
-        monkeypatch.setattr(mod, "sus_variables", _make_passthrough("variables", calls))
+        monkeypatch.setattr(mod, "sus_data_create_variables", _make_passthrough("variables", calls))
         monkeypatch.setattr(mod, "sus_aggregate", _make_passthrough("aggregate", calls))
 
         mod.sus_pipeline(
@@ -315,7 +315,7 @@ class TestPipelineStaging:
         assert filter_kwargs.get("age_max") == 65
 
     def test_variables_receives_epi_week(self, monkeypatch, tmp_path):
-        """sus_variables deve receber epi_week=True."""
+        """sus_data_create_variables deve receber epi_week=True."""
         from climasus4py.core import pipeline as mod
 
         variables_kwargs: dict = {}
@@ -329,7 +329,7 @@ class TestPipelineStaging:
         monkeypatch.setattr(mod, "sus_data_clean_encoding", _make_passthrough("clean", calls))
         monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", _make_passthrough("filter", calls))
-        monkeypatch.setattr(mod, "sus_variables", capturing_variables)
+        monkeypatch.setattr(mod, "sus_data_create_variables", capturing_variables)
         monkeypatch.setattr(mod, "sus_aggregate", _make_passthrough("aggregate", calls))
 
         mod.sus_pipeline(
@@ -357,7 +357,7 @@ class TestPipelineStaging:
         monkeypatch.setattr(mod, "sus_data_clean_encoding", _make_passthrough("clean", calls))
         monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", _make_passthrough("filter", calls))
-        monkeypatch.setattr(mod, "sus_variables", _make_passthrough("variables", calls))
+        monkeypatch.setattr(mod, "sus_data_create_variables", _make_passthrough("variables", calls))
         monkeypatch.setattr(mod, "sus_aggregate", capturing_aggregate)
 
         mod.sus_pipeline(
@@ -475,7 +475,7 @@ class TestPipelineMultiInput:
         monkeypatch.setattr(mod, "sus_data_clean_encoding", _make_passthrough("clean", calls))
         monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", capturing_filter)
-        monkeypatch.setattr(mod, "sus_variables", _make_passthrough("variables", calls))
+        monkeypatch.setattr(mod, "sus_data_create_variables", _make_passthrough("variables", calls))
         monkeypatch.setattr(mod, "sus_aggregate", _make_passthrough("aggregate", calls))
 
         mod.sus_pipeline(

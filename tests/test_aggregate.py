@@ -7,7 +7,7 @@ import pytest
 
 from climasus4py.core.aggregate import sus_aggregate
 from climasus4py.core.engine import get_connection
-from climasus4py.core.variables import sus_variables
+from climasus4py.core.variables import sus_data_create_variables
 
 
 def _make_rel(data: dict):
@@ -96,14 +96,14 @@ class TestWeekFormatSVS:
             assert re.fullmatch(r"\d{4}-W\d{2}", val), f"Expected YYYY-WXX, got {val!r}"
 
     def test_aggregate_and_variables_aligned(self):
-        """sus_aggregate(time='week') and sus_variables(epi_week=True) must return identical values."""
+        """sus_aggregate(time='week') and sus_data_create_variables(epi_week=True) must return identical values."""
         dates = pd.to_datetime([
             "2023-01-01", "2023-06-15", "2023-12-25",
             "2023-03-19", "2023-09-03",
         ])
         rel = _make_rel({"DTOBITO": dates})
         agg_weeks = set(sus_aggregate(rel, time="week", geo="state").df()["time_group"].dropna())
-        var_weeks = set(sus_variables(rel, epi_week=True).df()["epi_week"].dropna())
+        var_weeks = set(sus_data_create_variables(rel, epi_week=True).df()["epi_week"].dropna())
         assert agg_weeks == var_weeks, (
             f"Mismatch between aggregate and variables week values:\n"
             f"aggregate: {sorted(agg_weeks)}\nvariables: {sorted(var_weeks)}"

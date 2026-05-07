@@ -24,7 +24,7 @@ from .core.importer import sus_data_import
 from .core.pipeline import sus_pipeline
 from .core.standardize import sus_data_standardize
 from .core.sus_sql import sus_sql
-from .core.variables import sus_variables
+from .core.variables import sus_data_create_variables
 from .enrichment.census import sus_census
 from .enrichment.climate import sus_climate
 from .enrichment.fill_gaps import sus_fill_gaps
@@ -47,7 +47,7 @@ __all__ = [
     "sus_data_clean_encoding",
     "sus_data_standardize",
     "sus_filter",
-    "sus_variables",
+    "sus_data_create_variables",
     "sus_aggregate",
     "collect_arrow",
     "sus_sql",

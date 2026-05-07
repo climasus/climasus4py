@@ -12,7 +12,7 @@ flowchart LR
     A(["sus_data_import\nsus_read\nsus_sql"]) --> B[sus_data_clean_encoding]
     B --> C[sus_data_standardize]
     C --> D[sus_filter]
-    D --> E[sus_variables]
+    D --> E[sus_data_create_variables]
     E --> F[sus_aggregate]
     F --> G(["sus_spatial\nsus_census\nsus_climate\nsus_fill_gaps"])
     G --> H(["materialize\nsus_export"])
@@ -38,7 +38,7 @@ flowchart LR
 | 1 | `sus_data_clean_encoding(rel)` | Remove colunas desnecessárias, normaliza encoding |
 | 2 | `sus_data_standardize(rel, system)` | Renomeia colunas para nomes canônicos do sistema (SIM-DO, SINASC…) |
 | 3 | `sus_filter(rel, ...)` | Filtra por CID-10, idade, sexo, raça, UF, município, data |
-| 4 | `sus_variables(rel, ...)` | Deriva variáveis: faixa etária, semana epidemiológica, estação do ano |
+| 4 | `sus_data_create_variables(rel, ...)` | Deriva variáveis: faixa etária, semana epidemiológica, estação do ano |
 | 5 | `sus_aggregate(rel, ...)` | Agrega por tempo (dia/semana/mês/ano) e geografia (município/estado) |
 
 ### Enriquecimentos (opcionais, após aggregate)
