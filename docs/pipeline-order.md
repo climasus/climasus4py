@@ -9,7 +9,7 @@ exatamente onde você está e o que deveria ter sido chamado antes.
 
 ```mermaid
 flowchart LR
-    A(["sus_import\nsus_read\nsus_sql"]) --> B[sus_clean]
+    A(["sus_data_import\nsus_read\nsus_sql"]) --> B[sus_clean]
     B --> C[sus_standardize]
     C --> D[sus_filter]
     D --> E[sus_variables]
@@ -27,7 +27,7 @@ flowchart LR
 
 | Função | Propósito |
 |---|---|
-| `sus_import(system, uf, year)` | Baixa do FTP DATASUS, cacheia, retorna lazy |
+| `sus_data_import(system, uf, year)` | Baixa do FTP DATASUS, cacheia, retorna lazy |
 | `sus_read(path)` | Abre Parquet/GeoParquet local como lazy |
 | `sus_sql(query)` | SQL DuckDB arbitrário como ponto de entrada |
 
@@ -85,8 +85,8 @@ df  = cs.materialize(rel)
 Para combinar dados de múltiplos sistemas, use `sus_sql` como cola:
 
 ```python
-sim = cs.sus_import("SIM-DO", "SP", 2023)
-sinasc = cs.sus_import("SINASC", "SP", 2023)
+sim = cs.sus_data_import("SIM-DO", "SP", 2023)
+sinasc = cs.sus_data_import("SINASC", "SP", 2023)
 
 # Combinar via SQL após aggregate
 sim_agg = cs.sus_aggregate(cs.sus_standardize(cs.sus_clean(sim), "SIM-DO"), time="month", geo="municipality")

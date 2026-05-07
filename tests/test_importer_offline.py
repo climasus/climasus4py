@@ -1,7 +1,7 @@
 """Tests offline para importer.py — sem I/O real de rede.
 
 Cobre _coerce_datasus_types, _download_ftp (retry), _resolve_dbc_path,
-_read_dbc fallback chain e sus_import (modo data= e cache hit).
+_read_dbc fallback chain e sus_data_import (modo data= e cache hit).
 """
 
 from __future__ import annotations
@@ -352,13 +352,13 @@ class TestReadDbc:
 
 
 # ---------------------------------------------------------------------------
-# TestSusImportModes — sus_import sem rede
+# TestSusImportModes — sus_data_import sem rede
 # ---------------------------------------------------------------------------
 
 class TestSusImportModes:
     def test_data_mode_wraps_dataframe(self, tmp_path):
-        """sus_import(data=df) deve retornar relação DuckDB sem download."""
-        from climasus4py.core.importer import sus_import
+        """sus_data_import(data=df) deve retornar relação DuckDB sem download."""
+        from climasus4py.core.importer import sus_data_import
 
         df = pd.DataFrame({
             "DTOBITO": pd.to_datetime(["2022-01-01", "2022-02-15"]),
@@ -366,7 +366,7 @@ class TestSusImportModes:
             "IDADE": [420, 460],
         })
 
-        rel = sus_import("SIM-DO", "SP", 2022, data=df, cache_dir=tmp_path, verbose=False)
+        rel = sus_data_import("SIM-DO", "SP", 2022, data=df, cache_dir=tmp_path, verbose=False)
 
         assert rel is not None
         result_df = rel.df()
@@ -374,10 +374,10 @@ class TestSusImportModes:
 
     def test_data_mode_preserves_row_count(self, tmp_path):
         """Modo data= deve preservar número de linhas."""
-        from climasus4py.core.importer import sus_import
+        from climasus4py.core.importer import sus_data_import
 
         df = pd.DataFrame({"CAUSABAS": [f"J{i:03d}" for i in range(10)]})
-        rel = sus_import("SIM-DO", "SP", 2022, data=df, cache_dir=tmp_path, verbose=False)
+        rel = sus_data_import("SIM-DO", "SP", 2022, data=df, cache_dir=tmp_path, verbose=False)
 
         count = rel.count("*").fetchone()[0]
         assert count == 10
@@ -407,22 +407,22 @@ class TestSusImportModes:
 
         monkeypatch.setattr(urllib.request, "urlopen", fail_urlopen)
 
-        rel = _imp.sus_import("SIM-DO", "SP", 2022, cache_dir=tmp_path, verbose=False)
+        rel = _imp.sus_data_import("SIM-DO", "SP", 2022, cache_dir=tmp_path, verbose=False)
 
         assert rel is not None
         result_df = rel.df()
         assert len(result_df) == 1
 
     def test_path_mode_reads_parquet(self, tmp_path):
-        """sus_import(path=...) deve ler parquet local diretamente."""
-        from climasus4py.core.importer import sus_import
+        """sus_data_import(path=...) deve ler parquet local diretamente."""
+        from climasus4py.core.importer import sus_data_import
 
         # Criar parquet local
         df_src = pd.DataFrame({"CAUSABAS": ["J189", "I219", "K920"]})
         parquet_path = tmp_path / "source.parquet"
         pq.write_table(pa.Table.from_pandas(df_src), parquet_path)
 
-        rel = sus_import(
+        rel = sus_data_import(
             "SIM-DO", "SP", 2022,
             path=str(parquet_path),
             cache_dir=tmp_path,
@@ -435,13 +435,13 @@ class TestSusImportModes:
 
     def test_path_mode_unsupported_format_raises(self, tmp_path):
         """Formato de arquivo não suportado deve levantar ValueError."""
-        from climasus4py.core.importer import sus_import
+        from climasus4py.core.importer import sus_data_import
 
         fake_xlsx = tmp_path / "data.xlsx"
         fake_xlsx.write_bytes(b"fake xlsx")
 
         with pytest.raises(ValueError, match="Unsupported file format"):
-            sus_import("SIM-DO", "SP", 2022, path=str(fake_xlsx), cache_dir=tmp_path, verbose=False)
+            sus_data_import("SIM-DO", "SP", 2022, path=str(fake_xlsx), cache_dir=tmp_path, verbose=False)
 
     def test_no_data_raises_runtime_error(self, tmp_path, monkeypatch):
         """Quando download falha e cache está vazio, deve levantar RuntimeError."""
@@ -457,7 +457,7 @@ class TestSusImportModes:
         monkeypatch.setattr(_imp, "_resolve_dbc_path", lambda *a, **kw: None)
 
         with pytest.raises(RuntimeError, match="No data imported"):
-            _imp.sus_import(
+            _imp.sus_data_import(
                 "SIM-DO", "SP", 2022,
                 cache_dir=tmp_path,
                 cache=False,

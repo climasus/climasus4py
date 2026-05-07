@@ -52,7 +52,7 @@ print(result.df().head())
 import climasus4py as cs
 
 # 1. Import and cache
-x = cs.sus_import("SIM-DO", "SP", [2021, 2022])
+x = cs.sus_data_import("SIM-DO", "SP", [2021, 2022])
 
 # 2. Clean
 x = cs.sus_clean(x)
@@ -77,7 +77,7 @@ To preserve the original DATASUS `.dbc` files for audit or reuse, enable the raw
 cache explicitly:
 
 ```python
-x = cs.sus_import(
+x = cs.sus_data_import(
     "SINAN-DENGUE",
     "SP",
     2024,

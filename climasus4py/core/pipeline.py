@@ -17,7 +17,7 @@ from .aggregate import sus_aggregate
 from .clean import sus_clean
 from .engine import get_connection
 from .filter import sus_filter
-from .importer import sus_import
+from .importer import sus_data_import
 from .standardize import sus_standardize
 from .variables import sus_variables
 
@@ -214,7 +214,7 @@ def sus_pipeline(
         cache_dir: Root directory for the Parquet cache.
         verbose: Print progress messages via Rich.
         **kwargs: Additional keyword arguments forwarded to
-            :func:`~climasus.core.importer.sus_import`.
+            :func:`~climasus.core.importer.sus_data_import`.
 
     Returns:
         Lazy ``duckdb.DuckDBPyRelation`` with aggregated results, or a
@@ -231,7 +231,7 @@ def sus_pipeline(
     group_list = [groups] if isinstance(groups, str) else groups
 
     # Step 1: Import (always needed — resolves UFs, discovers/downloads parquets)
-    rel = sus_import(system, uf, year, cache_dir=cache_dir, verbose=verbose, **kwargs)
+    rel = sus_data_import(system, uf, year, cache_dir=cache_dir, verbose=verbose, **kwargs)
 
     # --- Try fast path: single CTE query like R rc_a ---
     if _can_fast_path(age_group, epi_week, time, geo):

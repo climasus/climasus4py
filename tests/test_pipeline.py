@@ -1,6 +1,6 @@
 """Tests for sus_pipeline — orchestração, composição de stages e fast-path.
 
-Cobre pipeline.py e _stage.py com mocks de sus_import para evitar I/O real.
+Cobre pipeline.py e _stage.py com mocks de sus_data_import para evitar I/O real.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ def _synthetic_sim_do(n: int = 5) -> pd.DataFrame:
 
 
 def _make_import_mock(df: pd.DataFrame):
-    """Retorna função substituta para sus_import que devolve relação sintética."""
+    """Retorna função substituta para sus_data_import que devolve relação sintética."""
 
     def _fake_import(system, uf, year, **kwargs):
         conn = get_connection()
@@ -165,18 +165,18 @@ class TestCanFastPath:
 
 
 # ---------------------------------------------------------------------------
-# sus_pipeline — composição de stages via mocked sus_import
+# sus_pipeline — composição de stages via mocked sus_data_import
 # ---------------------------------------------------------------------------
 
 class TestPipelineStaging:
-    """Testa lógica de orquestração com sus_import e stages mockados."""
+    """Testa lógica de orquestração com sus_data_import e stages mockados."""
 
     def test_pipeline_returns_result(self, monkeypatch, tmp_path):
         """sus_pipeline deve retornar algo quando stages são passthrough."""
         from climasus4py.core import pipeline as mod
 
         calls: list[str] = []
-        monkeypatch.setattr(mod, "sus_import", _make_import_mock(_synthetic_sim_do()))
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
         _patch_all_stages(monkeypatch, mod, calls)
 
         result = mod.sus_pipeline(
@@ -193,7 +193,7 @@ class TestPipelineStaging:
         from climasus4py.core import pipeline as mod
 
         calls: list[str] = []
-        monkeypatch.setattr(mod, "sus_import", _make_import_mock(_synthetic_sim_do()))
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
         _patch_all_stages(monkeypatch, mod, calls)
 
         mod.sus_pipeline(
@@ -211,7 +211,7 @@ class TestPipelineStaging:
         from climasus4py.core import pipeline as mod
 
         calls: list[str] = []
-        monkeypatch.setattr(mod, "sus_import", _make_import_mock(_synthetic_sim_do()))
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
         _patch_all_stages(monkeypatch, mod, calls)
 
         mod.sus_pipeline(
@@ -236,7 +236,7 @@ class TestPipelineStaging:
             calls.append("filter")
             return rel
 
-        monkeypatch.setattr(mod, "sus_import", _make_import_mock(_synthetic_sim_do()))
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
         monkeypatch.setattr(mod, "sus_clean", _make_passthrough("clean", calls))
         monkeypatch.setattr(mod, "sus_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", capturing_filter)
@@ -265,7 +265,7 @@ class TestPipelineStaging:
             filter_kwargs.update(kwargs)
             return rel
 
-        monkeypatch.setattr(mod, "sus_import", _make_import_mock(_synthetic_sim_do()))
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
         monkeypatch.setattr(mod, "sus_clean", _make_passthrough("clean", calls))
         monkeypatch.setattr(mod, "sus_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", capturing_filter)
@@ -294,7 +294,7 @@ class TestPipelineStaging:
             filter_kwargs.update(kwargs)
             return rel
 
-        monkeypatch.setattr(mod, "sus_import", _make_import_mock(_synthetic_sim_do()))
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
         monkeypatch.setattr(mod, "sus_clean", _make_passthrough("clean", calls))
         monkeypatch.setattr(mod, "sus_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", capturing_filter)
@@ -325,7 +325,7 @@ class TestPipelineStaging:
             variables_kwargs.update(kwargs)
             return rel
 
-        monkeypatch.setattr(mod, "sus_import", _make_import_mock(_synthetic_sim_do()))
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
         monkeypatch.setattr(mod, "sus_clean", _make_passthrough("clean", calls))
         monkeypatch.setattr(mod, "sus_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", _make_passthrough("filter", calls))
@@ -353,7 +353,7 @@ class TestPipelineStaging:
             aggregate_kwargs.update(kwargs)
             return rel
 
-        monkeypatch.setattr(mod, "sus_import", _make_import_mock(_synthetic_sim_do()))
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
         monkeypatch.setattr(mod, "sus_clean", _make_passthrough("clean", calls))
         monkeypatch.setattr(mod, "sus_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", _make_passthrough("filter", calls))
@@ -380,7 +380,7 @@ class TestPipelineStaging:
 
 class TestPipelineMultiInput:
     def test_multi_uf_list_passed_to_sus_import(self, monkeypatch, tmp_path):
-        """sus_import deve receber a lista de UFs sem modificação."""
+        """sus_data_import deve receber a lista de UFs sem modificação."""
         from climasus4py.core import pipeline as mod
 
         received_uf = []
@@ -393,7 +393,7 @@ class TestPipelineMultiInput:
             set_stage(rel, "import")
             return rel
 
-        monkeypatch.setattr(mod, "sus_import", fake_import)
+        monkeypatch.setattr(mod, "sus_data_import", fake_import)
         _patch_all_stages(monkeypatch, mod, calls)
 
         mod.sus_pipeline(
@@ -407,7 +407,7 @@ class TestPipelineMultiInput:
         assert received_uf == [["SP", "RJ"]]
 
     def test_multi_year_list_passed_to_sus_import(self, monkeypatch, tmp_path):
-        """sus_import deve receber lista de anos."""
+        """sus_data_import deve receber lista de anos."""
         from climasus4py.core import pipeline as mod
 
         received_year = []
@@ -420,7 +420,7 @@ class TestPipelineMultiInput:
             set_stage(rel, "import")
             return rel
 
-        monkeypatch.setattr(mod, "sus_import", fake_import)
+        monkeypatch.setattr(mod, "sus_data_import", fake_import)
         _patch_all_stages(monkeypatch, mod, calls)
 
         mod.sus_pipeline(
@@ -434,7 +434,7 @@ class TestPipelineMultiInput:
         assert received_year == [[2020, 2021, 2022]]
 
     def test_single_year_int_passed_to_sus_import(self, monkeypatch, tmp_path):
-        """Ano como int deve chegar sem transformação em sus_import."""
+        """Ano como int deve chegar sem transformação em sus_data_import."""
         from climasus4py.core import pipeline as mod
 
         received_year = []
@@ -447,7 +447,7 @@ class TestPipelineMultiInput:
             set_stage(rel, "import")
             return rel
 
-        monkeypatch.setattr(mod, "sus_import", fake_import)
+        monkeypatch.setattr(mod, "sus_data_import", fake_import)
         _patch_all_stages(monkeypatch, mod, calls)
 
         mod.sus_pipeline(
@@ -471,7 +471,7 @@ class TestPipelineMultiInput:
             filter_kwargs.update(kwargs)
             return rel
 
-        monkeypatch.setattr(mod, "sus_import", _make_import_mock(_synthetic_sim_do()))
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
         monkeypatch.setattr(mod, "sus_clean", _make_passthrough("clean", calls))
         monkeypatch.setattr(mod, "sus_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", capturing_filter)
@@ -667,7 +667,7 @@ class TestPipelineFastPath:
         parquet_path.parent.mkdir(parents=True, exist_ok=True)
         pq.write_table(pa.Table.from_pandas(df), parquet_path)
 
-        monkeypatch.setattr(mod, "sus_import", _make_import_mock(pd.DataFrame(df)))
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(pd.DataFrame(df)))
         monkeypatch.setattr("climasus4py.utils.data.resolve_uf", lambda uf: ["SP"])
 
         result = mod.sus_pipeline(
@@ -688,7 +688,7 @@ class TestPipelineFastPath:
         from climasus4py.core import pipeline as mod
 
         calls: list[str] = []
-        monkeypatch.setattr(mod, "sus_import", _make_import_mock(_synthetic_sim_do()))
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
         _patch_all_stages(monkeypatch, mod, calls)
         monkeypatch.setattr("climasus4py.utils.data.resolve_uf", lambda uf: ["SP"])
 
@@ -717,7 +717,7 @@ class TestPipelineStagedOutput:
             export_calls.append(str(path))
 
         calls: list[str] = []
-        monkeypatch.setattr(mod, "sus_import", _make_import_mock(_synthetic_sim_do()))
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
         _patch_all_stages(monkeypatch, mod, calls)
         monkeypatch.setattr(mod, "sus_export", mock_export)
 

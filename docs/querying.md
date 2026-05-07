@@ -13,13 +13,13 @@ que você chame [`materialize()`](materialize.md) ou [`sus_export()`](#saidas).
     ```python
     import climasus4py as cs
 
-    rel = cs.sus_import("SIM-DO", "SP", 2023)
+    rel = cs.sus_data_import("SIM-DO", "SP", 2023)
     ```
 
     Também aceita múltiplos anos:
 
     ```python
-    rel = cs.sus_import("SIM-DO", "SP", [2020, 2021, 2022, 2023])
+    rel = cs.sus_data_import("SIM-DO", "SP", [2020, 2021, 2022, 2023])
     ```
 
 === "Parquet local (`sus_read`)"
@@ -53,7 +53,7 @@ que você chame [`materialize()`](materialize.md) ou [`sus_export()`](#saidas).
 Após a entrada, o pipeline segue a [ordem canônica](pipeline-order.md):
 
 ```python
-rel = cs.sus_import("SIM-DO", "SP", 2023)
+rel = cs.sus_data_import("SIM-DO", "SP", 2023)
 rel = cs.sus_clean(rel)
 rel = cs.sus_standardize(rel, system="SIM-DO")
 rel = cs.sus_filter(rel, codes=["J00-J99"], age_min=15, age_max=64, uf="SP")
@@ -129,7 +129,7 @@ Veja a [referência completa do materialize](materialize.md).
 import climasus4py as cs
 
 # 1. Entrada
-rel = cs.sus_import("SIM-DO", "SP", 2023)
+rel = cs.sus_data_import("SIM-DO", "SP", 2023)
 
 # 2. Pipeline core (lazy)
 rel = cs.sus_clean(rel)

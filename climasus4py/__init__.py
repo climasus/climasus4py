@@ -20,7 +20,7 @@ from .core.clean import sus_clean
 from .core.climate_inmet import sus_climate_inmet
 from .core.engine import collect_arrow
 from .core.filter import sus_filter
-from .core.importer import sus_import
+from .core.importer import sus_data_import
 from .core.pipeline import sus_pipeline
 from .core.standardize import sus_standardize
 from .core.sus_sql import sus_sql
@@ -43,7 +43,7 @@ __all__ = [
     # Pipeline
     "sus_pipeline",
     # Core
-    "sus_import",
+    "sus_data_import",
     "sus_clean",
     "sus_standardize",
     "sus_filter",

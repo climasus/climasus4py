@@ -24,8 +24,8 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_import_path():
-    """sus_import(path=) returns a DuckDB relation."""
-    rel = cs.sus_import("SIM-DO", "SP", 2023, path=str(PARQUET))
+    """sus_data_import(path=) returns a DuckDB relation."""
+    rel = cs.sus_data_import("SIM-DO", "SP", 2023, path=str(PARQUET))
     assert rel is not None
     nrows = rel.count("*").fetchone()[0]
     print(f"  import: {nrows:,} rows, {len(rel.columns)} cols")
@@ -33,16 +33,16 @@ def test_import_path():
 
 
 def test_import_data():
-    """sus_import(data=) accepts a DataFrame."""
+    """sus_data_import(data=) accepts a DataFrame."""
     df = pq.read_table(PARQUET).to_pandas().head(100)
-    rel = cs.sus_import("SIM-DO", "SP", 2023, data=df)
+    rel = cs.sus_data_import("SIM-DO", "SP", 2023, data=df)
     nrows = rel.count("*").fetchone()[0]
     assert nrows == 100
 
 
 def test_clean():
     """sus_clean removes duplicates."""
-    rel = cs.sus_import("SIM-DO", "SP", 2023, path=str(PARQUET))
+    rel = cs.sus_data_import("SIM-DO", "SP", 2023, path=str(PARQUET))
     cleaned = cs.sus_clean(rel)
     assert cleaned is not None
     n = cleaned.count("*").fetchone()[0]
@@ -52,7 +52,7 @@ def test_clean():
 
 def test_standardize():
     """sus_standardize renames columns using dictionaries."""
-    rel = cs.sus_import("SIM-DO", "SP", 2023, path=str(PARQUET))
+    rel = cs.sus_data_import("SIM-DO", "SP", 2023, path=str(PARQUET))
     std = cs.sus_standardize(rel, system="SIM-DO")
     print(f"  standardize: cols = {std.columns[:5]}...")
     assert std is not None
@@ -60,7 +60,7 @@ def test_standardize():
 
 def test_filter_cid():
     """sus_filter by CID codes."""
-    rel = cs.sus_import("SIM-DO", "SP", 2023, path=str(PARQUET))
+    rel = cs.sus_data_import("SIM-DO", "SP", 2023, path=str(PARQUET))
     std = cs.sus_standardize(rel, system="SIM-DO")
     # Filter dengue codes
     filtered = cs.sus_filter(std, codes=["A90", "A91"])
@@ -70,7 +70,7 @@ def test_filter_cid():
 
 def test_quality():
     """sus_quality returns a report dict."""
-    rel = cs.sus_import("SIM-DO", "SP", 2023, path=str(PARQUET))
+    rel = cs.sus_data_import("SIM-DO", "SP", 2023, path=str(PARQUET))
     report = cs.sus_quality(rel)
     assert isinstance(report, dict)
     assert "total_rows" in report
@@ -80,7 +80,7 @@ def test_quality():
 
 def test_export_parquet(tmp_path):
     """sus_export writes parquet."""
-    rel = cs.sus_import("SIM-DO", "SP", 2023, path=str(PARQUET))
+    rel = cs.sus_data_import("SIM-DO", "SP", 2023, path=str(PARQUET))
     out = tmp_path / "test_export.parquet"
     cs.sus_export(rel, str(out), fmt="parquet")
     assert out.exists()

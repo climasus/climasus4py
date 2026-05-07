@@ -249,7 +249,7 @@ def _read_dbc(path: Path) -> pd.DataFrame:
         "Or alternatively:\n"
         "  pip install pyreaddbc  # (needs C compiler)\n"
         "  pip install pysus     # (needs C compiler)\n"
-        "Or use sus_import(path='file.parquet') / sus_import(data=df) instead."
+        "Or use sus_data_import(path='file.parquet') / sus_data_import(data=df) instead."
     )
 
 
@@ -441,7 +441,7 @@ def _aria2c_available() -> bool:
 # Public API
 # ---------------------------------------------------------------------------
 
-def sus_import(
+def sus_data_import(
     system: str,
     uf: str | list[str],
     year: int | list[int],
@@ -512,10 +512,10 @@ def sus_import(
 
     Example:
         >>> import climasus4py as cs
-        >>> rel = cs.sus_import("SIM-DO", "SP", 2022)
+        >>> rel = cs.sus_data_import("SIM-DO", "SP", 2022)
         >>> rel.count()
         334303
-        >>> cs.sus_import("SIM-DO", "SP", 2022,
+        >>> cs.sus_data_import("SIM-DO", "SP", 2022,
         ...               path="dados/cache/SP_2022.parquet")
     """
     cache_dir = Path(cache_dir)

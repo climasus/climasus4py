@@ -10,7 +10,7 @@ from climasus4py.core.importer import (
     _build_urls,
     _raw_cache_path,
     _state_filter_expression,
-    sus_import,
+    sus_data_import,
 )
 from climasus4py.utils.data import load_json
 
@@ -77,7 +77,7 @@ def test_sus_import_filters_cached_national_sinan_by_uf(tmp_path):
         cache_file,
     )
 
-    rel = sus_import("SINAN-DENGUE", "SP", 2024, cache_dir=tmp_path)
+    rel = sus_data_import("SINAN-DENGUE", "SP", 2024, cache_dir=tmp_path)
 
     df = rel.df()
     assert df["NU_NOTIFIC"].tolist() == ["1", "3"]
