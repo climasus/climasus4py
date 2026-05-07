@@ -328,3 +328,74 @@ class TestEdgeCases:
         val = df["rh_mean_porc"].iloc[0]
         assert not pd.isna(val)
         assert abs(val - 75.0) < 1e-6
+
+
+# ---------------------------------------------------------------------------
+# TestMissingHoraColumn — CSV sem coluna HORA (cobre linha 261)
+# ---------------------------------------------------------------------------
+
+class TestMissingHoraColumn:
+    """CSV sem coluna de hora: _parse_datetime usa apenas a data — covers line 261."""
+
+    def test_csv_without_hora_has_date(self, tmp_path):
+        """CSV with only Data column (no Hora) sets date from date string alone."""
+        content = (
+            "REGIAO:;SUL\nUF:;PR\nESTACAO:;TEST\nCODIGO ESTACAO:;A001\n"
+            "LATITUDE:;-25,0\nLONGITUDE:;-49,0\nALTITUDE:;900,0\n"
+            "Data;Precipitacao Total, Horario (mm)\n"
+            "2023-03-15;1.2\n"
+            "2023-03-16;0.0\n"
+        )
+        path = _write_csv(tmp_path, content)
+        df = parse_inmet_csv(path)
+        assert df is not None
+        assert "date" in df.columns
+        assert len(df) == 2
+        ts = pd.Timestamp(df["date"].iloc[0])
+        assert ts.year == 2023
+        assert ts.month == 3
+        assert ts.day == 15
+
+
+# ---------------------------------------------------------------------------
+# TestDewPointQC — dew point consistency via Magnus (cobre linhas 285-296)
+# ---------------------------------------------------------------------------
+
+class TestDewPointQC:
+    """QC for dew point temperature — covers lines 285-296 in _qc_dew_point."""
+
+    def test_dew_point_qc_outlier_becomes_nan(self, tmp_path):
+        """Dew point far from Magnus estimate (> 3°C diff) → NaN."""
+        # tair=25, rh=50: Magnus Td ≈ 13.9°C; value 40 is >3°C off → NaN
+        content = (
+            "REGIAO:;SUL\nUF:;PR\nESTACAO:;TEST\nCODIGO ESTACAO:;A001\n"
+            "LATITUDE:;-25,0\nLONGITUDE:;-49,0\nALTITUDE:;900,0\n"
+            "Data;Hora UTC;"
+            "Temperatura Do Ar - Bulbo Seco (°C);"
+            "Umidade Relativa do Ar (%);"
+            "Temperatura Do Ponto De Orvalho (°C)\n"
+            "2023-06-01;1200;25;50;40\n"
+        )
+        path = _write_csv(tmp_path, content)
+        df = parse_inmet_csv(path)
+        assert df is not None
+        assert "dew_tmean_c" in df.columns
+        assert pd.isna(df["dew_tmean_c"].iloc[0])
+
+    def test_dew_point_qc_valid_value_kept(self, tmp_path):
+        """Dew point within 3°C of Magnus estimate is kept."""
+        # tair=25, rh=50: Magnus Td ≈ 13.9°C; value 14 is within 3°C → kept
+        content = (
+            "REGIAO:;SUL\nUF:;PR\nESTACAO:;TEST\nCODIGO ESTACAO:;A001\n"
+            "LATITUDE:;-25,0\nLONGITUDE:;-49,0\nALTITUDE:;900,0\n"
+            "Data;Hora UTC;"
+            "Temperatura Do Ar - Bulbo Seco (°C);"
+            "Umidade Relativa do Ar (%);"
+            "Temperatura Do Ponto De Orvalho (°C)\n"
+            "2023-06-01;1200;25;50;14\n"
+        )
+        path = _write_csv(tmp_path, content)
+        df = parse_inmet_csv(path)
+        assert df is not None
+        assert "dew_tmean_c" in df.columns
+        assert not pd.isna(df["dew_tmean_c"].iloc[0])
