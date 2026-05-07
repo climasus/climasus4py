@@ -31,14 +31,14 @@ def _assert_lazy(rel: object) -> None:
         raise TypeError(
             "Expected DuckDBPyRelation but received a GeoDataFrame. "
             "GeoDataFrames are already materialised. To use the lazy pipeline "
-            "load your data with sus_read() and apply materialize() or "
+            "load your data with sus_data_read() and apply materialize() or "
             "sus_export() at the end."
         )
 
     raise TypeError(
         f"Expected DuckDBPyRelation but got {type(rel).__name__}. "
         "Pipeline functions require a lazy DuckDB relation. "
-        "Use sus_read() or get_connection().from_df() to create one."
+        "Use sus_data_read() or get_connection().from_df() to create one."
     )
 
 

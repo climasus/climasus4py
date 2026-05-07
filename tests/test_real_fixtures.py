@@ -40,7 +40,7 @@ def isolated_climasus_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_real_health_fixture_aggregates_lazily():
-    rel = cs.sus_read(HEALTH)
+    rel = cs.sus_data_read(HEALTH)
     canonical = cs.sus_sql(
         rel,
         """
@@ -88,7 +88,7 @@ def test_real_climate_fixture_enriches_with_idw(
     ).to_parquet(weights, index=False)
 
     rel = cs.sus_sql(
-        cs.sus_read(CLIMATE),
+        cs.sus_data_read(CLIMATE),
         """
         SELECT
             ROW_NUMBER() OVER () AS row_id,
@@ -116,7 +116,7 @@ def test_real_climate_fixture_enriches_with_idw(
 
 def test_installed_spatial_assets_join_real_municipality():
     rel = cs.sus_sql(
-        cs.sus_read(HEALTH),
+        cs.sus_data_read(HEALTH),
         """
         SELECT '3550308' AS municipality_code
         FROM {data}
@@ -135,7 +135,7 @@ def test_installed_spatial_assets_join_real_municipality():
 
 def test_installed_census_assets_join_real_municipality():
     rel = cs.sus_sql(
-        cs.sus_read(HEALTH),
+        cs.sus_data_read(HEALTH),
         """
         SELECT '3550308' AS municipality_code
         FROM {data}

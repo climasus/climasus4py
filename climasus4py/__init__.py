@@ -32,7 +32,7 @@ from .enrichment.spatial import sus_spatial
 from .io.cache import sus_cache_clear, sus_cache_info
 from .io.export import sus_export
 from .io.materialize import materialize
-from .io.read import sus_read
+from .io.read import sus_data_read
 from .utils import update_climasus_data
 from .utils.chat import sus_chat
 from .utils.explore import sus_explore
@@ -56,7 +56,7 @@ __all__ = [
     "sus_cache_info",
     "sus_cache_clear",
     "materialize",
-    "sus_read",
+    "sus_data_read",
     # Climate import
     "sus_climate_inmet",
     # Enrichment

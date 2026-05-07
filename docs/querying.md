@@ -22,19 +22,19 @@ que você chame [`materialize()`](materialize.md) ou [`sus_export()`](#saidas).
     rel = cs.sus_data_import("SIM-DO", "SP", [2020, 2021, 2022, 2023])
     ```
 
-=== "Parquet local (`sus_read`)"
+=== "Parquet local (`sus_data_read`)"
 
     Abre qualquer Parquet ou GeoParquet local como relação lazy:
 
     ```python
-    rel = cs.sus_read("dados/cache/SIM-DO/SP_2023_all.parquet")
+    rel = cs.sus_data_read("dados/cache/SIM-DO/SP_2023_all.parquet")
     ```
 
     Aceita lista ou glob:
 
     ```python
-    rel = cs.sus_read(["dados/SIM_SP_2022.parquet", "dados/SIM_SP_2023.parquet"])
-    rel = cs.sus_read("dados/SIM_SP_*.parquet")
+    rel = cs.sus_data_read(["dados/SIM_SP_2022.parquet", "dados/SIM_SP_2023.parquet"])
+    rel = cs.sus_data_read("dados/SIM_SP_*.parquet")
     ```
 
 === "SQL bruto (`sus_sql`)"

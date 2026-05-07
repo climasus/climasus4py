@@ -11,7 +11,7 @@ def test_sus_read_reads_parquet_lazily(tmp_path):
     path = tmp_path / "data.parquet"
     pd.DataFrame({"a": [1, 2], "b": ["x", "y"]}).to_parquet(path)
 
-    rel = cs.sus_read(path)
+    rel = cs.sus_data_read(path)
 
     assert type(rel).__name__ == "DuckDBPyRelation"
     assert rel.count("*").fetchone()[0] == 2
@@ -22,7 +22,7 @@ def test_sus_read_rejects_non_parquet(tmp_path):
     path.write_text("a\n1\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="Parquet"):
-        cs.sus_read(path)
+        cs.sus_data_read(path)
 
 
 def test_sus_sql_entrypoint_and_pipe_mode():

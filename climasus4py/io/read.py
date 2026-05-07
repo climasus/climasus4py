@@ -1,4 +1,4 @@
-"""Lazy Parquet reader — sus_read.
+"""Lazy Parquet reader — sus_data_read.
 
 Mirrors R: read_parquet_duckdb() from duckplyr / climasus4r.
 """
@@ -12,7 +12,7 @@ import duckdb
 from ..core.engine import get_connection
 
 
-def sus_read(path: str | Path) -> duckdb.DuckDBPyRelation:
+def sus_data_read(path: str | Path) -> duckdb.DuckDBPyRelation:
     """Read a Parquet file lazily as a DuckDB relation.
 
     No data is loaded into memory until the relation is materialised
@@ -29,7 +29,7 @@ def sus_read(path: str | Path) -> duckdb.DuckDBPyRelation:
 
     Example:
         >>> import climasus4py as cs
-        >>> rel = cs.sus_read("dados/cache/SIM-DO/SP_2022_all.parquet")
+        >>> rel = cs.sus_data_read("dados/cache/SIM-DO/SP_2022_all.parquet")
         >>> rel.columns
     """
     path = Path(path)

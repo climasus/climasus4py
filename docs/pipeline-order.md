@@ -28,7 +28,7 @@ flowchart LR
 | Função | Propósito |
 |---|---|
 | `sus_data_import(system, uf, year)` | Baixa do FTP DATASUS, cacheia, retorna lazy |
-| `sus_read(path)` | Abre Parquet/GeoParquet local como lazy |
+| `sus_data_read(path)` | Abre Parquet/GeoParquet local como lazy |
 | `sus_sql(query)` | SQL DuckDB arbitrário como ponto de entrada |
 
 ### Pipeline core
@@ -70,12 +70,12 @@ mas recebeu 'raw'. Certifique-se de chamar sus_data_clean_encoding → sus_data_
 ## Etapas opcionais
 
 Nenhuma etapa do core é obrigatória quando você já tem um Parquet processado.
-Com `sus_read()` ou `sus_sql()`, você pode entrar diretamente nos
+Com `sus_data_read()` ou `sus_sql()`, você pode entrar diretamente nos
 enriquecimentos — desde que os dados já tenham as colunas esperadas:
 
 ```python
 # Parquet já limpo e padronizado
-rel = cs.sus_read("dados/sim_sp_2023_agregado.parquet")
+rel = cs.sus_data_read("dados/sim_sp_2023_agregado.parquet")
 rel = cs.sus_climate(rel, variables=["temp_mean"], years=[2023])
 df  = cs.materialize(rel)
 ```
