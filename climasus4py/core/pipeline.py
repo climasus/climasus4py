@@ -18,7 +18,7 @@ from .clean import sus_data_clean_encoding
 from .engine import get_connection
 from .filter import sus_filter
 from .importer import sus_data_import
-from .standardize import sus_standardize
+from .standardize import sus_data_standardize
 from .variables import sus_variables
 
 # ---------------------------------------------------------------------------
@@ -267,7 +267,7 @@ def sus_pipeline(
 
     # --- Staged pipeline (fallback) ---
     rel = sus_data_clean_encoding(rel)
-    rel = sus_standardize(rel, lang=lang, system=system)
+    rel = sus_data_standardize(rel, lang=lang, system=system)
     rel = sus_filter(rel, groups=group_list, age_min=age_min, age_max=age_max)
     rel = sus_variables(rel, age_group=age_group, epi_week=epi_week)
     rel = sus_aggregate(rel, time=time, geo=geo)

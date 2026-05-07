@@ -61,7 +61,7 @@ def _make_passthrough(name: str, calls: list[str]):
 
 def _patch_all_stages(monkeypatch, mod, calls: list[str]) -> None:
     """Monkeypatcha todos os stages do pipeline com passthroughs rastreáveis."""
-    for stage in ("sus_data_clean_encoding", "sus_standardize", "sus_filter", "sus_variables", "sus_aggregate"):
+    for stage in ("sus_data_clean_encoding", "sus_data_standardize", "sus_filter", "sus_variables", "sus_aggregate"):
         monkeypatch.setattr(mod, stage, _make_passthrough(stage.replace("sus_", ""), calls))
 
 
@@ -238,7 +238,7 @@ class TestPipelineStaging:
 
         monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
         monkeypatch.setattr(mod, "sus_data_clean_encoding", _make_passthrough("clean", calls))
-        monkeypatch.setattr(mod, "sus_standardize", _make_passthrough("standardize", calls))
+        monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", capturing_filter)
         monkeypatch.setattr(mod, "sus_variables", _make_passthrough("variables", calls))
         monkeypatch.setattr(mod, "sus_aggregate", _make_passthrough("aggregate", calls))
@@ -267,7 +267,7 @@ class TestPipelineStaging:
 
         monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
         monkeypatch.setattr(mod, "sus_data_clean_encoding", _make_passthrough("clean", calls))
-        monkeypatch.setattr(mod, "sus_standardize", _make_passthrough("standardize", calls))
+        monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", capturing_filter)
         monkeypatch.setattr(mod, "sus_variables", _make_passthrough("variables", calls))
         monkeypatch.setattr(mod, "sus_aggregate", _make_passthrough("aggregate", calls))
@@ -296,7 +296,7 @@ class TestPipelineStaging:
 
         monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
         monkeypatch.setattr(mod, "sus_data_clean_encoding", _make_passthrough("clean", calls))
-        monkeypatch.setattr(mod, "sus_standardize", _make_passthrough("standardize", calls))
+        monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", capturing_filter)
         monkeypatch.setattr(mod, "sus_variables", _make_passthrough("variables", calls))
         monkeypatch.setattr(mod, "sus_aggregate", _make_passthrough("aggregate", calls))
@@ -327,7 +327,7 @@ class TestPipelineStaging:
 
         monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
         monkeypatch.setattr(mod, "sus_data_clean_encoding", _make_passthrough("clean", calls))
-        monkeypatch.setattr(mod, "sus_standardize", _make_passthrough("standardize", calls))
+        monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", _make_passthrough("filter", calls))
         monkeypatch.setattr(mod, "sus_variables", capturing_variables)
         monkeypatch.setattr(mod, "sus_aggregate", _make_passthrough("aggregate", calls))
@@ -355,7 +355,7 @@ class TestPipelineStaging:
 
         monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
         monkeypatch.setattr(mod, "sus_data_clean_encoding", _make_passthrough("clean", calls))
-        monkeypatch.setattr(mod, "sus_standardize", _make_passthrough("standardize", calls))
+        monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", _make_passthrough("filter", calls))
         monkeypatch.setattr(mod, "sus_variables", _make_passthrough("variables", calls))
         monkeypatch.setattr(mod, "sus_aggregate", capturing_aggregate)
@@ -473,7 +473,7 @@ class TestPipelineMultiInput:
 
         monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
         monkeypatch.setattr(mod, "sus_data_clean_encoding", _make_passthrough("clean", calls))
-        monkeypatch.setattr(mod, "sus_standardize", _make_passthrough("standardize", calls))
+        monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", capturing_filter)
         monkeypatch.setattr(mod, "sus_variables", _make_passthrough("variables", calls))
         monkeypatch.setattr(mod, "sus_aggregate", _make_passthrough("aggregate", calls))

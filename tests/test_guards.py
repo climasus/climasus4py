@@ -7,7 +7,7 @@ import pytest
 
 from climasus4py.core.clean import sus_data_clean_encoding
 from climasus4py.core.engine import get_connection
-from climasus4py.core.standardize import sus_standardize
+from climasus4py.core.standardize import sus_data_standardize
 from climasus4py.core._stage import get_stage, set_stage
 
 
@@ -26,7 +26,7 @@ def test_core_rejects_geodataframe_with_spatial_message():
     gdf = GeoDataFrame({"IDADE": ["420"]})
 
     with pytest.raises(TypeError, match="materialize|sus_export|DuckDBPyRelation"):
-        sus_standardize(gdf)
+        sus_data_standardize(gdf)
 
 
 # ---------------------------------------------------------------------------

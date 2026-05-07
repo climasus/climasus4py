@@ -58,7 +58,7 @@ x = cs.sus_data_import("SIM-DO", "SP", [2021, 2022])
 x = cs.sus_data_clean_encoding(x)
 
 # 3. Standardize
-x = cs.sus_standardize(x, lang="en")
+x = cs.sus_data_standardize(x, lang="en")
 
 # 4. Filter
 x = cs.sus_filter(x, groups=["dengue"], age_min=0, age_max=80)

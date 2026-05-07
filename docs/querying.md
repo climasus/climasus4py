@@ -55,7 +55,7 @@ Após a entrada, o pipeline segue a [ordem canônica](pipeline-order.md):
 ```python
 rel = cs.sus_data_import("SIM-DO", "SP", 2023)
 rel = cs.sus_data_clean_encoding(rel)
-rel = cs.sus_standardize(rel, system="SIM-DO")
+rel = cs.sus_data_standardize(rel, system="SIM-DO")
 rel = cs.sus_filter(rel, codes=["J00-J99"], age_min=15, age_max=64, uf="SP")
 rel = cs.sus_variables(rel, age_group="epidemiological_default", epi_week=True)
 rel = cs.sus_aggregate(rel, time="month", geo="municipality")
@@ -133,7 +133,7 @@ rel = cs.sus_data_import("SIM-DO", "SP", 2023)
 
 # 2. Pipeline core (lazy)
 rel = cs.sus_data_clean_encoding(rel)
-rel = cs.sus_standardize(rel, system="SIM-DO")
+rel = cs.sus_data_standardize(rel, system="SIM-DO")
 rel = cs.sus_filter(rel, groups="respiratory", age_min=0, age_max=14)
 rel = cs.sus_variables(rel, age_group="epidemiological_default")
 rel = cs.sus_aggregate(rel, time="month", geo="municipality")

@@ -16,7 +16,7 @@ import pytest
 from climasus4py.core.clean import sus_data_clean_encoding
 from climasus4py.core.engine import collect_arrow, get_connection, read_parquets
 from climasus4py.core.importer import _coerce_datasus_types
-from climasus4py.core.standardize import sus_standardize
+from climasus4py.core.standardize import sus_data_standardize
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -215,7 +215,7 @@ class TestAgeDecoding:
 
 
 # ---------------------------------------------------------------------------
-# Tests: Date conversion in sus_standardize
+# Tests: Date conversion in sus_data_standardize
 # ---------------------------------------------------------------------------
 
 class TestStandardizeDates:
@@ -229,7 +229,7 @@ class TestStandardizeDates:
             "DTOBITO": ["01012023", "15062023"],
             "CAUSABAS": ["J189", "I219"],
         })
-        std = sus_standardize(rel, lang="pt", system="SIM-DO")
+        std = sus_data_standardize(rel, lang="pt", system="SIM-DO")
         df = std.df()
         # DTOBITO should still exist and be a date type
         assert "DTOBITO" in df.columns
@@ -242,7 +242,7 @@ class TestStandardizeDates:
             "DTOBITO": pd.to_datetime(["2023-01-01", "2023-06-15"]),
             "CAUSABAS": ["J189", "I219"],
         })
-        std = sus_standardize(rel, lang="pt", system="SIM-DO")
+        std = sus_data_standardize(rel, lang="pt", system="SIM-DO")
         df = std.df()
         assert pd.api.types.is_datetime64_any_dtype(df["DTOBITO"])
         assert df["DTOBITO"].iloc[0] == pd.Timestamp("2023-01-01")
@@ -253,7 +253,7 @@ class TestStandardizeDates:
             "DTOBITO": ["01012023", "15062023"],
             "CAUSABAS": ["J189", "I219"],
         })
-        std = sus_standardize(rel, lang="en", system="SIM-DO")
+        std = sus_data_standardize(rel, lang="en", system="SIM-DO")
         df = std.df()
         # Check that the renamed date column has datetime values
         date_cols = [c for c in df.columns if "date" in c.lower() or "DT" in c]
@@ -321,7 +321,7 @@ class TestPipelineRoundTrip:
     def test_standardize_dates_not_null(self, coerced_parquet):
         """After standardize, date columns should NOT be all NaT."""
         rel = read_parquets([coerced_parquet])
-        std = sus_standardize(rel, lang="en", system="SIM-DO")
+        std = sus_data_standardize(rel, lang="en", system="SIM-DO")
         df = std.df()
         # Find date columns
         date_cols = [c for c in df.columns

@@ -27,7 +27,7 @@ def _load_column_dict(lang: str) -> dict[str, str]:
     return mapping
 
 
-def sus_standardize(
+def sus_data_standardize(
     rel: duckdb.DuckDBPyRelation,
     *,
     lang: str = "en",

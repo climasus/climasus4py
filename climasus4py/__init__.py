@@ -22,7 +22,7 @@ from .core.engine import collect_arrow
 from .core.filter import sus_filter
 from .core.importer import sus_data_import
 from .core.pipeline import sus_pipeline
-from .core.standardize import sus_standardize
+from .core.standardize import sus_data_standardize
 from .core.sus_sql import sus_sql
 from .core.variables import sus_variables
 from .enrichment.census import sus_census
@@ -45,7 +45,7 @@ __all__ = [
     # Core
     "sus_data_import",
     "sus_data_clean_encoding",
-    "sus_standardize",
+    "sus_data_standardize",
     "sus_filter",
     "sus_variables",
     "sus_aggregate",

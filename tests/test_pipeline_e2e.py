@@ -51,9 +51,9 @@ def test_clean():
 
 
 def test_standardize():
-    """sus_standardize renames columns using dictionaries."""
+    """sus_data_standardize renames columns using dictionaries."""
     rel = cs.sus_data_import("SIM-DO", "SP", 2023, path=str(PARQUET))
-    std = cs.sus_standardize(rel, system="SIM-DO")
+    std = cs.sus_data_standardize(rel, system="SIM-DO")
     print(f"  standardize: cols = {std.columns[:5]}...")
     assert std is not None
 
@@ -61,7 +61,7 @@ def test_standardize():
 def test_filter_cid():
     """sus_filter by CID codes."""
     rel = cs.sus_data_import("SIM-DO", "SP", 2023, path=str(PARQUET))
-    std = cs.sus_standardize(rel, system="SIM-DO")
+    std = cs.sus_data_standardize(rel, system="SIM-DO")
     # Filter dengue codes
     filtered = cs.sus_filter(std, codes=["A90", "A91"])
     nrows = filtered.count("*").fetchone()[0]
