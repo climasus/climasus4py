@@ -13,7 +13,7 @@ flowchart LR
     B --> C[sus_data_standardize]
     C --> D[sus_filter]
     D --> E[sus_data_create_variables]
-    E --> F[sus_aggregate]
+    E --> F[sus_data_aggregate]
     F --> G(["sus_spatial\nsus_census\nsus_climate\nsus_fill_gaps"])
     G --> H(["materialize\nsus_export"])
     style A fill:#1a6b4a,color:#fff
@@ -39,7 +39,7 @@ flowchart LR
 | 2 | `sus_data_standardize(rel, system)` | Renomeia colunas para nomes canônicos do sistema (SIM-DO, SINASC…) |
 | 3 | `sus_filter(rel, ...)` | Filtra por CID-10, idade, sexo, raça, UF, município, data |
 | 4 | `sus_data_create_variables(rel, ...)` | Deriva variáveis: faixa etária, semana epidemiológica, estação do ano |
-| 5 | `sus_aggregate(rel, ...)` | Agrega por tempo (dia/semana/mês/ano) e geografia (município/estado) |
+| 5 | `sus_data_aggregate(rel, ...)` | Agrega por tempo (dia/semana/mês/ano) e geografia (município/estado) |
 
 ### Enriquecimentos (opcionais, após aggregate)
 
@@ -60,10 +60,10 @@ flowchart LR
 ## Enforcement de ordem
 
 Cada função core registra o estágio em que a relação se encontra. Se você
-tentasse chamar `sus_aggregate` antes de `sus_data_standardize`, receberia:
+tentasse chamar `sus_data_aggregate` antes de `sus_data_standardize`, receberia:
 
 ```
-ValueError: sus_aggregate esperava uma relação no estágio 'standardize' ou posterior,
+ValueError: sus_data_aggregate esperava uma relação no estágio 'standardize' ou posterior,
 mas recebeu 'raw'. Certifique-se de chamar sus_data_clean_encoding → sus_data_standardize antes.
 ```
 
@@ -89,8 +89,8 @@ sim = cs.sus_data_import("SIM-DO", "SP", 2023)
 sinasc = cs.sus_data_import("SINASC", "SP", 2023)
 
 # Combinar via SQL após aggregate
-sim_agg = cs.sus_aggregate(cs.sus_data_standardize(cs.sus_data_clean_encoding(sim), "SIM-DO"), time="month", geo="municipality")
-sinasc_agg = cs.sus_aggregate(cs.sus_data_standardize(cs.sus_data_clean_encoding(sinasc), "SINASC"), time="month", geo="municipality")
+sim_agg = cs.sus_data_aggregate(cs.sus_data_standardize(cs.sus_data_clean_encoding(sim), "SIM-DO"), time="month", geo="municipality")
+sinasc_agg = cs.sus_data_aggregate(cs.sus_data_standardize(cs.sus_data_clean_encoding(sinasc), "SINASC"), time="month", geo="municipality")
 
 combined = cs.sus_sql("""
     SELECT s.*, n.nascimentos

@@ -67,7 +67,7 @@ x = cs.sus_filter(x, groups=["dengue"], age_min=0, age_max=80)
 x = cs.sus_data_create_variables(x, age_group="who", epi_week=True)
 
 # 6. Aggregate
-x = cs.sus_aggregate(x, time="month", geo="state")
+x = cs.sus_data_aggregate(x, time="month", geo="state")
 
 # 7. Export
 cs.sus_export(x, "output/dengue_sp.parquet")

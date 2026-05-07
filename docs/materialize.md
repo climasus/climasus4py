@@ -33,7 +33,7 @@ result = cs.materialize(rel, how="auto", quiet=False)
     ```python
     import climasus4py as cs
 
-    rel = cs.sus_aggregate(rel, time="month", geo="municipality")
+    rel = cs.sus_data_aggregate(rel, time="month", geo="municipality")
     df = cs.materialize(rel)          # how="auto" → pandas quando não há geometry
     df = cs.materialize(rel, how="pandas")
 
@@ -114,7 +114,7 @@ para disco.
 - Caso contrário → retorna `pandas.DataFrame`
 
 ```python
-rel_sem_geo = cs.sus_aggregate(rel, time="month", geo="municipality")
+rel_sem_geo = cs.sus_data_aggregate(rel, time="month", geo="municipality")
 df = cs.materialize(rel_sem_geo)    # → pandas.DataFrame
 
 rel_com_geo = cs.sus_spatial(rel_sem_geo)

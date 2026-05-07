@@ -61,7 +61,7 @@ def _make_passthrough(name: str, calls: list[str]):
 
 def _patch_all_stages(monkeypatch, mod, calls: list[str]) -> None:
     """Monkeypatcha todos os stages do pipeline com passthroughs rastreáveis."""
-    for stage in ("sus_data_clean_encoding", "sus_data_standardize", "sus_filter", "sus_data_create_variables", "sus_aggregate"):
+    for stage in ("sus_data_clean_encoding", "sus_data_standardize", "sus_filter", "sus_data_create_variables", "sus_data_aggregate"):
         monkeypatch.setattr(mod, stage, _make_passthrough(stage.replace("sus_", ""), calls))
 
 
@@ -241,7 +241,7 @@ class TestPipelineStaging:
         monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", capturing_filter)
         monkeypatch.setattr(mod, "sus_data_create_variables", _make_passthrough("variables", calls))
-        monkeypatch.setattr(mod, "sus_aggregate", _make_passthrough("aggregate", calls))
+        monkeypatch.setattr(mod, "sus_data_aggregate", _make_passthrough("aggregate", calls))
 
         mod.sus_pipeline(
             "SIM-DO", "SP", 2022,
@@ -270,7 +270,7 @@ class TestPipelineStaging:
         monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", capturing_filter)
         monkeypatch.setattr(mod, "sus_data_create_variables", _make_passthrough("variables", calls))
-        monkeypatch.setattr(mod, "sus_aggregate", _make_passthrough("aggregate", calls))
+        monkeypatch.setattr(mod, "sus_data_aggregate", _make_passthrough("aggregate", calls))
 
         mod.sus_pipeline(
             "SIM-DO", "SP", 2022,
@@ -299,7 +299,7 @@ class TestPipelineStaging:
         monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", capturing_filter)
         monkeypatch.setattr(mod, "sus_data_create_variables", _make_passthrough("variables", calls))
-        monkeypatch.setattr(mod, "sus_aggregate", _make_passthrough("aggregate", calls))
+        monkeypatch.setattr(mod, "sus_data_aggregate", _make_passthrough("aggregate", calls))
 
         mod.sus_pipeline(
             "SIM-DO", "SP", 2022,
@@ -330,7 +330,7 @@ class TestPipelineStaging:
         monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", _make_passthrough("filter", calls))
         monkeypatch.setattr(mod, "sus_data_create_variables", capturing_variables)
-        monkeypatch.setattr(mod, "sus_aggregate", _make_passthrough("aggregate", calls))
+        monkeypatch.setattr(mod, "sus_data_aggregate", _make_passthrough("aggregate", calls))
 
         mod.sus_pipeline(
             "SIM-DO", "SP", 2022,
@@ -343,7 +343,7 @@ class TestPipelineStaging:
         assert variables_kwargs.get("epi_week") is True
 
     def test_aggregate_receives_time_and_geo(self, monkeypatch, tmp_path):
-        """sus_aggregate deve receber time e geo."""
+        """sus_data_aggregate deve receber time e geo."""
         from climasus4py.core import pipeline as mod
 
         aggregate_kwargs: dict = {}
@@ -358,7 +358,7 @@ class TestPipelineStaging:
         monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", _make_passthrough("filter", calls))
         monkeypatch.setattr(mod, "sus_data_create_variables", _make_passthrough("variables", calls))
-        monkeypatch.setattr(mod, "sus_aggregate", capturing_aggregate)
+        monkeypatch.setattr(mod, "sus_data_aggregate", capturing_aggregate)
 
         mod.sus_pipeline(
             "SIM-DO", "SP", 2022,
@@ -476,7 +476,7 @@ class TestPipelineMultiInput:
         monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
         monkeypatch.setattr(mod, "sus_filter", capturing_filter)
         monkeypatch.setattr(mod, "sus_data_create_variables", _make_passthrough("variables", calls))
-        monkeypatch.setattr(mod, "sus_aggregate", _make_passthrough("aggregate", calls))
+        monkeypatch.setattr(mod, "sus_data_aggregate", _make_passthrough("aggregate", calls))
 
         mod.sus_pipeline(
             "SIM-DO", "SP", 2022,

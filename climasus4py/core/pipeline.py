@@ -13,7 +13,7 @@ import duckdb
 import pandas as pd
 
 from ..io.export import sus_export
-from .aggregate import sus_aggregate
+from .aggregate import sus_data_aggregate
 from .clean import sus_data_clean_encoding
 from .engine import get_connection
 from .filter import sus_filter
@@ -270,7 +270,7 @@ def sus_pipeline(
     rel = sus_data_standardize(rel, lang=lang, system=system)
     rel = sus_filter(rel, groups=group_list, age_min=age_min, age_max=age_max)
     rel = sus_data_create_variables(rel, age_group=age_group, epi_week=epi_week)
-    rel = sus_aggregate(rel, time=time, geo=geo)
+    rel = sus_data_aggregate(rel, time=time, geo=geo)
 
     if output:
         sus_export(rel, output)

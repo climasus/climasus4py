@@ -49,7 +49,7 @@ rel = cs.sus_spatial(
 ### Exemplo: mapa de mortalidade
 
 ```python
-rel = cs.sus_aggregate(rel, time="year", geo="municipality")
+rel = cs.sus_data_aggregate(rel, time="year", geo="municipality")
 rel = cs.sus_spatial(rel)
 gdf = cs.materialize(rel, how="geopandas")
 gdf.plot(column="count", scheme="quantiles", legend=True)
@@ -109,7 +109,7 @@ rel = cs.sus_climate(rel, variables=["temp_mean", "precipitation"], years=[2023]
 !!! warning "Granularidade obrigatória: dia"
     A coluna de data deve ter granularidade diária (`YYYY-MM-DD`).  
     Se a coluna estiver em formato mensal (`YYYY-MM`), um `ValueError` é
-    levantado. Agregue primeiro e depois junte: use `sus_aggregate(time="day")`
+    levantado. Agregue primeiro e depois junte: use `sus_data_aggregate(time="day")`
     ou filtre os dados antes.
 
 ### Parâmetros
@@ -200,7 +200,7 @@ rel = cs.sus_fill_gaps(
 Enriquecimentos podem ser encadeados — cada um retorna `DuckDBPyRelation`:
 
 ```python
-rel = cs.sus_aggregate(rel, time="month", geo="municipality")
+rel = cs.sus_data_aggregate(rel, time="month", geo="municipality")
 rel = cs.sus_census(rel, year=2022, variables=["population_2021"])
 rel = cs.sus_climate(rel, variables=["temp_mean", "precipitation"], years=[2023])
 rel = cs.sus_fill_gaps(rel, method="linear")

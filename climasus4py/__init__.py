@@ -15,7 +15,7 @@ Typical usage::
 """
 
 from ._version import __version__
-from .core.aggregate import sus_aggregate
+from .core.aggregate import sus_data_aggregate
 from .core.clean import sus_data_clean_encoding
 from .core.climate_inmet import sus_climate_inmet
 from .core.engine import collect_arrow
@@ -48,7 +48,7 @@ __all__ = [
     "sus_data_standardize",
     "sus_filter",
     "sus_data_create_variables",
-    "sus_aggregate",
+    "sus_data_aggregate",
     "collect_arrow",
     "sus_sql",
     # I/O

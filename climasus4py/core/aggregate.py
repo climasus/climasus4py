@@ -11,7 +11,7 @@ from ..utils.data import detect_date_column, detect_geo_column
 from .engine import get_connection, schema_columns
 
 
-def sus_aggregate(
+def sus_data_aggregate(
     rel: duckdb.DuckDBPyRelation,
     *,
     time: str = "month",
@@ -41,9 +41,9 @@ def sus_aggregate(
 
     Example:
         >>> import climasus4py as cs
-        >>> agg = cs.sus_aggregate(rel, time="year", geo="state")
+        >>> agg = cs.sus_data_aggregate(rel, time="year", geo="state")
         >>> agg.df().head()
-        >>> agg_sex = cs.sus_aggregate(rel, time="month",
+        >>> agg_sex = cs.sus_data_aggregate(rel, time="month",
         ...                            geo="municipality",
         ...                            extra_groups=["sex"])
     """

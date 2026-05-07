@@ -53,8 +53,8 @@ def test_real_health_fixture_aggregates_lazily():
         """,
     )
 
-    with pytest.warns(UserWarning, match="sus_aggregate"):
-        aggregated = cs.sus_aggregate(canonical, time="month", geo="municipality")
+    with pytest.warns(UserWarning, match="sus_data_aggregate"):
+        aggregated = cs.sus_data_aggregate(canonical, time="month", geo="municipality")
     df = cs.materialize(aggregated, quiet=True)
 
     assert int(df["count"].sum()) == 4165

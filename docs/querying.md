@@ -58,7 +58,7 @@ rel = cs.sus_data_clean_encoding(rel)
 rel = cs.sus_data_standardize(rel, system="SIM-DO")
 rel = cs.sus_filter(rel, codes=["J00-J99"], age_min=15, age_max=64, uf="SP")
 rel = cs.sus_data_create_variables(rel, age_group="epidemiological_default", epi_week=True)
-rel = cs.sus_aggregate(rel, time="month", geo="municipality")
+rel = cs.sus_data_aggregate(rel, time="month", geo="municipality")
 ```
 
 Todo o bloco acima é **zero RAM** — apenas SQL sendo construído.
@@ -69,7 +69,7 @@ Use `.pipe(cs.sus_sql, ...)` para injetar SQL arbitrário em qualquer ponto.
 O marcador `{data}` é substituído pelo nome da relação atual:
 
 ```python
-rel = cs.sus_aggregate(rel, time="month", geo="municipality")
+rel = cs.sus_data_aggregate(rel, time="month", geo="municipality")
 rel = rel.pipe(
     cs.sus_sql,
     "SELECT *, count / population AS rate FROM {data}",
@@ -136,7 +136,7 @@ rel = cs.sus_data_clean_encoding(rel)
 rel = cs.sus_data_standardize(rel, system="SIM-DO")
 rel = cs.sus_filter(rel, groups="respiratory", age_min=0, age_max=14)
 rel = cs.sus_data_create_variables(rel, age_group="epidemiological_default")
-rel = cs.sus_aggregate(rel, time="month", geo="municipality")
+rel = cs.sus_data_aggregate(rel, time="month", geo="municipality")
 
 # 3. Enriquecimento (lazy)
 rel = cs.sus_climate(rel, variables=["temp_mean", "precipitation"], years=[2023])
