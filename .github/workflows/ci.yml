@@ -25,5 +25,17 @@ jobs:
       - name: Install package with dev dependencies
         run: pip install ".[dev]"
 
-      - name: Run tests
-        run: pytest -q
+      - name: Lint
+        run: ruff check .
+
+      - name: Type check
+        run: mypy climasus4py --ignore-missing-imports
+
+      - name: Run tests with coverage gate
+        run: |
+          pytest -q \
+            --cov=climasus4py \
+            --cov-report=term-missing \
+            --cov-fail-under=75 \
+            --ignore=tests/test_integration.py \
+            --ignore=tests/test_benchmark.py
