@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.3.0] - 2026-05-06
+
+### BREAKING CHANGES — Paridade com `climasus4r` legacy
+
+Os nomes públicos de 9 funções mudaram para alinhar com o pacote R `climasus4r`. Script de migração automática: `tools/migrate-from-v0.2.py`.
+
+| v0.2.x (antigo) | v0.3.0 (novo) |
+|-----------------|---------------|
+| `sus_import` | `sus_data_import` |
+| `sus_clean` | `sus_data_clean_encoding` |
+| `sus_standardize` | `sus_data_standardize` |
+| `sus_variables` | `sus_data_create_variables` |
+| `sus_aggregate` | `sus_data_aggregate` |
+| `sus_read` | `sus_data_read` |
+| `sus_quality` | `sus_data_quality_report` |
+| `sus_spatial` | `sus_spatial_join` |
+| `sus_chat_ai` | `sus_chat` (renomeado em 2026-05-05) |
+
+Sem aliases de deprecação — código que usa os nomes antigos quebra com `AttributeError`.
+
 ## [0.2.1] - 2026-05-05
 
 ### Corrigido
