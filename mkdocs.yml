@@ -139,6 +139,7 @@ nav:
   - "Ordem do pipeline": pipeline-order.md
   - "Materialize": materialize.md
   - "Enriquecimentos": enrichments.md
+  - "Migração do R": migration-from-r-legacy.md
   - "Referência API": reference/
   - Português:
       - pt/index.md
