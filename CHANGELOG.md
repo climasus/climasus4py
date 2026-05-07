@@ -2,6 +2,14 @@
 
 ## [0.3.0] - 2026-05-06
 
+### Added — Suíte climática avançada (paridade com `climasus4r` legacy)
+
+- `sus_climate_aggregate` — agregação climática lazy em DuckDB SQL (mensal/sazonal/anual, 10 estatísticas)
+- `sus_climate_compute_indicators` — 8 indicadores bioclimáticos via SQL macros (HI, THI, AT, VP, DPD, DTR, CHD, HWD) — fontes: Rothfusz (1990), Thom (1959), Magnus-Tetens
+- `sus_climate_fill_inmet` — imputação por XGBoost por estação (opt-in `pip install climasus4py[xgboost]`); fallback linear com `UserWarning`; cache de modelos em `~/.climasus4py/models/`
+- `sus_climate_plot_fill` — visualização ggplot do antes/depois via plotnine (opt-in `pip install climasus4py[plot]`)
+- Extras opcionais `[xgboost]` e `[plot]` declarados em `pyproject.toml`
+
 ### BREAKING CHANGES — Paridade com `climasus4r` legacy
 
 Os nomes públicos de 9 funções mudaram para alinhar com o pacote R `climasus4r`. Script de migração automática: `tools/migrate-from-v0.2.py`.
