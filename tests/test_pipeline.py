@@ -61,8 +61,15 @@ def _make_passthrough(name: str, calls: list[str]):
 
 def _patch_all_stages(monkeypatch, mod, calls: list[str]) -> None:
     """Monkeypatcha todos os stages do pipeline com passthroughs rastreáveis."""
-    for stage in ("sus_data_clean_encoding", "sus_data_standardize", "sus_filter", "sus_data_create_variables", "sus_data_aggregate"):
-        monkeypatch.setattr(mod, stage, _make_passthrough(stage.replace("sus_", ""), calls))
+    _stage_map = [
+        ("sus_data_clean_encoding", "clean"),
+        ("sus_data_standardize", "standardize"),
+        ("sus_filter", "filter"),
+        ("sus_data_create_variables", "variables"),
+        ("sus_data_aggregate", "aggregate"),
+    ]
+    for attr, name in _stage_map:
+        monkeypatch.setattr(mod, attr, _make_passthrough(name, calls))
 
 
 # ---------------------------------------------------------------------------
