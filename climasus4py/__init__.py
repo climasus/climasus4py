@@ -28,7 +28,7 @@ from .core.variables import sus_data_create_variables
 from .enrichment.census import sus_census
 from .enrichment.climate import sus_climate
 from .enrichment.fill_gaps import sus_fill_gaps
-from .enrichment.spatial import sus_spatial
+from .enrichment.spatial import sus_spatial_join
 from .io.cache import sus_cache_clear, sus_cache_info
 from .io.export import sus_export
 from .io.materialize import materialize
@@ -61,7 +61,7 @@ __all__ = [
     "sus_climate_inmet",
     # Enrichment
     "sus_climate",
-    "sus_spatial",
+    "sus_spatial_join",
     "sus_census",
     "sus_fill_gaps",
     # Utilities

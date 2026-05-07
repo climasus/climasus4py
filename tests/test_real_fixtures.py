@@ -124,8 +124,8 @@ def test_installed_spatial_assets_join_real_municipality():
         """,
     )
 
-    with pytest.warns(UserWarning, match="sus_spatial"):
-        enriched = cs.sus_spatial(rel, geo_level="municipality")
+    with pytest.warns(UserWarning, match="sus_spatial_join"):
+        enriched = cs.sus_spatial_join(rel, geo_level="municipality")
     df = cs.materialize(enriched, how="pandas", quiet=True)
 
     assert "Paulo" in df.loc[0, "spatial_name"]

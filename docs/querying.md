@@ -89,7 +89,7 @@ Depois do `aggregate`, aplique enriquecimentos opcionais. Todos retornam
 `DuckDBPyRelation` — sem RAM até o fim:
 
 ```python
-rel = cs.sus_spatial(rel)                                   # adiciona geometry_wkt
+rel = cs.sus_spatial_join(rel)                                   # adiciona geometry_wkt
 rel = cs.sus_census(rel, year=2022, variables=["population_2021"])  # indicadores IBGE
 rel = cs.sus_climate(rel, variables=["temp_mean"], years=[2023])    # INMET
 rel = cs.sus_fill_gaps(rel, method="linear")                # interpolação lazy

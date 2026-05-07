@@ -43,7 +43,7 @@ result = cs.materialize(rel, how="auto", quiet=False)
 === "geopandas"
 
     ```python
-    rel = cs.sus_spatial(rel)         # adiciona geometry_wkt
+    rel = cs.sus_spatial_join(rel)         # adiciona geometry_wkt
     gdf = cs.materialize(rel, how="geopandas")
 
     gdf.plot(column="count", legend=True)
@@ -117,6 +117,6 @@ para disco.
 rel_sem_geo = cs.sus_data_aggregate(rel, time="month", geo="municipality")
 df = cs.materialize(rel_sem_geo)    # → pandas.DataFrame
 
-rel_com_geo = cs.sus_spatial(rel_sem_geo)
+rel_com_geo = cs.sus_spatial_join(rel_sem_geo)
 gdf = cs.materialize(rel_com_geo)   # → geopandas.GeoDataFrame
 ```

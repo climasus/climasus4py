@@ -15,15 +15,15 @@ dados de saúde usando `JOIN` em SQL no DuckDB. Todos retornam
     `climasus-data` usam 7 dígitos IBGE (ex: `3550308`). Os joins normalizam
     automaticamente via `LEFT(..., 6)` em ambos os lados.
 
-## `sus_spatial` — geometrias e territórios
+## `sus_spatial_join` — geometrias e territórios
 
 Adicioa `geometry_wkt` e nome geográfico ao resultado. Necessário para
 mapas com `materialize(how="geopandas")`.
 
 ```python
-rel = cs.sus_spatial(rel)                              # nível padrão: municipality
-rel = cs.sus_spatial(rel, geo_level="state")
-rel = cs.sus_spatial(rel, geo_level="region")
+rel = cs.sus_spatial_join(rel)                              # nível padrão: municipality
+rel = cs.sus_spatial_join(rel, geo_level="state")
+rel = cs.sus_spatial_join(rel, geo_level="region")
 ```
 
 Após o join, a relação terá as colunas `spatial_name` e `geometry_wkt`.
@@ -33,7 +33,7 @@ Após o join, a relação terá as colunas `spatial_name` e `geometry_wkt`.
 Passe um Parquet próprio com as colunas mínimas do nível:
 
 ```python
-rel = cs.sus_spatial(
+rel = cs.sus_spatial_join(
     rel,
     geo_level="municipality",
     spatial_path="meus_assets/municipios_custom.parquet",
@@ -50,7 +50,7 @@ rel = cs.sus_spatial(
 
 ```python
 rel = cs.sus_data_aggregate(rel, time="year", geo="municipality")
-rel = cs.sus_spatial(rel)
+rel = cs.sus_spatial_join(rel)
 gdf = cs.materialize(rel, how="geopandas")
 gdf.plot(column="count", scheme="quantiles", legend=True)
 ```
@@ -204,7 +204,7 @@ rel = cs.sus_data_aggregate(rel, time="month", geo="municipality")
 rel = cs.sus_census(rel, year=2022, variables=["population_2021"])
 rel = cs.sus_climate(rel, variables=["temp_mean", "precipitation"], years=[2023])
 rel = cs.sus_fill_gaps(rel, method="linear")
-rel = cs.sus_spatial(rel)   # por último, para não carregar geometry em todos os joins
+rel = cs.sus_spatial_join(rel)   # por último, para não carregar geometry em todos os joins
 
 gdf = cs.materialize(rel, how="geopandas")
 ```

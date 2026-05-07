@@ -11,7 +11,7 @@ import pandas as pd
 from ..core.engine import collect
 
 
-def sus_spatial(
+def sus_spatial_join(
     data: duckdb.DuckDBPyRelation | pd.DataFrame,
     *,
     shapefile: "gpd.GeoDataFrame | None" = None,
@@ -48,9 +48,9 @@ def sus_spatial(
 
     Example:
         >>> import climasus4py as cs
-        >>> gdf = cs.sus_spatial(rel, geo_level="state")
+        >>> gdf = cs.sus_spatial_join(rel, geo_level="state")
         >>> gdf.plot(column="count")
-        >>> cs.sus_spatial(rel, shapefile=custom_shp,
+        >>> cs.sus_spatial_join(rel, shapefile=custom_shp,
         ...               geo_level="municipality")
     """
     try:

@@ -30,7 +30,7 @@ def test_sus_spatial_joins_geometry_wkt(tmp_path, monkeypatch):
     ).to_parquet(tmp_path / "assets" / "spatial" / "municipalities.parquet")
     rel = get_connection().from_df(pd.DataFrame({"municipality_code": ["355030"], "count": [10]}))
 
-    out = cs.sus_spatial(rel)
+    out = cs.sus_spatial_join(rel)
 
     df = out.df()
     assert type(out).__name__ == "DuckDBPyRelation"
@@ -48,7 +48,7 @@ def test_sus_spatial_accepts_custom_spatial_path(tmp_path):
     ).to_parquet(custom_path)
     rel = get_connection().from_df(pd.DataFrame({"municipality_code": ["999999"], "count": [1]}))
 
-    out = cs.sus_spatial(rel, spatial_path=custom_path)
+    out = cs.sus_spatial_join(rel, spatial_path=custom_path)
 
     df = out.df()
     assert df.loc[0, "spatial_name"] == "Custom City"
@@ -61,7 +61,7 @@ def test_sus_spatial_rejects_custom_spatial_path_without_schema(tmp_path):
     rel = get_connection().from_df(pd.DataFrame({"municipality_code": ["999999"], "count": [1]}))
 
     with pytest.raises(ValueError, match="geometry_wkt|name"):
-        cs.sus_spatial(rel, spatial_path=custom_path)
+        cs.sus_spatial_join(rel, spatial_path=custom_path)
 
 
 def test_sus_census_joins_requested_variables(tmp_path, monkeypatch):
@@ -213,7 +213,7 @@ def test_sus_spatial_6digit_code_joins_correctly(tmp_path, monkeypatch):
         "count": [10],
     }))
 
-    out = cs.sus_spatial(rel)
+    out = cs.sus_spatial_join(rel)
     df = out.df()
 
     assert df.loc[0, "geometry_wkt"] == "POINT (-46.63 -23.55)"

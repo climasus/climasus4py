@@ -14,7 +14,7 @@ flowchart LR
     C --> D[sus_filter]
     D --> E[sus_data_create_variables]
     E --> F[sus_data_aggregate]
-    F --> G(["sus_spatial\nsus_census\nsus_climate\nsus_fill_gaps"])
+    F --> G(["sus_spatial_join\nsus_census\nsus_climate\nsus_fill_gaps"])
     G --> H(["materialize\nsus_export"])
     style A fill:#1a6b4a,color:#fff
     style H fill:#1a6b4a,color:#fff
@@ -45,7 +45,7 @@ flowchart LR
 
 | Função | Adiciona |
 |---|---|
-| `sus_spatial(rel)` | `geometry_wkt` + nome geográfico |
+| `sus_spatial_join(rel)` | `geometry_wkt` + nome geográfico |
 | `sus_census(rel, year)` | Indicadores IBGE (população, renda, Gini…) |
 | `sus_climate(rel, years)` | Variáveis INMET (temperatura, precipitação…) |
 | `sus_fill_gaps(rel, method)` | Interpolação de lacunas em séries temporais |
