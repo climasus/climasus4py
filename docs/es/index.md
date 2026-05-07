@@ -12,7 +12,7 @@
 ## Ejemplo rápido: mortalidad respiratoria en SP (2020–2023)
 
 ```python
-import climasus as cs
+import climasus4py as cs
 
 # Pipeline completo — descarga automática + caché + filtrado + agregación
 result = cs.sus_pipeline(

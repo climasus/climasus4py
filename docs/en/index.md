@@ -12,7 +12,7 @@
 ## Quick example: respiratory mortality in São Paulo (2020–2023)
 
 ```python
-import climasus as cs
+import climasus4py as cs
 
 # Full pipeline — auto-download + cache + filter + aggregate
 result = cs.sus_pipeline(

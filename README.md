@@ -25,13 +25,13 @@ pip install "climasus4py[all]"
 Install latest from GitHub:
 
 ```bash
-pip install climasus4py.git
+pip install git+https://github.com/climasus/climasus4py.git
 ```
 
 ## Quick Example
 
 ```python
-import climasus as cs
+import climasus4py as cs
 
 result = cs.sus_pipeline(
     system="SIM-DO",
@@ -49,7 +49,7 @@ print(result.df().head())
 ## Step-by-step Example
 
 ```python
-import climasus as cs
+import climasus4py as cs
 
 # 1. Import and cache
 x = cs.sus_import("SIM-DO", "SP", [2021, 2022])
@@ -95,7 +95,7 @@ installed automatically.
 You can force update local metadata when needed:
 
 ```python
-from climasus import update_climasus_data
+from climasus4py import update_climasus_data
 update_climasus_data()
 ```
 

@@ -15,7 +15,7 @@ pip install climasus4py
 ## Pipeline em 3 linhas
 
 ```python
-import climasus as cs
+import climasus4py as cs
 
 result = cs.sus_pipeline("SIM-DO", uf="SP", year=[2021, 2022, 2023],
                           groups="respiratory", time="month", geo="state")
