@@ -1,8 +1,8 @@
 """Basic tests for climasus4py utilities."""
 
 from climasus4py.utils.cid import expand_cid_range, expand_cid_ranges
-from climasus4py.utils.encoding import fix_encoding
 from climasus4py.utils.data import resolve_uf, system_family
+from climasus4py.utils.encoding import fix_encoding
 
 
 class TestCID:

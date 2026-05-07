@@ -1,24 +1,24 @@
 """End-to-end pipeline test using cached parquet from R version."""
 
-import sys
 import os
+import sys
 from pathlib import Path
 
-import pytest
 import pyarrow.parquet as pq
+import pytest
 
 # Add src to path for editable install
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import climasus4py as cs
 
-PARQUET = Path(r"c:\Users\Readone\Desktop\CLIMA_SUS_4_R\dados\cache\SIM-DO\SP_2023_all.parquet")
-PARQUET = Path(os.getenv("CLIMASUS_TEST_PARQUET", str(PARQUET)))
+PARQUET = Path(os.getenv("CLIMASUS_TEST_PARQUET", ""))
 
 pytestmark = pytest.mark.skipif(
     not PARQUET.is_file(),
     reason=(
-        "Integration parquet not found. Set CLIMASUS_TEST_PARQUET to run e2e tests."
+        "Integration parquet not found. "
+        "Set CLIMASUS_TEST_PARQUET=/path/to/file.parquet to run e2e tests."
     ),
 )
 

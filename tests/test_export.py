@@ -40,10 +40,8 @@ class TestExportParquet:
 
     def test_dataframe_to_parquet(self, tmp_path, sample_df):
         path = tmp_path / "out.parquet"
-        sus_export(sample_df, path)
-        assert path.is_file()
-        table = pq.read_table(path)
-        assert table.num_rows == 3
+        with pytest.raises(TypeError, match="DuckDBPyRelation"):
+            sus_export(sample_df, path)
 
 
 class TestExportCSV:
@@ -56,10 +54,8 @@ class TestExportCSV:
 
     def test_dataframe_to_csv(self, tmp_path, sample_df):
         path = tmp_path / "out.csv"
-        sus_export(sample_df, path)
-        assert path.is_file()
-        df = pd.read_csv(path)
-        assert len(df) == 3
+        with pytest.raises(TypeError, match="DuckDBPyRelation"):
+            sus_export(sample_df, path)
 
 
 class TestExportEdgeCases:

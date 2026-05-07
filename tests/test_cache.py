@@ -1,13 +1,11 @@
 """Tests for cache management — sus_cache_info and sus_cache_clear."""
 
-import time
-from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from climasus4py.io.cache import sus_cache_info, sus_cache_clear
+from climasus4py.io.cache import sus_cache_clear, sus_cache_info
 
 
 @pytest.fixture

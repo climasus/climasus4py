@@ -13,7 +13,6 @@ import pytest
 from climasus4py.core.engine import get_connection
 from climasus4py.core.filter import sus_filter
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -97,6 +96,33 @@ class TestSexFilter:
         result = sus_filter(sim_do_rel, sex="2")
         assert _count(result) == 4
 
+    def test_filter_male_canonical_letter(self, sim_do_rel):
+        """Canonical 'M' must match rows stored as DATASUS '1' or 'Masculino'."""
+        result = sus_filter(sim_do_rel, sex="M")
+        assert _count(result) == 4
+
+    def test_filter_female_portuguese_label(self, sim_do_rel):
+        """'Feminino' should match the same rows as '2'."""
+        result = sus_filter(sim_do_rel, sex="Feminino")
+        assert _count(result) == 4
+
+    def test_filter_female_english_label(self, sim_do_rel):
+        result = sus_filter(sim_do_rel, sex="Female")
+        assert _count(result) == 4
+
+    def test_filter_female_spanish_label(self, sim_do_rel):
+        result = sus_filter(sim_do_rel, sex="Femenino")
+        assert _count(result) == 4
+
+    def test_filter_sex_list(self, sim_do_rel):
+        """List input keeps rows matching any of the values."""
+        result = sus_filter(sim_do_rel, sex=["Male", "Female"])
+        assert _count(result) == 8
+
+    def test_filter_unrecognised_sex_raises(self, sim_do_rel):
+        with pytest.raises(ValueError, match="Unrecognised sex value"):
+            sus_filter(sim_do_rel, sex="X")
+
 
 # ---------------------------------------------------------------------------
 # Disease / CID filtering
@@ -171,6 +197,153 @@ class TestCombinedFilters:
         result = sus_filter(sim_do_rel, codes=["I219"], age_max=70)
         # I219 rows: idx 1(68y) and idx 7(150y) → only idx 1 passes age≤70
         assert _count(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# Disease group lookup (codes_for_groups branch — lines 81-82)
+# ---------------------------------------------------------------------------
+
+class TestGroupsFilter:
+    def test_groups_string_resolves_codes(self, sim_do_rel):
+        """groups='respiratory' should resolve to J* codes and filter accordingly."""
+        result = sus_filter(sim_do_rel, groups="respiratory")
+        df = result.df()
+        # J189 and J449 are respiratory; others are not
+        assert _count(result) == 2
+        assert set(df["CAUSABAS"]) == {"J189", "J449"}
+
+    def test_groups_list_resolves_codes(self, sim_do_rel):
+        """groups=['respiratory'] (list form) must also work."""
+        result = sus_filter(sim_do_rel, groups=["respiratory"])
+        assert _count(result) == 2
+
+    def test_no_cause_column_with_codes_raises(self):
+        """When codes= is provided but there's no CID column, raise ValueError."""
+        rel = _make_rel({"value": [1, 2, 3]})
+        with pytest.raises(ValueError, match="cause/CID"):
+            sus_filter(rel, codes=["J189"])
+
+    def test_large_code_list_uses_temp_table(self, sim_do_rel):
+        """With >200 unique 3-char prefixes the temp-table branch must execute."""
+        big_codes = (
+            [f"J{i:02d}0" for i in range(100)]
+            + [f"I{i:02d}0" for i in range(100)]
+            + [f"A{i:02d}0" for i in range(100)]
+        )
+        result = sus_filter(sim_do_rel, codes=big_codes)
+        # J189 (J-prefix) and I219 (I-prefix) and A90 (A-prefix) match → 4 rows
+        assert _count(result) >= 3
+
+
+# ---------------------------------------------------------------------------
+# Error raises for missing columns
+# ---------------------------------------------------------------------------
+
+class TestMissingColumnErrors:
+    def test_age_filter_no_age_column_raises(self):
+        rel = _make_rel({"value": [1, 2]})
+        with pytest.raises(ValueError, match="age"):
+            sus_filter(rel, age_min=18)
+
+    def test_sex_filter_no_sex_column_raises(self):
+        rel = _make_rel({"value": [1, 2]})
+        with pytest.raises(ValueError, match="sex"):
+            sus_filter(rel, sex="M")
+
+    def test_race_filter_no_race_column_raises(self):
+        rel = _make_rel({"value": [1, 2]})
+        with pytest.raises(ValueError, match="race"):
+            sus_filter(rel, race="1")
+
+    def test_uf_filter_no_uf_column_raises(self):
+        rel = _make_rel({"value": [1, 2]})
+        with pytest.raises(ValueError, match="UF|uf"):
+            sus_filter(rel, uf="SP")
+
+    def test_municipality_filter_no_muni_column_raises(self):
+        rel = _make_rel({"value": [1, 2]})
+        with pytest.raises(ValueError, match="municipality"):
+            sus_filter(rel, municipality="355030")
+
+    def test_date_filter_no_date_column_raises(self):
+        rel = _make_rel({"value": [1, 2]})
+        with pytest.raises(ValueError, match="date"):
+            sus_filter(rel, date_start="2023-01-01")
+
+
+# ---------------------------------------------------------------------------
+# Date range filtering (lines 189-201)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def date_rel():
+    """Relation with ISO-format date column (death_date) for date filter tests."""
+    return _make_rel({
+        "death_date": [
+            "2023-01-01", "2023-06-15", "2023-12-31", "2023-03-01",
+            "2023-09-15", "2023-11-20", "2023-07-01", "2023-02-28",
+        ],
+        "value": list(range(8)),
+    })
+
+
+class TestDateFilter:
+    def test_date_start_filters_early_rows(self, date_rel):
+        """date_start removes rows before 2023-06-01."""
+        result = sus_filter(date_rel, date_start="2023-06-01")
+        # ≥ 2023-06-01: Jun-15, Dec-31, Sep-15, Nov-20, Jul-01 = 5
+        assert _count(result) == 5
+
+    def test_date_end_filters_late_rows(self, date_rel):
+        """date_end removes rows after 2023-03-31."""
+        result = sus_filter(date_rel, date_end="2023-03-31")
+        # ≤ 2023-03-31: Jan-01, Mar-01, Feb-28 = 3
+        assert _count(result) == 3
+
+    def test_date_range_combined(self, date_rel):
+        """date_start + date_end together narrow to a window."""
+        result = sus_filter(date_rel, date_start="2023-06-01", date_end="2023-09-30")
+        # Jun-15, Sep-15, Jul-01 → 3 rows
+        assert _count(result) == 3
+
+
+# ---------------------------------------------------------------------------
+# P5 Sprint 2 — SQL injection regression tests (OWASP A03)
+# ---------------------------------------------------------------------------
+
+class TestSQLInjection:
+    """Regression tests — each case verifies that user-controlled values
+    cannot inject SQL through race/sex/uf/municipality parameters."""
+
+    def test_sex_payload_blocked_by_synonym_expansion(self, sim_do_rel):
+        """SQL injection via sex= raises ValueError — never reaches DB."""
+        with pytest.raises(ValueError, match="Unrecognised sex value"):
+            sus_filter(sim_do_rel, sex="M' OR '1'='1")
+
+    def test_race_payload_returns_zero_not_all_rows(self, sim_do_rel):
+        """Race injection payload must not return extra rows via RACACOR."""
+        result = sus_filter(sim_do_rel, race=["4'; DROP TABLE x; --"])
+        # sql_string() escapes the quote → no match, 0 rows
+        assert _count(result) == 0
+
+    def test_race_double_quote_payload_safe(self, sim_do_rel):
+        """Double-quote in race value must not escape the identifier boundary."""
+        result = sus_filter(sim_do_rel, race=['1" OR "1"="1'])
+        assert _count(result) == 0
+
+    def test_municipality_payload_returns_zero(self, sim_do_rel):
+        """SQL injection via municipality= is neutralised by sql_string()."""
+        result = sus_filter(sim_do_rel, municipality="355030' OR '1'='1")
+        assert _count(result) == 0
+
+    def test_uf_payload_returns_zero(self):
+        """SQL injection via uf= is neutralised by sql_string()."""
+        rel = _make_rel({
+            "UF": ["SP", "RJ", "MG"],
+            "DTOBITO": ["01012023"] * 3,
+        })
+        result = sus_filter(rel, uf="SP' OR '1'='1")
+        assert _count(result) == 0
 
 
 if __name__ == "__main__":

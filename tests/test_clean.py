@@ -9,8 +9,8 @@ Focuses on:
 import pandas as pd
 import pytest
 
-from climasus4py.core.engine import get_connection
 from climasus4py.core.clean import sus_clean
+from climasus4py.core.engine import get_connection
 
 
 def _make_rel(data: dict):

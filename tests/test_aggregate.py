@@ -1,10 +1,13 @@
 """Tests for sus_aggregate — time/geo grouping and summarisation."""
 
+import re
+
 import pandas as pd
 import pytest
 
-from climasus4py.core.engine import get_connection
 from climasus4py.core.aggregate import sus_aggregate
+from climasus4py.core.engine import get_connection
+from climasus4py.core.variables import sus_variables
 
 
 def _make_rel(data: dict):
@@ -68,6 +71,43 @@ class TestGeoAggregation:
         result = sus_aggregate(rel, time="month", geo="state")
         df = result.df()
         assert "UF" in df.columns
+
+
+class TestWeekFormatSVS:
+    """P1 Sprint 2 — sus_aggregate week format aligned with SVS."""
+
+    @pytest.fixture
+    def rel_week(self):
+        # 2023-01-01 is a Sunday → SVS week 01/2023
+        return _make_rel({
+            "DTOBITO": pd.to_datetime(["2023-01-01", "2023-01-08"]),
+        })
+
+    def test_default_is_svs_format(self, rel_week):
+        """Default week_format='svs' → 'WW/YYYY' pattern."""
+        df = sus_aggregate(rel_week, time="week", geo="state").df()
+        for val in df["time_group"].dropna():
+            assert re.fullmatch(r"\d{2}/\d{4}", val), f"Expected WW/YYYY, got {val!r}"
+
+    def test_iso_format_option(self, rel_week):
+        """week_format='iso' preserves old 'YYYY-WXX' pattern."""
+        df = sus_aggregate(rel_week, time="week", geo="state", week_format="iso").df()
+        for val in df["time_group"].dropna():
+            assert re.fullmatch(r"\d{4}-W\d{2}", val), f"Expected YYYY-WXX, got {val!r}"
+
+    def test_aggregate_and_variables_aligned(self):
+        """sus_aggregate(time='week') and sus_variables(epi_week=True) must return identical values."""
+        dates = pd.to_datetime([
+            "2023-01-01", "2023-06-15", "2023-12-25",
+            "2023-03-19", "2023-09-03",
+        ])
+        rel = _make_rel({"DTOBITO": dates})
+        agg_weeks = set(sus_aggregate(rel, time="week", geo="state").df()["time_group"].dropna())
+        var_weeks = set(sus_variables(rel, epi_week=True).df()["epi_week"].dropna())
+        assert agg_weeks == var_weeks, (
+            f"Mismatch between aggregate and variables week values:\n"
+            f"aggregate: {sorted(agg_weeks)}\nvariables: {sorted(var_weeks)}"
+        )
 
 
 if __name__ == "__main__":

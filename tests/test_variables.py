@@ -115,13 +115,11 @@ class TestTemporalVariables:
         df = result.df()
         assert "day_of_week" in df.columns
 
-    def test_no_date_col_skips_temporal(self):
-        """When no date column exists, temporal vars are silently skipped."""
+    def test_no_date_col_rejects_temporal(self):
+        """When temporal vars are requested, a date column is required."""
         rel = _make_rel({"VALUE": [1, 2, 3]})
-        result = sus_variables(rel, epi_week=True, season=True)
-        df = result.df()
-        assert "epi_week" not in df.columns
-        assert "season" not in df.columns
+        with pytest.raises(ValueError, match="date column"):
+            sus_variables(rel, epi_week=True, season=True)
 
 
 if __name__ == "__main__":

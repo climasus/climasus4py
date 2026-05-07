@@ -13,11 +13,10 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from climasus4py.core.engine import collect_arrow, get_connection, read_parquets
 from climasus4py.core.clean import sus_clean
-from climasus4py.core.standardize import sus_standardize
+from climasus4py.core.engine import collect_arrow, get_connection, read_parquets
 from climasus4py.core.importer import _coerce_datasus_types
-
+from climasus4py.core.standardize import sus_standardize
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -31,8 +30,26 @@ def sample_sim_do_df():
     """
     return pd.DataFrame({
         "CONTADOR": ["1", "2", "3", "4", "5", "6", "7", "8"],
-        "DTOBITO": ["01012023", "15062023", "31122023", "", "99999999", "28022023", "01012023", "10032023"],
-        "DTNASC": ["01011990", "15061955", "31121950", "invalid", "", "28022000", "01011990", "10031980"],
+        "DTOBITO": [
+            "01012023",
+            "15062023",
+            "31122023",
+            "",
+            "99999999",
+            "28022023",
+            "01012023",
+            "10032023",
+        ],
+        "DTNASC": [
+            "01011990",
+            "15061955",
+            "31121950",
+            "invalid",
+            "",
+            "28022000",
+            "01011990",
+            "10031980",
+        ],
         "IDADE": ["420", "468", "301", "105", "500", "023", "420", "540"],
         "SEXO": ["1", "2", "1", "2", "1", " 2 ", "1", "2"],
         "RACACOR": ["1", "4", "", "  ", "2", "1", "1", "3"],

@@ -49,15 +49,17 @@ def test_sinan_state_partition_filter_uses_ibge_uf_code():
     assert expression == 'TRY_CAST("SG_UF_NOT" AS INTEGER) IN (35)'
 
 
-def test_raw_cache_path_preserves_source_url_structure():
+def test_raw_cache_path_preserves_source_url_structure(tmp_path):
+    raw_dir = tmp_path / "raw"
     path = _raw_cache_path(
         "ftp://ftp.datasus.gov.br/dissemin/publicos/SINAN/DADOS/FINAIS/DENGBR24.dbc",
-        Path("raw"),
+        raw_dir,
     )
 
-    assert path == Path(
-        "raw/ftp.datasus.gov.br/dissemin/publicos/SINAN/DADOS/FINAIS/DENGBR24.dbc"
-    )
+    expected = (
+        raw_dir / "ftp.datasus.gov.br/dissemin/publicos/SINAN/DADOS/FINAIS/DENGBR24.dbc"
+    ).resolve()
+    assert path == expected
 
 
 def test_sus_import_filters_cached_national_sinan_by_uf(tmp_path):
