@@ -55,7 +55,7 @@ import climasus4py as cs
 x = cs.sus_data_import("SIM-DO", "SP", [2021, 2022])
 
 # 2. Clean
-x = cs.sus_clean(x)
+x = cs.sus_data_clean_encoding(x)
 
 # 3. Standardize
 x = cs.sus_standardize(x, lang="en")

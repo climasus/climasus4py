@@ -5,7 +5,7 @@ import gc
 import pandas as pd
 import pytest
 
-from climasus4py.core.clean import sus_clean
+from climasus4py.core.clean import sus_data_clean_encoding
 from climasus4py.core.engine import get_connection
 from climasus4py.core.standardize import sus_standardize
 from climasus4py.core._stage import get_stage, set_stage
@@ -19,7 +19,7 @@ def test_core_rejects_pandas_dataframe():
     df = pd.DataFrame({"IDADE": ["420"], "CONTADOR": [1]})
 
     with pytest.raises(TypeError, match="DuckDBPyRelation"):
-        sus_clean(df)
+        sus_data_clean_encoding(df)
 
 
 def test_core_rejects_geodataframe_with_spatial_message():

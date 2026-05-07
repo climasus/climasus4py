@@ -41,9 +41,9 @@ def test_import_data():
 
 
 def test_clean():
-    """sus_clean removes duplicates."""
+    """sus_data_clean_encoding removes duplicates."""
     rel = cs.sus_data_import("SIM-DO", "SP", 2023, path=str(PARQUET))
-    cleaned = cs.sus_clean(rel)
+    cleaned = cs.sus_data_clean_encoding(rel)
     assert cleaned is not None
     n = cleaned.count("*").fetchone()[0]
     print(f"  clean: {n:,} rows")

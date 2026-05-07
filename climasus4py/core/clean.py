@@ -11,7 +11,7 @@ from ._guards import _assert_lazy
 from .engine import get_connection, schema_columns
 
 
-def sus_clean(
+def sus_data_clean_encoding(
     rel: duckdb.DuckDBPyRelation,
     *,
     fix_enc: bool = True,
@@ -44,8 +44,8 @@ def sus_clean(
 
     Example:
         >>> import climasus4py as cs
-        >>> clean = cs.sus_clean(rel, age_range=(0, 110))
-        >>> clean = cs.sus_clean(rel, dedup_cols=["CONTADOR"])
+        >>> clean = cs.sus_data_clean_encoding(rel, age_range=(0, 110))
+        >>> clean = cs.sus_data_clean_encoding(rel, dedup_cols=["CONTADOR"])
     """
     _assert_lazy(rel)
     columns = schema_columns(rel)

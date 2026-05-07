@@ -1,4 +1,4 @@
-"""Tests for sus_clean — deduplication, age validation, encoding.
+"""Tests for sus_data_clean_encoding — deduplication, age validation, encoding.
 
 Focuses on:
   - ROW_NUMBER dedup with deterministic ORDER BY
@@ -9,7 +9,7 @@ Focuses on:
 import pandas as pd
 import pytest
 
-from climasus4py.core.clean import sus_clean
+from climasus4py.core.clean import sus_data_clean_encoding
 from climasus4py.core.engine import get_connection
 
 
@@ -34,7 +34,7 @@ class TestDedup:
             "IDADE": ["420", "420", "430", "440", "440", "440"],
             "CAUSABAS": ["J189"] * 6,
         })
-        cleaned = sus_clean(rel, fix_enc=False, age_range=(0, 120))
+        cleaned = sus_data_clean_encoding(rel, fix_enc=False, age_range=(0, 120))
         assert _count(cleaned) == 3
 
     def test_dedup_keeps_first_row(self):
@@ -44,7 +44,7 @@ class TestDedup:
             "IDADE": ["420", "430"],
             "CAUSABAS": ["J189", "I219"],
         })
-        cleaned = sus_clean(rel, fix_enc=False, age_range=(0, 120))
+        cleaned = sus_data_clean_encoding(rel, fix_enc=False, age_range=(0, 120))
         assert _count(cleaned) == 1
 
     def test_dedup_no_key_uses_distinct(self):
@@ -53,7 +53,7 @@ class TestDedup:
             "VALOR": [1, 1, 2, 3],
             "TEXTO": ["a", "a", "b", "c"],
         })
-        cleaned = sus_clean(rel, dedup=True, fix_enc=False, age_range=(0, 120))
+        cleaned = sus_data_clean_encoding(rel, dedup=True, fix_enc=False, age_range=(0, 120))
         assert _count(cleaned) == 3
 
     def test_dedup_disabled(self):
@@ -62,7 +62,7 @@ class TestDedup:
             "CONTADOR": [1, 1, 2],
             "IDADE": ["420", "420", "430"],
         })
-        cleaned = sus_clean(rel, dedup=False, fix_enc=False, age_range=(0, 120))
+        cleaned = sus_data_clean_encoding(rel, dedup=False, fix_enc=False, age_range=(0, 120))
         assert _count(cleaned) == 3
 
     def test_dedup_custom_cols(self):
@@ -72,7 +72,7 @@ class TestDedup:
             "CAUSABAS": ["J189", "J189", "I219"],
             "IDADE": ["420", "430", "440"],
         })
-        cleaned = sus_clean(rel, dedup_cols=["CAUSABAS"], fix_enc=False, age_range=(0, 120))
+        cleaned = sus_data_clean_encoding(rel, dedup_cols=["CAUSABAS"], fix_enc=False, age_range=(0, 120))
         assert _count(cleaned) == 2  # J189 deduped, I219 kept
 
 
@@ -88,7 +88,7 @@ class TestAgeValidation:
             "IDADE": ["420", "500", "540", "301"],
             # decoded:   20,  100,  140,    0
         })
-        cleaned = sus_clean(rel, dedup=False, fix_enc=False)
+        cleaned = sus_data_clean_encoding(rel, dedup=False, fix_enc=False)
         # 140 filtered out
         assert _count(cleaned) == 3
 
@@ -99,7 +99,7 @@ class TestAgeValidation:
             "IDADE": ["410", "430", "460", "490"],
             # decoded:   10,   30,   60,   90
         })
-        cleaned = sus_clean(rel, dedup=False, fix_enc=False, age_range=(20, 70))
+        cleaned = sus_data_clean_encoding(rel, dedup=False, fix_enc=False, age_range=(20, 70))
         # 10 and 90 filtered out
         assert _count(cleaned) == 2
 
@@ -109,7 +109,7 @@ class TestAgeValidation:
             "CONTADOR": [1, 2, 3],
             "IDADE": ["420", None, ""],
         })
-        cleaned = sus_clean(rel, dedup=False, fix_enc=False, age_range=(0, 120))
+        cleaned = sus_data_clean_encoding(rel, dedup=False, fix_enc=False, age_range=(0, 120))
         # 420→20 (kept), None→NULL (kept), ""→NULL (kept)
         assert _count(cleaned) == 3
 
@@ -119,7 +119,7 @@ class TestAgeValidation:
             "CONTADOR": [1, 2, 3],
             "VALOR": ["a", "b", "c"],
         })
-        cleaned = sus_clean(rel, dedup=False, fix_enc=False)
+        cleaned = sus_data_clean_encoding(rel, dedup=False, fix_enc=False)
         assert _count(cleaned) == 3
 
 

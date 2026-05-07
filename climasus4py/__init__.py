@@ -16,7 +16,7 @@ Typical usage::
 
 from ._version import __version__
 from .core.aggregate import sus_aggregate
-from .core.clean import sus_clean
+from .core.clean import sus_data_clean_encoding
 from .core.climate_inmet import sus_climate_inmet
 from .core.engine import collect_arrow
 from .core.filter import sus_filter
@@ -44,7 +44,7 @@ __all__ = [
     "sus_pipeline",
     # Core
     "sus_data_import",
-    "sus_clean",
+    "sus_data_clean_encoding",
     "sus_standardize",
     "sus_filter",
     "sus_variables",

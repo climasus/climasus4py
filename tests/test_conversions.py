@@ -13,7 +13,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from climasus4py.core.clean import sus_clean
+from climasus4py.core.clean import sus_data_clean_encoding
 from climasus4py.core.engine import collect_arrow, get_connection, read_parquets
 from climasus4py.core.importer import _coerce_datasus_types
 from climasus4py.core.standardize import sus_standardize
@@ -140,7 +140,7 @@ class TestCoerceTypes:
 
 
 # ---------------------------------------------------------------------------
-# Tests: Age decoding in sus_clean
+# Tests: Age decoding in sus_data_clean_encoding
 # ---------------------------------------------------------------------------
 
 class TestAgeDecoding:
@@ -156,14 +156,14 @@ class TestAgeDecoding:
     def test_code_4_years(self):
         """Code 4xx = age in years. 420 → 20 years, 468 → 68 years."""
         rel = self._make_rel(["420", "468", "401", "499"])
-        cleaned = sus_clean(rel, dedup=False, fix_enc=False, age_range=(0, 120))
+        cleaned = sus_data_clean_encoding(rel, dedup=False, fix_enc=False, age_range=(0, 120))
         n = cleaned.count("*").fetchone()[0]
         assert n == 4  # All valid ages (20, 68, 1, 99)
 
     def test_code_5_hundred_plus(self):
         """Code 5xx = 100 + value. 500 → 100, 520 → 120."""
         rel = self._make_rel(["500", "520", "550"])
-        cleaned = sus_clean(rel, dedup=False, fix_enc=False, age_range=(0, 120))
+        cleaned = sus_data_clean_encoding(rel, dedup=False, fix_enc=False, age_range=(0, 120))
         n = cleaned.count("*").fetchone()[0]
         # 500 → 100 (ok), 520 → 120 (ok), 550 → 150 (filtered out)
         assert n == 2
@@ -171,28 +171,28 @@ class TestAgeDecoding:
     def test_code_3_months(self):
         """Code 3xx = months → 0 years (infant)."""
         rel = self._make_rel(["301", "306", "311"])
-        cleaned = sus_clean(rel, dedup=False, fix_enc=False, age_range=(0, 120))
+        cleaned = sus_data_clean_encoding(rel, dedup=False, fix_enc=False, age_range=(0, 120))
         n = cleaned.count("*").fetchone()[0]
         assert n == 3  # All valid (0 years)
 
     def test_code_2_days(self):
         """Code 2xx = days → 0 years."""
         rel = self._make_rel(["201", "215", "230"])
-        cleaned = sus_clean(rel, dedup=False, fix_enc=False, age_range=(0, 120))
+        cleaned = sus_data_clean_encoding(rel, dedup=False, fix_enc=False, age_range=(0, 120))
         n = cleaned.count("*").fetchone()[0]
         assert n == 3  # All valid (0 years)
 
     def test_code_1_hours(self):
         """Code 1xx = hours → 0 years."""
         rel = self._make_rel(["101", "112", "123"])
-        cleaned = sus_clean(rel, dedup=False, fix_enc=False, age_range=(0, 120))
+        cleaned = sus_data_clean_encoding(rel, dedup=False, fix_enc=False, age_range=(0, 120))
         n = cleaned.count("*").fetchone()[0]
         assert n == 3  # All valid (0 years)
 
     def test_code_0_minutes(self):
         """Code 0xx = minutes → 0 years."""
         rel = self._make_rel(["001", "030", "059"])
-        cleaned = sus_clean(rel, dedup=False, fix_enc=False, age_range=(0, 120))
+        cleaned = sus_data_clean_encoding(rel, dedup=False, fix_enc=False, age_range=(0, 120))
         n = cleaned.count("*").fetchone()[0]
         assert n == 3  # All valid (0 years)
 
@@ -200,7 +200,7 @@ class TestAgeDecoding:
         """Ages >120 should be filtered out."""
         rel = self._make_rel(["420", "550", "468"])
         # 420 → 20 (ok), 550 → 150 (out), 468 → 68 (ok)
-        cleaned = sus_clean(rel, dedup=False, fix_enc=False, age_range=(0, 120))
+        cleaned = sus_data_clean_encoding(rel, dedup=False, fix_enc=False, age_range=(0, 120))
         n = cleaned.count("*").fetchone()[0]
         assert n == 2
 
@@ -208,7 +208,7 @@ class TestAgeDecoding:
         """Realistic mix: keep most, only filter 150+ years."""
         ages = ["420", "468", "301", "105", "500", "023", "540", "499"]
         rel = self._make_rel(ages)
-        cleaned = sus_clean(rel, dedup=False, fix_enc=False, age_range=(0, 120))
+        cleaned = sus_data_clean_encoding(rel, dedup=False, fix_enc=False, age_range=(0, 120))
         n = cleaned.count("*").fetchone()[0]
         # 420→20✓, 468→68✓, 301→0✓, 105→0✓, 500→100✓, 023→int(23)✓, 540→140✗, 499→99✓
         assert n == 7
@@ -310,7 +310,7 @@ class TestPipelineRoundTrip:
         """Cleaning with proper age decoding should keep most rows."""
         rel = read_parquets([coerced_parquet])
         original_count = rel.count("*").fetchone()[0]
-        cleaned = sus_clean(rel, dedup=True, fix_enc=False, age_range=(0, 120))
+        cleaned = sus_data_clean_encoding(rel, dedup=True, fix_enc=False, age_range=(0, 120))
         clean_count = cleaned.count("*").fetchone()[0]
         # Should keep at least 70% of rows (realistic, not 0.3%)
         assert clean_count >= original_count * 0.5, (
