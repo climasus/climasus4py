@@ -27,8 +27,12 @@ from .core.sus_sql import sus_sql
 from .core.variables import sus_data_create_variables
 from .enrichment.census import sus_census
 from .enrichment.climate import sus_climate
+from .enrichment.climate_aggregate import sus_climate_aggregate
+from .enrichment.climate_fill import sus_climate_fill_inmet
+from .enrichment.climate_indicators import sus_climate_compute_indicators
 from .enrichment.fill_gaps import sus_fill_gaps
 from .enrichment.spatial import sus_spatial_join
+from .viz.climate_plot import sus_climate_plot_fill
 from .io.cache import sus_cache_clear, sus_cache_info
 from .io.export import sus_export
 from .io.materialize import materialize
@@ -59,6 +63,11 @@ __all__ = [
     "sus_data_read",
     # Climate import
     "sus_climate_inmet",
+    # Climate analytics (parity with climasus4r legacy)
+    "sus_climate_aggregate",
+    "sus_climate_compute_indicators",
+    "sus_climate_fill_inmet",
+    "sus_climate_plot_fill",
     # Enrichment
     "sus_climate",
     "sus_spatial_join",

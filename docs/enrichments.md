@@ -195,6 +195,82 @@ rel = cs.sus_fill_gaps(
 
 ---
 
+## Climate analytics — aggregate, indicators, fill, plot
+
+Quatro funções avançadas para análise climática de dados INMET, em paridade com `climasus4r` legacy.
+
+### `sus_climate_aggregate` — agregação lazy
+
+Agrega observações INMET em buckets mensais, sazonais ou anuais. Lazy ponta a ponta.
+
+```python
+rel = cs.sus_climate_inmet(years=2023, uf="AM")
+
+monthly = cs.sus_climate_aggregate(rel, time_resolution="monthly")
+seasonal = cs.sus_climate_aggregate(
+    rel,
+    time_resolution="seasonal",
+    stats=["mean", "days_above_threshold"],
+    threshold=32.0,
+)
+```
+
+### `sus_climate_compute_indicators` — indicadores bioclimáticos
+
+Computa 8 indicadores via SQL macros: `heat_index`, `thi`, `apparent_temperature`,
+`vapor_pressure`, `dew_point_depression`, `diurnal_range`, `consecutive_hot_days`, `heat_wave`.
+
+```python
+# Todos os indicadores
+result = cs.sus_climate_compute_indicators(rel)
+
+# Subconjunto
+result = cs.sus_climate_compute_indicators(rel, indicators=["heat_index", "heat_wave"])
+```
+
+### `sus_climate_fill_inmet` — imputação por XGBoost (opt-in)
+
+Preenche lacunas em dados INMET com XGBoost por estação ou interpolação linear como fallback.
+
+```bash
+# Requer extra [xgboost]:
+pip install climasus4py[xgboost]
+```
+
+```python
+df = rel.df()
+
+# Com XGBoost (automático se instalado)
+df_filled = cs.sus_climate_fill_inmet(df, target_var="tair_dry_bulb_c")
+
+# Todas as variáveis canônicas INMET
+df_filled = cs.sus_climate_fill_inmet(df, target_var="all")
+
+# Modo avaliação (retorna dict com métricas MAE/RMSE/R²)
+eval_out = cs.sus_climate_fill_inmet(df, target_var="tair_dry_bulb_c", run_evaluation=True)
+```
+
+### `sus_climate_plot_fill` — visualização antes/depois
+
+Produz gráfico ggplot (plotnine) comparando observado vs imputado.
+
+```bash
+# Requer extra [plot]:
+pip install climasus4py[plot]
+```
+
+```python
+p = cs.sus_climate_plot_fill(
+    df_filled, df_original,
+    target_var="tair_dry_bulb_c",
+    lang="pt",
+)
+p.draw()         # exibir inline (Jupyter)
+p.save("plot.png")
+```
+
+---
+
 ## Combinando enriquecimentos
 
 Enriquecimentos podem ser encadeados — cada um retorna `DuckDBPyRelation`:
