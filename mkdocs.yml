@@ -135,6 +135,10 @@ copyright: "© 2024 CLIMA-SUS — MIT License"
 # ---------------------------------------------------------------------------
 nav:
   - Home: index.md
+  - "Como consultar": querying.md
+  - "Ordem do pipeline": pipeline-order.md
+  - "Materialize": materialize.md
+  - "Enriquecimentos": enrichments.md
   - "Referência API": reference/
   - Português:
       - pt/index.md
