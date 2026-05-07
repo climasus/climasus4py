@@ -1,3 +1,5 @@
+> **Nota histórica (v0.3.0):** Este relatório usa os nomes vigentes em v0.2.x. Os nomes públicos de 9 funções mudaram em v0.3.0 para paridade com `climasus4r` legacy. Tabela de equivalência: ver [`CHANGELOG.md`](CHANGELOG.md).
+
 # Relatório de Revisão Multi-Agente — `climasus4py` v0.2.0
 
 > **Data:** 03/05/2026  
