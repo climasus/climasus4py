@@ -21,6 +21,7 @@ from .core.climate_inmet import sus_climate_inmet
 from .core.engine import collect_arrow
 from .core.filter import sus_filter
 from .core.importer import sus_data_import
+from .core.meta import sus_meta
 from .core.pipeline import sus_pipeline
 from .core.standardize import sus_data_standardize
 from .core.sus_sql import sus_sql
@@ -32,15 +33,16 @@ from .enrichment.climate_fill import sus_climate_fill_inmet
 from .enrichment.climate_indicators import sus_climate_compute_indicators
 from .enrichment.fill_gaps import sus_fill_gaps
 from .enrichment.spatial import sus_spatial_join
-from .viz.climate_plot import sus_climate_plot_fill
 from .io.cache import sus_cache_clear, sus_cache_info
 from .io.export import sus_export
 from .io.materialize import materialize
 from .io.read import sus_data_read
 from .utils import update_climasus_data
 from .utils.chat import sus_chat
+from .utils.disease_groups import get_disease_group_details, list_disease_groups
 from .utils.explore import sus_explore
 from .utils.quality import sus_data_quality_report
+from .viz.climate_plot import sus_climate_plot_fill
 
 __all__ = [
     "__version__",
@@ -78,4 +80,8 @@ __all__ = [
     "sus_data_quality_report",
     "sus_chat",
     "update_climasus_data",
+    # Metadata & disease groups (parity C)
+    "sus_meta",
+    "list_disease_groups",
+    "get_disease_group_details",
 ]

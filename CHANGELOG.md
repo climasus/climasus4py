@@ -2,6 +2,13 @@
 
 ## [0.3.0] - 2026-05-06
 
+### Added — Metadados de pipeline e grupos de doenças (Sub-plano C)
+
+- `sus_meta(rel, field=None, add_history=None)` — introspecção de metadados da relação DuckDB (sistema, etapa, tipo, histórico). Paridade: `climasus4r::sus_meta()`
+- `list_disease_groups(climate_sensitive_only, lang)` — lista grupos de doenças de `climasus-data/disease_groups/core.json` + `climate_sensitive.json` com suporte a PT/EN/ES. Paridade: `climasus4r::sus_list_disease_groups()`
+- `get_disease_group_details(group_name, lang)` — detalhes completos de um grupo (label, description, codes, climate_sensitive, climate_factors). Paridade: `climasus4r::sus_disease_group_details()`
+- `_stage.py` expandido: `_stage_map` agora armazena `{stage, system, type, history}`; `set_stage()` aceita `system=` e `rel_type=`; nova `get_meta()` retorna o dict completo.
+
 ### Added — Suíte climática avançada (paridade com `climasus4r` legacy)
 
 - `sus_climate_aggregate` — agregação climática lazy em DuckDB SQL (mensal/sazonal/anual, 10 estatísticas)
