@@ -10,6 +10,7 @@ import importlib.util
 from pathlib import Path
 from unittest.mock import patch
 
+import climasus_data as _cdata
 import duckdb
 import pandas as pd
 import pytest
@@ -18,8 +19,6 @@ from climasus4py.core.engine import get_connection
 
 _HAS_JOBLIB = importlib.util.find_spec("joblib") is not None
 _HAS_OPENPYXL = importlib.util.find_spec("openpyxl") is not None
-
-import climasus_data as _cdata
 _HAS_CENSUS_ASSETS = (_cdata.data_root() / "assets" / "census").exists()
 
 # ---------------------------------------------------------------------------
@@ -127,7 +126,10 @@ class TestCensusErrors:
         conn = get_connection()
         return conn.from_df(pd.DataFrame(data))
 
-    @pytest.mark.skipif(not _HAS_CENSUS_ASSETS, reason="census parquet assets not bundled in climasus-data")
+    @pytest.mark.skipif(
+        not _HAS_CENSUS_ASSETS,
+        reason="census parquet assets not bundled in climasus-data",
+    )
     def test_census_none_uses_lazy_path(self):
         """census=None → lazy path returns DuckDBPyRelation."""
         from climasus4py.enrichment.census import sus_census
