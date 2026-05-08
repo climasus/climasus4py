@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.2.0a1] - 2026-05-08
+
+> **Renumeração:** as tags `v0.3.0`, `v0.3.1` e `v0.3.2` **nunca foram publicadas**.
+> Esta release reseta a numeração para `v0.2.0a1` (PEP 440 alpha 1) — primeiro
+> Alpha público da nova arquitetura paridade `climasus4r` legacy. Os entries
+> históricos `[0.3.x]` abaixo são preservados como registro técnico do trabalho
+> que precedeu este Alpha.
+
+### Fixed — Bioclimatic indicators (BUG-01..BUG-04)
+
+- **BUG-01 — `consecutive_hot_days` é agora um run length verdadeiro** (não
+  uma janela 7-day). Reescrito com técnica gaps-and-islands em CTE: para
+  cada dia hot, retorna o número de dias consecutivos terminando hoje
+  (compatível com convenção ETCCDI CDD).
+- **BUG-02 — `heat_wave` flagga TODOS os dias do episódio.** A versão
+  anterior usava `LAG(Tmax,1)` + `LAG(Tmax,2)` e perdia os 2 primeiros
+  dias de cada onda — viés de 67% em ondas de 3 dias. Reescrito para
+  contar o tamanho da run completa via `COUNT(*) OVER (PARTITION BY
+  run_id)` e flaggar todos os dias quando ≥ 3.
+- **BUG-03 — `wbgt` (Wet-Bulb Globe Temperature) implementado.** O
+  docstring documentava WBGT (Liljegren 2008), mas a chave não existia
+  em `_INDICATOR_DEFS`. Adicionada implementação simplificada outdoor
+  (`0.67 * Twb + 0.33 * Tdb`) com Twb estimado de T+RH via Stull (2011).
+  Paridade com `climasus4r::sus_climate_compute_indicators`.
+- **BUG-04 — `heat_index` com guarda de domínio.** A regressão Rothfusz
+  é definida apenas para T ≥ 27°C e RH ≥ 40%. Fora desse domínio o
+  polinômio retornava valores < T (biologicamente absurdo). Agora
+  retorna `NULL` fora do domínio.
+
+### Fixed — Cache and security (BUG-05..BUG-06)
+
+- **BUG-05 — `hashlib.md5` com `usedforsecurity=False`.** Compatibilidade
+  com Python ≥ 3.9 em modo FIPS (que rejeitava MD5 sem essa flag).
+- **BUG-06 — Cache de modelos XGBoost com validação de features.** Nome
+  do arquivo agora inclui versão do pacote + hash das `feature_cols`.
+  Mudança em `_engineer_features` invalida automaticamente o cache.
+  Carga adicional valida `n_features_in_` como segunda barreira.
+
+### Fixed — Release plumbing (BUG-07)
+
+- **BUG-07 — `_version.py` e `pyproject.toml` em sincronia.** Wheel
+  publicado com metadado consistente com `climasus4py.__version__`.
+
+### Notes
+
+- `consecutive_hot_days` e `heat_wave` **não existem no `climasus4r`
+  legacy** — são adições do `climasus4py` registradas como divergência
+  intencional em [`DECISOES.md`](../governanca/6-instancia/DECISOES.md).
+
+---
+
 ## [0.3.2] - 2026-05-09
 
 ### Fixed

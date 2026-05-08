@@ -147,9 +147,30 @@ def _fill_linear(
 # ---------------------------------------------------------------------------
 
 
-def _cache_path(station: str, target_var: str, cache_dir: Path) -> Path:
-    key = hashlib.md5(f"{station}_{target_var}".encode()).hexdigest()[:12]
-    return cache_dir / f"{station}_{target_var}_{key}.joblib"
+def _cache_path(
+    station: str,
+    target_var: str,
+    cache_dir: Path,
+    feature_cols: list[str] | None = None,
+) -> Path:
+    """Build a cache filename keyed by station, var, package version, and feature signature.
+
+    The signature ensures models cached under one version of
+    ``_engineer_features`` are not silently reused after that function
+    changes. ``usedforsecurity=False`` is required for FIPS-mode Python.
+    """
+    from .._version import __version__ as _pkg_version
+
+    key = hashlib.md5(
+        f"{station}_{target_var}".encode(), usedforsecurity=False
+    ).hexdigest()[:12]
+    feat_sig = "noinfo"
+    if feature_cols:
+        sig_input = "|".join(sorted(feature_cols)) + "|" + _pkg_version
+        feat_sig = hashlib.md5(
+            sig_input.encode(), usedforsecurity=False
+        ).hexdigest()[:8]
+    return cache_dir / f"{station}_{target_var}_{key}_v{_pkg_version}_{feat_sig}.joblib"
 
 
 def _fill_xgboost_station(
@@ -205,10 +226,21 @@ def _fill_xgboost_station(
         return df_s, None
 
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_file = _cache_path(station_id, target_var, cache_dir)
+    cache_file = _cache_path(station_id, target_var, cache_dir, feature_cols)
 
     if cache_file.exists():
         model = joblib.load(cache_file)
+        # Validate feature compatibility — guards against stale models if a
+        # bug bypassed the version+feature-signature path component.
+        expected = getattr(model, "n_features_in_", None)
+        if expected is not None and expected != len(feature_cols):
+            cache_file.unlink(missing_ok=True)
+            model = xgb.XGBRegressor(
+                n_estimators=100, max_depth=5, learning_rate=0.1,
+                random_state=42, n_jobs=1, verbosity=0,
+            )
+            model.fit(X_train, y_train)
+            joblib.dump(model, cache_file)
     else:
         model = xgb.XGBRegressor(
             n_estimators=100,

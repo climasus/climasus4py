@@ -132,8 +132,10 @@ def test_consecutive_hot_days_column_present(full_rel):
     )
     df = result.df()
     assert "consecutive_hot_days" in df.columns
-    # Values: integers 0–7
-    assert df["consecutive_hot_days"].between(0, 7).all()
+    # CHD is a true run length (not a 7-day rolling count) — values are
+    # non-negative integers, no upper bound from the window.
+    assert (df["consecutive_hot_days"] >= 0).all()
+    assert df["consecutive_hot_days"].dtype.kind in ("i", "u")
 
 
 def test_heat_wave_column_present(full_rel):
@@ -144,6 +146,173 @@ def test_heat_wave_column_present(full_rel):
     assert "heat_wave" in df.columns
     # Binary: 0 or 1
     assert df["heat_wave"].isin([0, 1]).all()
+
+
+# ---------------------------------------------------------------------------
+# BUG-01 regression: CHD must report TRUE run lengths (not 7-day rolling sum)
+# ---------------------------------------------------------------------------
+
+
+def test_chd_returns_true_run_length_alternating_pattern():
+    """Sequence Q-F-Q-Q-Q-Q-Q (Q = Tmax > 32, F = Tmax <= 32):
+
+    CHD on the last hot day must be 5 (length of the trailing run),
+    not 6 (count of hot days within the 7-day window).
+    """
+    import pandas as pd
+
+    from climasus4py.core.engine import get_connection
+
+    conn = get_connection()
+    days = pd.date_range("2023-01-01", periods=7, freq="D")
+    # Q F Q Q Q Q Q
+    tmax = [33.0, 25.0, 33.0, 33.0, 33.0, 33.0, 33.0]
+    rel = conn.from_df(pd.DataFrame({
+        "station_code": ["A"] * 7,
+        "date": days,
+        "tair_max_c": tmax,
+        "tair_dry_bulb_c": tmax,
+        "rh_mean_porc": [50.0] * 7,
+    }))
+    out = sus_climate_compute_indicators(
+        rel, indicators=["consecutive_hot_days"], verbose=False
+    ).df().sort_values("date").reset_index(drop=True)
+    # day 0 (Q) → run length 1
+    # day 1 (F) → 0
+    # days 2..6 (Q×5) → 1, 2, 3, 4, 5
+    expected = [1, 0, 1, 2, 3, 4, 5]
+    assert out["consecutive_hot_days"].tolist() == expected
+
+
+def test_chd_zero_when_not_hot():
+    """Tmax <= 32 → CHD = 0."""
+    import pandas as pd
+
+    from climasus4py.core.engine import get_connection
+
+    conn = get_connection()
+    rel = conn.from_df(pd.DataFrame({
+        "station_code": ["A"] * 3,
+        "date": pd.date_range("2023-01-01", periods=3, freq="D"),
+        "tair_max_c": [25.0, 30.0, 32.0],  # all <= 32
+        "tair_dry_bulb_c": [25.0, 30.0, 32.0],
+        "rh_mean_porc": [50.0] * 3,
+    }))
+    out = sus_climate_compute_indicators(
+        rel, indicators=["consecutive_hot_days"], verbose=False
+    ).df().sort_values("date").reset_index(drop=True)
+    assert out["consecutive_hot_days"].tolist() == [0, 0, 0]
+
+
+# ---------------------------------------------------------------------------
+# BUG-02 regression: heat_wave must flag ALL days of a run (not skip the
+# first two days of the episode)
+# ---------------------------------------------------------------------------
+
+
+def test_heat_wave_flags_all_three_days_of_episode():
+    """A 3-day run of Tmax > 35 must produce heat_wave = 1 on ALL THREE days."""
+    import pandas as pd
+
+    from climasus4py.core.engine import get_connection
+
+    conn = get_connection()
+    rel = conn.from_df(pd.DataFrame({
+        "station_code": ["A"] * 5,
+        "date": pd.date_range("2023-01-01", periods=5, freq="D"),
+        # cool, hot, hot, hot, cool — the 3 hot days are an episode
+        "tair_max_c": [30.0, 36.0, 36.0, 36.0, 30.0],
+        "tair_dry_bulb_c": [30.0, 36.0, 36.0, 36.0, 30.0],
+        "rh_mean_porc": [50.0] * 5,
+    }))
+    out = sus_climate_compute_indicators(
+        rel, indicators=["heat_wave"], verbose=False
+    ).df().sort_values("date").reset_index(drop=True)
+    # Days 1, 2, 3 are all part of the 3-day run → all flagged
+    assert out["heat_wave"].tolist() == [0, 1, 1, 1, 0]
+
+
+def test_heat_wave_does_not_flag_two_day_run():
+    """Run of only 2 hot days → no heat_wave."""
+    import pandas as pd
+
+    from climasus4py.core.engine import get_connection
+
+    conn = get_connection()
+    rel = conn.from_df(pd.DataFrame({
+        "station_code": ["A"] * 4,
+        "date": pd.date_range("2023-01-01", periods=4, freq="D"),
+        "tair_max_c": [30.0, 36.0, 36.0, 30.0],
+        "tair_dry_bulb_c": [30.0, 36.0, 36.0, 30.0],
+        "rh_mean_porc": [50.0] * 4,
+    }))
+    out = sus_climate_compute_indicators(
+        rel, indicators=["heat_wave"], verbose=False
+    ).df().sort_values("date").reset_index(drop=True)
+    assert out["heat_wave"].tolist() == [0, 0, 0, 0]
+
+
+# ---------------------------------------------------------------------------
+# BUG-04 regression: heat_index returns NULL outside the Rothfusz domain
+# ---------------------------------------------------------------------------
+
+
+def test_heat_index_null_below_temperature_threshold():
+    """T < 27°C → hi_c = NULL (outside Rothfusz domain)."""
+    import pandas as pd
+
+    from climasus4py.core.engine import get_connection
+
+    conn = get_connection()
+    rel = conn.from_df(pd.DataFrame({
+        "station_code": ["A"] * 2,
+        "date": pd.date_range("2023-01-01", periods=2, freq="D"),
+        "tair_dry_bulb_c": [20.0, 35.0],   # 20 = below domain, 35 = inside
+        "rh_mean_porc": [60.0, 60.0],
+        "tair_max_c": [25.0, 40.0],
+    }))
+    out = sus_climate_compute_indicators(
+        rel, indicators=["heat_index"], verbose=False
+    ).df()
+    assert pd.isna(out["hi_c"].iloc[0])
+    assert pd.notna(out["hi_c"].iloc[1])
+
+
+def test_heat_index_null_below_humidity_threshold():
+    """RH < 40% → hi_c = NULL."""
+    import pandas as pd
+
+    from climasus4py.core.engine import get_connection
+
+    conn = get_connection()
+    rel = conn.from_df(pd.DataFrame({
+        "station_code": ["A"] * 2,
+        "date": pd.date_range("2023-01-01", periods=2, freq="D"),
+        "tair_dry_bulb_c": [35.0, 35.0],
+        "rh_mean_porc": [25.0, 60.0],   # 25 = below domain, 60 = inside
+        "tair_max_c": [40.0, 40.0],
+    }))
+    out = sus_climate_compute_indicators(
+        rel, indicators=["heat_index"], verbose=False
+    ).df()
+    assert pd.isna(out["hi_c"].iloc[0])
+    assert pd.notna(out["hi_c"].iloc[1])
+
+
+# ---------------------------------------------------------------------------
+# BUG-03 regression: WBGT exists, returns wbgt_c column
+# ---------------------------------------------------------------------------
+
+
+def test_wbgt_indicator_available_and_returns_column(full_rel):
+    """WBGT documented in module — must exist and produce wbgt_c."""
+    out = sus_climate_compute_indicators(
+        full_rel, indicators=["wbgt"], verbose=False
+    ).df()
+    assert "wbgt_c" in out.columns
+    # WBGT (simplified outdoor) should fall in a plausible thermal range
+    valid = out["wbgt_c"].dropna()
+    assert (valid > -10).all() and (valid < 50).all()
 
 
 # ---------------------------------------------------------------------------
