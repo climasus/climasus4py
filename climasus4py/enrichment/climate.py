@@ -1,24 +1,19 @@
-"""Climate data enrichment — join health + INMET observations.
+"""Climate data enrichment — join health + INMET observations (lazy).
 
 Mirrors R: climate.R
 
-Two calling modes:
-
-**Lazy** (preferred) — pass a ``DuckDBPyRelation`` with no ``climate`` arg.
-Reads INMET parquet files from climasus-data automatically via DuckDB SQL.
-
-**Legacy** — pass a ``climate`` DataFrame. Materialises immediately and
-returns a ``pandas.DataFrame``. Kept for backward compatibility.
+Lazy contract: takes a ``DuckDBPyRelation``, JOINs against INMET parquet
+files cached in ``climasus-data``, and returns a ``DuckDBPyRelation``.
+Health data is never materialised internally — the relation stays lazy
+until the user calls ``.df()`` or ``cs.materialize(...)``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
 
 import duckdb
-import pandas as pd
 
 from ..core._guards import _unwrap_sus_relation
 from ..core._sql import quote_ident, sql_string
@@ -90,117 +85,45 @@ def _join_direct(
 
 
 def sus_climate(
-    rel: Any,
-    climate: pd.DataFrame | None = None,
+    rel: duckdb.DuckDBPyRelation,
     *,
-    time_window: int = 0,
     variables: Sequence[str] | None = None,
     lags: Sequence[int] | None = None,
     idw: bool = True,
     years: Sequence[int] | None = None,
-) -> Any:
-    """Join health data with climate observations.
+) -> duckdb.DuckDBPyRelation:
+    """Join health data with cached INMET climate observations (lazy).
 
-    Two calling modes:
+    Reads INMET parquet files from ``climasus-data`` automatically and
+    JOINs them via DuckDB SQL. The relation remains lazy until the user
+    materialises with ``.df()`` or ``cs.materialize(...)``.
 
-    **Lazy** (preferred) — pass a ``DuckDBPyRelation`` with no ``climate``
-    arg. Reads INMET parquet files from climasus-data automatically via
-    DuckDB SQL. No materialisation until ``.df()`` is called.
-
-    **Legacy** — pass a ``climate`` DataFrame. Materialises immediately
-    and returns a ``pandas.DataFrame``.
-
-    Mirrors climasus4r::sus_climate (legacy reference).
+    Mirrors ``climasus4r::sus_climate`` (legacy reference).
 
     Args:
-        rel: Lazy DuckDB relation (lazy mode) or DataFrame (legacy mode).
-        climate: Legacy — ``DataFrame`` with ``municipality_code``, ``date``,
-            and climate variable columns.
-        time_window: Legacy — reserved, not used.
-        variables: Lazy mode — climate variable columns to include, e.g.
+        rel: Lazy DuckDB relation with health data containing a
+            municipality column and a daily date column.
+        variables: Climate variable columns to include, e.g.
             ``["temp_mean", "precipitation"]``. Defaults to both.
-        lags: Lag offsets in days (both modes).
-        idw: Whether to apply IDW station-weighting (lazy mode only).
-        years: Observation years to load (lazy mode only).
+        lags: Lag offsets in days. Reserved for future windowed joins.
+        idw: Whether to apply IDW station-weighting (default ``True``).
+        years: Observation years to load. When ``None`` (default), the
+            years are auto-detected from the date column.
 
     Returns:
-        **Lazy mode**: ``DuckDBPyRelation`` with climate columns added.
-        **Legacy mode**: ``pandas.DataFrame`` with climate columns merged.
+        ``DuckDBPyRelation`` with climate columns joined to the health
+        data. Stays lazy.
 
     Raises:
-        TypeError: If *rel* is not a DuckDB relation (lazy mode).
-        ValueError: If date column has monthly granularity (YYYY-MM).
+        TypeError: If *rel* is not a DuckDB relation.
+        ValueError: If the date column has monthly granularity
+            (``YYYY-MM``); ``sus_climate`` requires daily dates.
 
     Example:
         >>> import climasus4py as cs
         >>> out = cs.sus_climate(rel, variables=["temp_mean"], years=[2023])
         >>> out.df()
     """
-    # ---------------------------------------------------------------------------
-    # Legacy eager path: climate DataFrame provided explicitly
-    # ---------------------------------------------------------------------------
-    if climate is not None:
-        from ..core.engine import collect
-
-        if isinstance(rel, duckdb.DuckDBPyRelation):
-            health_df = collect(rel)
-        elif isinstance(rel, pd.DataFrame):
-            health_df = rel
-        else:
-            try:
-                inner = object.__getattribute__(rel, "_rel")
-                health_df = collect(inner)
-            except AttributeError as err:
-                raise TypeError(
-                    f"Expected DuckDBPyRelation or DataFrame, got {type(rel).__name__}"
-                ) from err
-
-        columns = list(health_df.columns)
-        geo_col = detect_geo_column(columns, level="municipality")
-        date_col = detect_date_column(columns)
-
-        if not geo_col or not date_col:
-            raise ValueError(
-                "Health data must have a municipality_code and date column for climate join."
-            )
-
-        health_df = health_df.copy()
-        health_df[date_col] = pd.to_datetime(health_df[date_col], errors="coerce")
-        climate = climate.copy()
-        climate["date"] = pd.to_datetime(climate["date"], errors="coerce")
-
-        result = health_df.merge(
-            climate,
-            left_on=[geo_col, date_col],
-            right_on=["municipality_code", "date"],
-            how="left",
-            suffixes=("", "_clim"),
-        )
-
-        if lags:
-            climate_cols = [
-                c for c in climate.columns if c not in ("municipality_code", "date")
-            ]
-            for lag_days in lags:
-                lagged = climate.copy()
-                lagged["date"] = lagged["date"] + pd.Timedelta(days=lag_days)
-                lag_suffix = f"_lag{lag_days}d"
-                lagged = lagged.rename(
-                    columns={c: f"{c}{lag_suffix}" for c in climate_cols}
-                )
-                result = result.merge(
-                    lagged,
-                    left_on=[geo_col, date_col],
-                    right_on=["municipality_code", "date"],
-                    how="left",
-                    suffixes=("", lag_suffix),
-                )
-
-        return result
-
-    # ---------------------------------------------------------------------------
-    # Lazy path: read from climasus-data INMET parquets
-    # ---------------------------------------------------------------------------
     rel = _unwrap_sus_relation(rel, "sus_climate")
 
     geo_col = (
@@ -208,6 +131,7 @@ def sus_climate(
     )
     date_col = detect_date_column(list(rel.columns)) or "date"
     vars_list: list[str] = list(variables) if variables is not None else list(_DEFAULT_VARIABLES)
+    _ = lags  # reserved for future windowed joins; preserved in signature for parity
 
     # Guard: reject monthly date granularity
     check_sql = (

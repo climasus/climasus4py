@@ -4,8 +4,8 @@
 
 ### Fixed
 
-- `sus_climate`: restaurada compatibilidade backward com API eager legada — ao passar `climate=<DataFrame>`, materializa e faz merge pandas (retorna `pd.DataFrame`); nova API lazy continua sem mudança.
-- `sus_spatial_join`: restaurada compatibilidade backward com API eager legada — ao passar `shapefile=<GeoDataFrame>`, faz merge pandas e retorna `gpd.GeoDataFrame`; nova API lazy continua sem mudança.
+- `sus_climate`: restaurado contrato lazy estrito — retorna `DuckDBPyRelation` e faz JOIN automático com `climasus-data/inmet_observations_*.parquet` via DuckDB SQL. Modo eager `climate=<DataFrame>` introduzido durante o porte do Sub-plano B foi removido (não tem equivalente no `climasus4r` legacy).
+- `sus_spatial_join`: restaurado contrato lazy estrito — retorna `DuckDBPyRelation` e faz JOIN automático com `climasus-data/spatial/municipalities.parquet`. Modo eager `shapefile=<GeoDataFrame>` removido pelo mesmo motivo.
 - `sus_data_aggregate`: corrigido deadlock de recurso DuckDB ao usar `rel.query()` em vez de `conn.register()` + `conn.sql()`.
 - `materialize(how="pandas")`: removido auto-upgrade implícito para `GeoDataFrame` — use `how="geopandas"` explicitamente.
 - `core/engine.py`: adicionados `TYPE_CHECKING` imports de `pd` e `pa` para resolver `F821`.
@@ -14,6 +14,11 @@
 - `zip()` sem `strict=` adicionado `strict=False` (`B905`).
 - Linhas longas (E501) anotadas com `# noqa: E501` ou encurtadas.
 - `_migrate_layout.py` movido para `tools/_layout_migration_2026-05-06.py`.
+
+### Removed
+
+- **BREAKING (interno, v0.3.0 nunca foi publicada):** `sus_climate(climate=...)` e `sus_spatial_join(shapefile=...)` foram removidos. Esses parâmetros foram introduzidos no porte do Sub-plano B mas violavam o princípio "lazy ponta a ponta" e não tinham equivalente no `climasus4r` legacy.
+- `tests/test_climate_enrichment.py`: removido (testava apenas o modo eager descontinuado; cobertura lazy mantida em `tests/test_lazy_enrichments.py`).
 
 ## [0.3.0] - 2026-05-06
 
