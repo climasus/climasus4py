@@ -5,6 +5,8 @@ Mirrors R: quality.R
 
 from __future__ import annotations
 
+from typing import cast
+
 import duckdb
 import pandas as pd
 
@@ -45,16 +47,17 @@ def sus_data_quality_report(
 
     if is_relation(data):
         columns = data.columns
-        total_rows = fetchone_scalar(data.aggregate("count(*)"), fallback=0)
+        total_rows: int = cast(int, fetchone_scalar(data.aggregate("count(*)"), fallback=0))
 
         completeness = {}
         for col in columns:
-            non_null = fetchone_scalar(
+            non_null = cast(int, fetchone_scalar(
                 conn.sql(f'SELECT COUNT("{col}") FROM data WHERE "{col}" IS NOT NULL'),
                 fallback=0,
-            )
+            ))
             completeness[col] = round(non_null / max(total_rows, 1) * 100, 1)
     else:
+        assert isinstance(data, pd.DataFrame)  # mypy narrowing
         total_rows = len(data)
         columns = list(data.columns)
         completeness = {

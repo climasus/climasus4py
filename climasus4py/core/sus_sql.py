@@ -6,6 +6,8 @@ while staying inside the lazy pipeline.
 
 from __future__ import annotations
 
+from typing import cast
+
 import duckdb
 
 from ._sql import register_relation
@@ -100,7 +102,7 @@ def sus_sql(
         raise TypeError(
             "In pipe mode the first argument must be a DuckDBPyRelation."
         )
-    register_relation(conn, rel, _DATA_VIEW)
+    register_relation(conn, cast(duckdb.DuckDBPyRelation, rel), _DATA_VIEW)
     sql = sql_template.replace(_DATA_PLACEHOLDER, _DATA_VIEW)
     return _SusRelation(conn.sql(sql))
 

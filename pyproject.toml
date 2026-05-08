@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "climasus4py"
-version = "0.3.1"
+version = "0.3.2"
 description = "Fast SUS and climate data workflows for Brazil - Python edition"
 readme = "README.md"
 license = "MIT"
@@ -82,3 +82,7 @@ select = ["E", "F", "I", "W", "UP", "B", "SIM"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[[tool.mypy.overrides]]
+module = ["requests"]
+ignore_missing_imports = true

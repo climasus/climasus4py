@@ -6,6 +6,7 @@ Mirrors R: utils-cid.R — expand_cid_ranges, codes_for_groups.
 from __future__ import annotations
 
 import string
+from typing import cast
 
 from .data import load_json
 
@@ -114,13 +115,15 @@ def codes_for_groups(group_names: list[str]) -> list[str]:
             if not isinstance(group_data, dict):
                 continue
             if group_id in group_names:
-                raw = group_data.get("codes", group_data.get("icd10_codes", []))
+                _codes = group_data.get("codes", group_data.get("icd10_codes", []))
+                raw: list[str] = cast(list[str], _codes)
                 all_codes.extend(expand_cid_ranges(raw))
                 continue
             # Also match by label
             label = group_data.get("label", {})
             if isinstance(label, dict) and any(v in group_names for v in label.values()):
-                raw = group_data.get("codes", group_data.get("icd10_codes", []))
-                all_codes.extend(expand_cid_ranges(raw))
+                _codes2 = group_data.get("codes", group_data.get("icd10_codes", []))
+                raw2: list[str] = cast(list[str], _codes2)
+                all_codes.extend(expand_cid_ranges(raw2))
 
     return sorted(set(all_codes))

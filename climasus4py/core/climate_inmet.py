@@ -308,7 +308,7 @@ def _download_robust(
 
     def _try_requests() -> bool | str:
         try:
-            import requests
+            import requests  # type: ignore[import-untyped]
         except ImportError:
             return False
         try:

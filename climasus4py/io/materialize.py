@@ -7,7 +7,7 @@ in-memory format after all lazy pipeline steps have been applied.
 from __future__ import annotations
 
 import warnings
-from typing import Any
+from typing import Any, cast
 
 import duckdb
 
@@ -31,7 +31,7 @@ def _warn_size(
     """
     if quiet:
         return
-    count = fetchone_scalar(rel.count("*"), fallback=0)
+    count = cast(int, fetchone_scalar(rel.count("*"), fallback=0))
     if count >= _LARGE_ROW_THRESHOLD:
         formatted = f"{count:,}"
         warnings.warn(

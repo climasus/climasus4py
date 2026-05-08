@@ -12,11 +12,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
 import duckdb
 
 from ..core._guards import _unwrap_sus_relation
-from ..core._sql import quote_ident, sql_string
+from ..core._sql import fetchone_scalar, quote_ident, sql_string
 from ..core._stage import set_stage
 from ..utils.data import data_path, detect_date_column, detect_geo_column
 
@@ -138,7 +139,7 @@ def sus_climate(
         f"SELECT COUNT(*) FROM _climate_health "
         f"WHERE length(CAST({quote_ident(date_col)} AS VARCHAR)) = 7"
     )
-    monthly_count = rel.query("_climate_health", check_sql).fetchone()[0]
+    monthly_count = cast(int, fetchone_scalar(rel.query("_climate_health", check_sql), fallback=0))
     if monthly_count > 0:
         raise ValueError(
             f"Date column '{date_col}' has monthly granularity (YYYY-MM). "

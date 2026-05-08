@@ -68,7 +68,7 @@ def data_path(relative: str) -> Path:
 # ---------------------------------------------------------------------------
 
 @lru_cache(maxsize=32)
-def load_json(relative: str) -> Any:
+def load_json(relative: str) -> dict[str, Any]:
     """Load and cache a JSON file from the climasus-data directory.
 
     Results are cached with ``lru_cache`` — the file is read only once

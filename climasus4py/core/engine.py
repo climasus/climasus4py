@@ -5,6 +5,7 @@ Mirrors R: engine.R — lazy evaluation via DuckDB instead of duckplyr.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -37,7 +38,7 @@ def get_connection() -> duckdb.DuckDBPyConnection:
     return _conn
 
 
-def read_parquets(paths: list[str | Path]) -> duckdb.DuckDBPyRelation:
+def read_parquets(paths: Sequence[str | Path]) -> duckdb.DuckDBPyRelation:
     """Read one or more Parquet files as a lazy DuckDB relation.
 
     Python equivalent of ``duckplyr::read_parquet_duckdb()`` in R.

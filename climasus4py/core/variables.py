@@ -5,6 +5,8 @@ Mirrors R: variables.R
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import duckdb
 
 from ..utils.data import decode_age_sql, detect_age_column, detect_date_column, load_json
@@ -62,7 +64,7 @@ def _seasonal_patterns_config() -> dict[str, object]:
 def _age_breaks_for_preset(preset: str) -> list[int]:
     """Load age break points, converting null to 999."""
     cfg = _age_groups_config()
-    presets = cfg["presets"]
+    presets = cast(dict[str, Any], cfg["presets"])
     if preset not in presets:
         return [0, 18, 65, 999]
     raw = presets[preset]["breaks"]
@@ -72,9 +74,9 @@ def _age_breaks_for_preset(preset: str) -> list[int]:
 def _season_case_sql(date_cast: str, hemisphere: str = "south") -> str:
     """Build a DuckDB CASE expression for season."""
     seasonal_patterns = _seasonal_patterns_config()
-    patterns = seasonal_patterns["patterns"]
-    hemi = hemisphere if hemisphere in patterns else seasonal_patterns["default"]
-    season_map = patterns[hemi]
+    patterns = cast(dict[str, Any], seasonal_patterns["patterns"])
+    hemi = hemisphere if hemisphere in patterns else str(seasonal_patterns["default"])
+    season_map = cast(dict[str, list[int]], patterns[hemi])
 
     parts = []
     for season_name, months in season_map.items():

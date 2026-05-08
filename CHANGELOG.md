@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.3.2] - 2026-05-09
+
+### Fixed
+
+- `mypy --ignore-missing-imports` agora passa com 0 erros (eram 14).
+- `utils/data.py`: `load_json` tipado como `dict[str, Any]` (era `Any`).
+- `utils/cid.py`: variáveis `raw` anotadas como `list[str]` para resolver
+  cascata de `Any | None` em `expand_cid_ranges`.
+- `core/variables.py`: `cast(dict[str, Any], ...)` em `presets` e `patterns`
+  para resolver `object not indexable` e `in object`.
+- `utils/quality.py`: `cast(int, fetchone_scalar(...))` em `total_rows`;
+  `assert isinstance(data, pd.DataFrame)` no branch `else` para narrowing.
+- `io/materialize.py`: `cast(int, fetchone_scalar(...))` em `count` para
+  resolver comparação `int <= object`.
+- `enrichment/climate.py`: `fetchone()[0]` substituído por `fetchone_scalar()`
+  para evitar indexação de `tuple | None`.
+- `core/sus_sql.py`: `cast(DuckDBPyRelation, rel)` antes de `register_relation`
+  para resolver invariância de `str | DuckDBPyRelation`.
+- `core/importer.py:525`: sentinela `[None]` tipado como `list[int | None]`.
+- `core/engine.py`: `read_parquets` assinatura mudada para `Sequence[str | Path]`
+  (covariante) — resolve `list[Path]` vs `list[str | Path]`.
+
+### Changed
+
+- CI já executa `mypy climasus4py --ignore-missing-imports` como step obrigatório.
+- `pyproject.toml`: adicionado `[[tool.mypy.overrides]]` para `requests`
+  (`ignore_missing_imports = true`) — suprime `[import-untyped]` em `climate_inmet.py`.
+
+### Note
+
+- Sem mudança de API pública. Migração de v0.3.1 → v0.3.2 é transparente.
+- `tests/test_spatial_enrichment.py`: removido — testava o modo eager `shapefile=`
+  descontinuado no v0.3.1 (mesmo padrão de `test_climate_enrichment.py`);
+  cobertura lazy mantida em `tests/test_lazy_enrichments.py`.
+
 ## [0.3.1] - 2026-05-07
 
 ### Fixed

@@ -16,7 +16,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 from urllib.parse import unquote, urlparse
 
 import duckdb
@@ -522,7 +522,7 @@ def sus_data_import(
     raw_cache_path = Path(raw_cache_dir) if raw_cache_dir is not None else cache_dir / "_raw"
     ufs = resolve_uf(uf)
     years = [year] if isinstance(year, int) else list(year)
-    months = [month] if isinstance(month, int) else (month or [None])
+    months = cast(list[int | None], [month] if isinstance(month, int) else (month or [None]))
 
     parquet_paths: list[Path] = []
 
