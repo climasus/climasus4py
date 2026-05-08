@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://climasus.github.io/climasus4py/pt/">
+        <link rel="canonical" href="https://climasus.github.io/climasus4py/pipeline-order/">
       
       
-        <link rel="prev" href="../reference/SUMMARY/">
+        <link rel="prev" href="../querying/">
       
       
-        <link rel="next" href="../en/">
+        <link rel="next" href="../materialize/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Português - climasus4py</title>
+        <title>Ordem do pipeline - climasus4py</title>
       
     
     
@@ -84,7 +84,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#climasus4py-documentacao-em-portugues" class="md-skip">
+        <a href="#ordem-canonica-do-pipeline" class="md-skip">
           Ir para o conteúdo
         </a>
       
@@ -123,7 +123,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Português
+              Ordem do pipeline
             
           </span>
         </div>
@@ -266,9 +266,11 @@
   
   
   
+    
   
-    <li class="md-tabs__item">
-      <a href="../pipeline-order/" class="md-tabs__link">
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
         
   
   
@@ -361,11 +363,9 @@
   
   
   
-    
   
-  
-    <li class="md-tabs__item md-tabs__item--active">
-      <a href="./" class="md-tabs__link">
+    <li class="md-tabs__item">
+      <a href="../pt/" class="md-tabs__link">
         
   
   
@@ -524,10 +524,37 @@
       
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../pipeline-order/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ordem do pipeline
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -543,6 +570,133 @@
   
 
       </a>
+      
+        
+
+  
+
+<nav class="md-nav md-nav--secondary" aria-label="Nesta página">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Nesta página
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#diagrama" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Diagrama
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#etapas-e-o-que-fazem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Etapas e o que fazem
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Etapas e o que fazem">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#portas-de-entrada" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Portas de entrada
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pipeline-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline core
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enriquecimentos-opcionais-apos-aggregate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enriquecimentos (opcionais, após aggregate)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#saidas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Saídas
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#enforcement-de-ordem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enforcement de ordem
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#etapas-opcionais" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Etapas opcionais
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multiplas-entradas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Múltiplas entradas
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -659,37 +813,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Português
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../pt/" class="md-nav__link">
         
   
   
@@ -705,83 +832,6 @@
   
 
       </a>
-      
-        
-
-  
-
-<nav class="md-nav md-nav--secondary" aria-label="Nesta página">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Nesta página
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#navegacao" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Navegação
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#exemplo-mortalidade-respiratoria-em-sp-20202023" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Exemplo: mortalidade respiratória em SP (2020–2023)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#grupos-de-doencas-disponiveis" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Grupos de doenças disponíveis
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#filosofia-do-pacote" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Filosofia do pacote
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#sistemas-datasus-suportados" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Sistemas DATASUS suportados
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -869,10 +919,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#navegacao" class="md-nav__link">
+  <a href="#diagrama" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Navegação
+        Diagrama
       
     </span>
   </a>
@@ -880,10 +930,71 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#exemplo-mortalidade-respiratoria-em-sp-20202023" class="md-nav__link">
+  <a href="#etapas-e-o-que-fazem" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Exemplo: mortalidade respiratória em SP (2020–2023)
+        Etapas e o que fazem
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Etapas e o que fazem">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#portas-de-entrada" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Portas de entrada
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pipeline-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline core
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enriquecimentos-opcionais-apos-aggregate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enriquecimentos (opcionais, após aggregate)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#saidas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Saídas
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#enforcement-de-ordem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enforcement de ordem
       
     </span>
   </a>
@@ -891,10 +1002,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#grupos-de-doencas-disponiveis" class="md-nav__link">
+  <a href="#etapas-opcionais" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Grupos de doenças disponíveis
+        Etapas opcionais
       
     </span>
   </a>
@@ -902,21 +1013,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#filosofia-do-pacote" class="md-nav__link">
+  <a href="#multiplas-entradas" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Filosofia do pacote
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#sistemas-datasus-suportados" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Sistemas DATASUS suportados
+        Múltiplas entradas
       
     </span>
   </a>
@@ -943,139 +1043,163 @@
   
 
 
-<h1 id="climasus4py-documentacao-em-portugues">climasus4py — Documentação em Português<a class="headerlink" href="#climasus4py-documentacao-em-portugues" title="Permanent link">&para;</a></h1>
-<p><code>climasus4py</code> é um pacote Python para análise de microdados do Sistema Único de Saúde (SUS), com suporte a dados climáticos do INMET. Usa DuckDB como motor de consulta, mantendo o pipeline <strong>lazy</strong> até a materialização final — o que permite processar anos inteiros de dados nacionais com baixo uso de memória.</p>
-<hr />
-<h2 id="navegacao">Navegação<a class="headerlink" href="#navegacao" title="Permanent link">&para;</a></h2>
-<ul>
-<li>:books: <strong><a href="../reference/">Referência da API</a></strong> — Documentação gerada automaticamente de todas as funções públicas.</li>
-<li>:house: <strong><a href="../">Página inicial</a></strong></li>
-</ul>
-<h2 id="exemplo-mortalidade-respiratoria-em-sp-20202023">Exemplo: mortalidade respiratória em SP (2020–2023)<a class="headerlink" href="#exemplo-mortalidade-respiratoria-em-sp-20202023" title="Permanent link">&para;</a></h2>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">climasus4py</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">cs</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># Pipeline completo — download automático + cache + filtragem + agregação</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">result</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_pipeline</span><span class="p">(</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">system</span><span class="o">=</span><span class="s2">&quot;SIM-DO&quot;</span><span class="p">,</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">uf</span><span class="o">=</span><span class="s2">&quot;SP&quot;</span><span class="p">,</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">year</span><span class="o">=</span><span class="p">[</span><span class="mi">2020</span><span class="p">,</span> <span class="mi">2021</span><span class="p">,</span> <span class="mi">2022</span><span class="p">,</span> <span class="mi">2023</span><span class="p">],</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">groups</span><span class="o">=</span><span class="s2">&quot;respiratory&quot;</span><span class="p">,</span>      <span class="c1"># grupo CID-10: J00-J99</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">age_min</span><span class="o">=</span><span class="mi">18</span><span class="p">,</span>                <span class="c1"># adultos</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">time</span><span class="o">=</span><span class="s2">&quot;month&quot;</span><span class="p">,</span>              <span class="c1"># agregação mensal</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">geo</span><span class="o">=</span><span class="s2">&quot;state&quot;</span><span class="p">,</span>               <span class="c1"># nível estadual</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">lang</span><span class="o">=</span><span class="s2">&quot;pt&quot;</span><span class="p">,</span>                 <span class="c1"># nomes de colunas em português</span>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="p">)</span>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="c1"># A relação é lazy — materializa apenas quando necessário</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="n">df</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">df</span><span class="p">()</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="nb">print</span><span class="p">(</span><span class="n">df</span><span class="o">.</span><span class="n">head</span><span class="p">(</span><span class="mi">10</span><span class="p">))</span>
-</span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>  time_group UF_residencia  contagem
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>0    2020-01            SP      1243
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>1    2020-02            SP      1189
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>...
-</span></code></pre></div>
-<hr />
-<h2 id="grupos-de-doencas-disponiveis">Grupos de doenças disponíveis<a class="headerlink" href="#grupos-de-doencas-disponiveis" title="Permanent link">&para;</a></h2>
-<p>Os grupos são mantidos em <code>climasus-data</code> e resolvem automaticamente os CID-10 correspondentes:</p>
+<h1 id="ordem-canonica-do-pipeline">Ordem canônica do pipeline<a class="headerlink" href="#ordem-canonica-do-pipeline" title="Permanent link">&para;</a></h1>
+<p>O <code>climasus4py</code> define uma ordem canônica única. Cada função valida que a
+entrada seja um <code>DuckDBPyRelation</code> e que as etapas anteriores obrigatórias
+tenham sido executadas. Se a ordem for violada, uma mensagem de erro indica
+exatamente onde você está e o que deveria ter sido chamado antes.</p>
+<h2 id="diagrama">Diagrama<a class="headerlink" href="#diagrama" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>flowchart LR
+    A(["sus_data_import\nsus_read\nsus_sql"]) --&gt; B[sus_data_clean_encoding]
+    B --&gt; C[sus_data_standardize]
+    C --&gt; D[sus_filter]
+    D --&gt; E[sus_data_create_variables]
+    E --&gt; F[sus_data_aggregate]
+    F --&gt; G(["sus_spatial_join\nsus_census\nsus_climate\nsus_fill_gaps"])
+    G --&gt; H(["materialize\nsus_export"])
+    style A fill:#1a6b4a,color:#fff
+    style H fill:#1a6b4a,color:#fff
+    style G fill:#0d4f8b,color:#fff</code></pre>
+<h2 id="etapas-e-o-que-fazem">Etapas e o que fazem<a class="headerlink" href="#etapas-e-o-que-fazem" title="Permanent link">&para;</a></h2>
+<h3 id="portas-de-entrada">Portas de entrada<a class="headerlink" href="#portas-de-entrada" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
-<th>Grupo</th>
-<th>Descrição</th>
+<th>Função</th>
+<th>Propósito</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>respiratory</code></td>
-<td>Doenças respiratórias (J00–J99)</td>
+<td><code>sus_data_import(system, uf, year)</code></td>
+<td>Baixa do FTP DATASUS, cacheia, retorna lazy</td>
 </tr>
 <tr>
-<td><code>cardiovascular</code></td>
-<td>Doenças cardiovasculares</td>
+<td><code>sus_data_read(path)</code></td>
+<td>Abre Parquet/GeoParquet local como lazy</td>
 </tr>
 <tr>
-<td><code>dengue</code></td>
-<td>Dengue (A90, A91)</td>
-</tr>
-<tr>
-<td><code>covid19</code></td>
-<td>COVID-19 (U07.1, U07.2)</td>
-</tr>
-<tr>
-<td><code>diabetes</code></td>
-<td>Diabetes mellitus (E10–E14)</td>
-</tr>
-<tr>
-<td><code>neoplasms</code></td>
-<td>Neoplasias (C00–D48)</td>
-</tr>
-<tr>
-<td><code>external_causes</code></td>
-<td>Causas externas (V01–Y98)</td>
-</tr>
-<tr>
-<td><code>maternal_causes</code></td>
-<td>Causas maternas (O00–O99)</td>
-</tr>
-<tr>
-<td><code>malaria</code></td>
-<td>Malária (B50–B54)</td>
-</tr>
-<tr>
-<td><code>tuberculosis_respiratory</code></td>
-<td>Tuberculose pulmonar</td>
-</tr>
-<tr>
-<td><code>zika_chikungunya</code></td>
-<td>Zika e Chikungunya</td>
-</tr>
-<tr>
-<td><code>climate_sensitive</code></td>
-<td>Conjunto sensível ao clima</td>
+<td><code>sus_sql(query)</code></td>
+<td>SQL DuckDB arbitrário como ponto de entrada</td>
 </tr>
 </tbody>
 </table>
-<hr />
-<h2 id="filosofia-do-pacote">Filosofia do pacote<a class="headerlink" href="#filosofia-do-pacote" title="Permanent link">&para;</a></h2>
-<ul>
-<li><strong>Lazy por padrão</strong>: todas as transformações retornam <code>duckdb.DuckDBPyRelation</code> — os dados só são lidos do disco quando você chama <code>.df()</code>, <code>.fetchall()</code> ou exporta.</li>
-<li><strong>Cache automático</strong>: os arquivos DBC do DATASUS são convertidos para Parquet e reutilizados nas execuções seguintes. O DBC bruto pode ser preservado com <code>store_raw = True</code>.</li>
-<li><strong>Fast path SQL</strong>: quando possível, todo o pipeline vira uma única query SQL (sem materialização intermediária).</li>
-<li><strong>Trilingue</strong>: nomes de colunas disponíveis em <code>"pt"</code>, <code>"en"</code> e <code>"es"</code>.</li>
-</ul>
-<hr />
-<h2 id="sistemas-datasus-suportados">Sistemas DATASUS suportados<a class="headerlink" href="#sistemas-datasus-suportados" title="Permanent link">&para;</a></h2>
+<h3 id="pipeline-core">Pipeline core<a class="headerlink" href="#pipeline-core" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
-<th>Código</th>
-<th>Sistema</th>
+<th>Etapa</th>
+<th>Função</th>
+<th>O que faz</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>SIM-DO</code></td>
-<td>Declarações de Óbito</td>
+<td>1</td>
+<td><code>sus_data_clean_encoding(rel)</code></td>
+<td>Remove colunas desnecessárias, normaliza encoding</td>
 </tr>
 <tr>
-<td><code>SINASC</code></td>
-<td>Nascidos Vivos</td>
+<td>2</td>
+<td><code>sus_data_standardize(rel, system)</code></td>
+<td>Renomeia colunas para nomes canônicos do sistema (SIM-DO, SINASC…)</td>
 </tr>
 <tr>
-<td><code>SINAN-DENGUE</code></td>
-<td>Dengue</td>
+<td>3</td>
+<td><code>sus_filter(rel, ...)</code></td>
+<td>Filtra por CID-10, idade, sexo, raça, UF, município, data</td>
 </tr>
 <tr>
-<td><code>SIH</code></td>
-<td>Internações Hospitalares</td>
+<td>4</td>
+<td><code>sus_data_create_variables(rel, ...)</code></td>
+<td>Deriva variáveis: faixa etária, semana epidemiológica, estação do ano</td>
 </tr>
 <tr>
-<td><code>SIA</code></td>
-<td>Atendimentos Ambulatoriais</td>
+<td>5</td>
+<td><code>sus_data_aggregate(rel, ...)</code></td>
+<td>Agrega por tempo (dia/semana/mês/ano) e geografia (município/estado)</td>
 </tr>
 </tbody>
 </table>
+<h3 id="enriquecimentos-opcionais-apos-aggregate">Enriquecimentos (opcionais, após aggregate)<a class="headerlink" href="#enriquecimentos-opcionais-apos-aggregate" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Função</th>
+<th>Adiciona</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sus_spatial_join(rel)</code></td>
+<td><code>geometry_wkt</code> + nome geográfico</td>
+</tr>
+<tr>
+<td><code>sus_census(rel, year)</code></td>
+<td>Indicadores IBGE (população, renda, Gini…)</td>
+</tr>
+<tr>
+<td><code>sus_climate(rel, years)</code></td>
+<td>Variáveis INMET (temperatura, precipitação…)</td>
+</tr>
+<tr>
+<td><code>sus_fill_gaps(rel, method)</code></td>
+<td>Interpolação de lacunas em séries temporais</td>
+</tr>
+</tbody>
+</table>
+<h3 id="saidas">Saídas<a class="headerlink" href="#saidas" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Função</th>
+<th>Destino</th>
+<th>Quando usar</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>materialize(rel, how=...)</code></td>
+<td>RAM</td>
+<td>Análise interativa, integração com pandas/polars</td>
+</tr>
+<tr>
+<td><code>sus_export(rel, path)</code></td>
+<td>Disco</td>
+<td>Bases grandes, ETL, sem coletar em memória</td>
+</tr>
+</tbody>
+</table>
+<h2 id="enforcement-de-ordem">Enforcement de ordem<a class="headerlink" href="#enforcement-de-ordem" title="Permanent link">&para;</a></h2>
+<p>Cada função core registra o estágio em que a relação se encontra. Se você
+tentasse chamar <code>sus_data_aggregate</code> antes de <code>sus_data_standardize</code>, receberia:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>ValueError: sus_data_aggregate esperava uma relação no estágio &#39;standardize&#39; ou posterior,
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>mas recebeu &#39;raw&#39;. Certifique-se de chamar sus_data_clean_encoding → sus_data_standardize antes.
+</span></code></pre></div>
+<h2 id="etapas-opcionais">Etapas opcionais<a class="headerlink" href="#etapas-opcionais" title="Permanent link">&para;</a></h2>
+<p>Nenhuma etapa do core é obrigatória quando você já tem um Parquet processado.
+Com <code>sus_data_read()</code> ou <code>sus_sql()</code>, você pode entrar diretamente nos
+enriquecimentos — desde que os dados já tenham as colunas esperadas:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Parquet já limpo e padronizado</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">rel</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_data_read</span><span class="p">(</span><span class="s2">&quot;dados/sim_sp_2023_agregado.parquet&quot;</span><span class="p">)</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">rel</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_climate</span><span class="p">(</span><span class="n">rel</span><span class="p">,</span> <span class="n">variables</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;temp_mean&quot;</span><span class="p">],</span> <span class="n">years</span><span class="o">=</span><span class="p">[</span><span class="mi">2023</span><span class="p">])</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">df</span>  <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">materialize</span><span class="p">(</span><span class="n">rel</span><span class="p">)</span>
+</span></code></pre></div>
+<h2 id="multiplas-entradas">Múltiplas entradas<a class="headerlink" href="#multiplas-entradas" title="Permanent link">&para;</a></h2>
+<p>Para combinar dados de múltiplos sistemas, use <code>sus_sql</code> como cola:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">sim</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_data_import</span><span class="p">(</span><span class="s2">&quot;SIM-DO&quot;</span><span class="p">,</span> <span class="s2">&quot;SP&quot;</span><span class="p">,</span> <span class="mi">2023</span><span class="p">)</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">sinasc</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_data_import</span><span class="p">(</span><span class="s2">&quot;SINASC&quot;</span><span class="p">,</span> <span class="s2">&quot;SP&quot;</span><span class="p">,</span> <span class="mi">2023</span><span class="p">)</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># Combinar via SQL após aggregate</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">sim_agg</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_data_aggregate</span><span class="p">(</span><span class="n">cs</span><span class="o">.</span><span class="n">sus_data_standardize</span><span class="p">(</span><span class="n">cs</span><span class="o">.</span><span class="n">sus_data_clean_encoding</span><span class="p">(</span><span class="n">sim</span><span class="p">),</span> <span class="s2">&quot;SIM-DO&quot;</span><span class="p">),</span> <span class="n">time</span><span class="o">=</span><span class="s2">&quot;month&quot;</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="s2">&quot;municipality&quot;</span><span class="p">)</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">sinasc_agg</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_data_aggregate</span><span class="p">(</span><span class="n">cs</span><span class="o">.</span><span class="n">sus_data_standardize</span><span class="p">(</span><span class="n">cs</span><span class="o">.</span><span class="n">sus_data_clean_encoding</span><span class="p">(</span><span class="n">sinasc</span><span class="p">),</span> <span class="s2">&quot;SINASC&quot;</span><span class="p">),</span> <span class="n">time</span><span class="o">=</span><span class="s2">&quot;month&quot;</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="s2">&quot;municipality&quot;</span><span class="p">)</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="n">combined</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_sql</span><span class="p">(</span><span class="s2">&quot;&quot;&quot;</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="s2">    SELECT s.*, n.nascimentos</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="s2">    FROM sim_agg s</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="s2">    LEFT JOIN sinasc_agg n USING (municipality_code, month)</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="s2">&quot;&quot;&quot;</span><span class="p">)</span>
+</span></code></pre></div>
 
 
 
@@ -1111,7 +1235,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Rodapé" >
         
           
-          <a href="../reference/SUMMARY/" class="md-footer__link md-footer__link--prev" aria-label="Anterior: Referência API">
+          <a href="../querying/" class="md-footer__link md-footer__link--prev" aria-label="Anterior: Como consultar">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -1121,20 +1245,20 @@
                 Anterior
               </span>
               <div class="md-ellipsis">
-                Referência API
+                Como consultar
               </div>
             </div>
           </a>
         
         
           
-          <a href="../en/" class="md-footer__link md-footer__link--next" aria-label="Próximo: English">
+          <a href="../materialize/" class="md-footer__link md-footer__link--next" aria-label="Próximo: Materialize">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Próximo
               </span>
               <div class="md-ellipsis">
-                English
+                Materialize
               </div>
             </div>
             <div class="md-footer__button md-icon">
