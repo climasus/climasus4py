@@ -33,7 +33,7 @@ classifiers = [
 ]
 dependencies = [
     "climasus-data>=0.2.0",
-    "climasus_readdbc_py>=0.2.1",
+    "climasus_readdbc_py>=0.2.0",
     "duckdb>=1.0",
     "pyarrow>=12.0",
     "pandas>=2.0",
