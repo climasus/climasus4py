@@ -1,8 +1,7 @@
 name: Publish to PyPI
 
-# Sprint 2 (v0.2.1) — Trusted Publisher OIDC with environment gates.
-# DEFAULT: tag pushes → TestPyPI Alpha only.
-# Production PyPI requires manual workflow_dispatch with target=pypi.
+# Tag pushes → PyPI (main) — Trusted Publisher OIDC registered without environment.
+# Manual dispatch with target=testpypi → TestPyPI only.
 
 on:
   push:
@@ -54,10 +53,9 @@ jobs:
   publish-testpypi:
     needs: build
     runs-on: ubuntu-latest
-    # Tag pushes always go to TestPyPI; manual dispatch can also select it
+    # Manual dispatch only — TestPyPI is for pre-release validation
     if: |
-      github.event_name == 'push' ||
-      (github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi')
+      github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
 
     steps:
       - uses: actions/download-artifact@v4
@@ -73,9 +71,10 @@ jobs:
   publish-pypi:
     needs: build
     runs-on: ubuntu-latest
-    # Production publish: manual dispatch only, explicit target=pypi
+    # Tag pushes go to PyPI (main); manual dispatch can also target it
     if: |
-      github.event_name == 'workflow_dispatch' && inputs.target == 'pypi'
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
 
     steps:
       - uses: actions/download-artifact@v4
