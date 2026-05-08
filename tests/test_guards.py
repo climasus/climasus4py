@@ -5,10 +5,10 @@ import gc
 import pandas as pd
 import pytest
 
+from climasus4py.core._stage import get_stage, set_stage
 from climasus4py.core.clean import sus_data_clean_encoding
 from climasus4py.core.engine import get_connection
 from climasus4py.core.standardize import sus_data_standardize
-from climasus4py.core._stage import get_stage, set_stage
 
 
 class GeoDataFrame(pd.DataFrame):

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "climasus4py"
-version = "0.3.0"
+version = "0.3.1"
 description = "Fast SUS and climate data workflows for Brazil - Python edition"
 readme = "README.md"
 license = "MIT"
@@ -74,6 +74,10 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"climasus4py/utils/data.py" = ["SIM108"]
+"tools/*.py" = ["B023", "SIM102", "SIM103", "SIM105"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

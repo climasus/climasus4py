@@ -45,9 +45,7 @@ def _can_fast_path(
         return False
     if time not in _TIME_EXPR:
         return False
-    if geo not in ("state", "municipality"):
-        return False
-    return True
+    return geo in ("state", "municipality")
 
 
 def _date_parse_sql(col: str) -> str:

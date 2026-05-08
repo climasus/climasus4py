@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.1] - 2026-05-07
+
+### Fixed
+
+- `sus_climate`: restaurada compatibilidade backward com API eager legada — ao passar `climate=<DataFrame>`, materializa e faz merge pandas (retorna `pd.DataFrame`); nova API lazy continua sem mudança.
+- `sus_spatial_join`: restaurada compatibilidade backward com API eager legada — ao passar `shapefile=<GeoDataFrame>`, faz merge pandas e retorna `gpd.GeoDataFrame`; nova API lazy continua sem mudança.
+- `sus_data_aggregate`: corrigido deadlock de recurso DuckDB ao usar `rel.query()` em vez de `conn.register()` + `conn.sql()`.
+- `materialize(how="pandas")`: removido auto-upgrade implícito para `GeoDataFrame` — use `how="geopandas"` explicitamente.
+- `core/engine.py`: adicionados `TYPE_CHECKING` imports de `pd` e `pa` para resolver `F821`.
+- Importações reordenadas e deduplicadas em todo o pacote (`F401`, `I001`).
+- Exceções relançadas com `raise ... from err` (`B904`).
+- `zip()` sem `strict=` adicionado `strict=False` (`B905`).
+- Linhas longas (E501) anotadas com `# noqa: E501` ou encurtadas.
+- `_migrate_layout.py` movido para `tools/_layout_migration_2026-05-06.py`.
+
 ## [0.3.0] - 2026-05-06
 
 ### Added — Parâmetros avançados em `sus_filter` (Sub-plano D)

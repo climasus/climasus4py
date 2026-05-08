@@ -5,14 +5,11 @@ Usa tmp_path para criar arquivos temporários; sem I/O de rede.
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 import pandas as pd
-import pytest
 
 from climasus4py.utils.inmet_parser import parse_inmet_csv
-
 
 # ---------------------------------------------------------------------------
 # Fixtures de CSV INMET

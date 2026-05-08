@@ -8,14 +8,12 @@ from __future__ import annotations
 
 import sys
 import urllib.request
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers de mock
@@ -441,7 +439,7 @@ class TestSusImportModes:
         fake_xlsx.write_bytes(b"fake xlsx")
 
         with pytest.raises(ValueError, match="Unsupported file format"):
-            sus_data_import("SIM-DO", "SP", 2022, path=str(fake_xlsx), cache_dir=tmp_path, verbose=False)
+            sus_data_import("SIM-DO", "SP", 2022, path=str(fake_xlsx), cache_dir=tmp_path, verbose=False)  # noqa: E501
 
     def test_no_data_raises_runtime_error(self, tmp_path, monkeypatch):
         """Quando download falha e cache está vazio, deve levantar RuntimeError."""

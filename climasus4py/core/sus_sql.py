@@ -33,7 +33,7 @@ class _SusRelation:
         func,  # type: ignore[type-arg]
         *args,
         **kwargs,
-    ) -> "_SusRelation":
+    ) -> _SusRelation:
         """Call ``func(self._rel, *args, **kwargs)`` — pandas-style pipe.
 
         The underlying ``DuckDBPyRelation`` (not the wrapper) is passed

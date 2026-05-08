@@ -80,7 +80,7 @@ def _season_case_sql(date_cast: str, hemisphere: str = "south") -> str:
     for season_name, months in season_map.items():
         month_list = ", ".join(str(m) for m in months)
         display_name = str(season_name).capitalize()
-        parts.append(f"WHEN EXTRACT(MONTH FROM {date_cast}) IN ({month_list}) THEN '{display_name}'")
+        parts.append(f"WHEN EXTRACT(MONTH FROM {date_cast}) IN ({month_list}) THEN '{display_name}'")  # noqa: E501
     return f"CASE {' '.join(parts)} END"
 
 

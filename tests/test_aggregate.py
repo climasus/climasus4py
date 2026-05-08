@@ -49,7 +49,7 @@ class TestTimeAggregation:
 
     def test_extra_groups(self, rel):
         """extra_groups should add grouping columns."""
-        result = sus_data_aggregate(rel, time="month", geo="municipality", extra_groups=["CAUSABAS"])
+        result = sus_data_aggregate(rel, time="month", geo="municipality", extra_groups=["CAUSABAS"])  # noqa: E501
         df = result.df()
         assert "CAUSABAS" in df.columns
 
@@ -96,13 +96,13 @@ class TestWeekFormatSVS:
             assert re.fullmatch(r"\d{4}-W\d{2}", val), f"Expected YYYY-WXX, got {val!r}"
 
     def test_aggregate_and_variables_aligned(self):
-        """sus_data_aggregate(time='week') and sus_data_create_variables(epi_week=True) must return identical values."""
+        """sus_data_aggregate(time='week') and sus_data_create_variables(epi_week=True) must return identical values."""  # noqa: E501
         dates = pd.to_datetime([
             "2023-01-01", "2023-06-15", "2023-12-25",
             "2023-03-19", "2023-09-03",
         ])
         rel = _make_rel({"DTOBITO": dates})
-        agg_weeks = set(sus_data_aggregate(rel, time="week", geo="state").df()["time_group"].dropna())
+        agg_weeks = set(sus_data_aggregate(rel, time="week", geo="state").df()["time_group"].dropna())  # noqa: E501
         var_weeks = set(sus_data_create_variables(rel, epi_week=True).df()["epi_week"].dropna())
         assert agg_weeks == var_weeks, (
             f"Mismatch between aggregate and variables week values:\n"

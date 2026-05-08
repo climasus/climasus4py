@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import warnings
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from climasus4py.viz.climate_plot import sus_climate_plot_fill
-
 
 # ---------------------------------------------------------------------------
 # Fixture
@@ -66,9 +65,8 @@ def test_missing_plotnine_raises_clear_error(filled_df):
             "sus_climate_plot_fill requires plotnine. "
             "Install with: pip install climasus4py[plot]"
         ),
-    ):
-        with pytest.raises(ImportError, match="pip install climasus4py"):
-            sus_climate_plot_fill(filled_df, target_var="tair_dry_bulb_c")
+    ), pytest.raises(ImportError, match="pip install climasus4py"):
+        sus_climate_plot_fill(filled_df, target_var="tair_dry_bulb_c")
 
 
 # ---------------------------------------------------------------------------

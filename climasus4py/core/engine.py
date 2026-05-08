@@ -6,8 +6,13 @@ Mirrors R: engine.R — lazy evaluation via DuckDB instead of duckplyr.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import duckdb
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import pyarrow as pa
 
 # Singleton connection — one per process
 _conn: duckdb.DuckDBPyConnection | None = None
@@ -77,7 +82,7 @@ def is_relation(obj: object) -> bool:
     return isinstance(obj, duckdb.DuckDBPyRelation)
 
 
-def collect(rel: duckdb.DuckDBPyRelation) -> "pd.DataFrame":
+def collect(rel: duckdb.DuckDBPyRelation) -> pd.DataFrame:
     """Materialise a DuckDB relation to a pandas DataFrame.
 
     Args:
@@ -94,7 +99,7 @@ def collect(rel: duckdb.DuckDBPyRelation) -> "pd.DataFrame":
     return rel.df()
 
 
-def collect_arrow(rel: duckdb.DuckDBPyRelation) -> "pa.Table":
+def collect_arrow(rel: duckdb.DuckDBPyRelation) -> pa.Table:
     """Materialise a DuckDB relation to a PyArrow Table.
 
     Significantly faster than ``collect()`` for large datasets (~100×)

@@ -1,6 +1,5 @@
 """Tests for DATASUS source metadata consumed from climasus-data."""
 
-from pathlib import Path
 
 import pandas as pd
 import pyarrow as pa

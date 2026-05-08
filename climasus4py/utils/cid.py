@@ -119,9 +119,8 @@ def codes_for_groups(group_names: list[str]) -> list[str]:
                 continue
             # Also match by label
             label = group_data.get("label", {})
-            if isinstance(label, dict):
-                if any(v in group_names for v in label.values()):
-                    raw = group_data.get("codes", group_data.get("icd10_codes", []))
-                    all_codes.extend(expand_cid_ranges(raw))
+            if isinstance(label, dict) and any(v in group_names for v in label.values()):
+                raw = group_data.get("codes", group_data.get("icd10_codes", []))
+                all_codes.extend(expand_cid_ranges(raw))
 
     return sorted(set(all_codes))

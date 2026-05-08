@@ -1,10 +1,14 @@
 """Tests for lazy sus_fill_gaps."""
 
+import importlib.util
+
 import pandas as pd
 import pytest
 
 from climasus4py.core.engine import get_connection
 from climasus4py.enrichment.fill_gaps import sus_fill_gaps
+
+_HAS_SCIPY = importlib.util.find_spec("scipy") is not None
 
 
 @pytest.fixture
@@ -42,6 +46,10 @@ def test_unknown_method_raises(gap_rel):
         sus_fill_gaps(gap_rel, method="unknown_method")
 
 
+@pytest.mark.skipif(
+    not _HAS_SCIPY,
+    reason="scipy not installed (required for spline interpolation)",
+)
 def test_opt_in_materialized_warns(gap_rel):
     with pytest.warns(UserWarning, match="materializes"):
         result = sus_fill_gaps(gap_rel, method="spline")

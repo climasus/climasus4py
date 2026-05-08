@@ -3,19 +3,15 @@
 from __future__ import annotations
 
 import math
-import warnings
 
+import duckdb
 import pandas as pd
 import pytest
 
-import duckdb
-
 from climasus4py.core.engine import get_connection
 from climasus4py.enrichment.climate_indicators import (
-    ALL_INDICATORS,
     sus_climate_compute_indicators,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

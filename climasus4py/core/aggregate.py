@@ -8,7 +8,8 @@ from __future__ import annotations
 import duckdb
 
 from ..utils.data import detect_date_column, detect_geo_column
-from .engine import get_connection, schema_columns
+from ._guards import _unwrap_sus_relation
+from .engine import schema_columns
 
 
 def sus_data_aggregate(
@@ -47,8 +48,8 @@ def sus_data_aggregate(
         ...                            geo="municipality",
         ...                            extra_groups=["sex"])
     """
+    rel = _unwrap_sus_relation(rel, "sus_data_aggregate")
     columns = schema_columns(rel)
-    conn = get_connection()
 
     group_cols: list[str] = []
 
@@ -68,7 +69,9 @@ def sus_data_aggregate(
             _week_expr = None
         time_expr = {
             "year": f"EXTRACT(YEAR FROM {date_cast})",
-            "quarter": f"EXTRACT(YEAR FROM {date_cast}) || '-Q' || EXTRACT(QUARTER FROM {date_cast})",
+            "quarter": (  # noqa: E501
+                f"EXTRACT(YEAR FROM {date_cast}) || '-Q' || EXTRACT(QUARTER FROM {date_cast})"
+            ),
             "month": f"STRFTIME({date_cast}, '%Y-%m')",
             "week": _week_expr,
             "day": f"CAST({date_cast} AS VARCHAR)",
@@ -93,7 +96,7 @@ def sus_data_aggregate(
 
     if not group_cols:
         # No grouping possible — return count
-        return conn.sql("SELECT COUNT(*) AS count FROM rel")
+        return rel.query("_aggregate_input", "SELECT COUNT(*) AS count FROM _aggregate_input")
 
     # Build SELECT
     select_parts: list[str] = []
@@ -118,4 +121,7 @@ def sus_data_aggregate(
     group_by = ", ".join(group_cols)
     select = ", ".join(select_parts)
 
-    return conn.sql(f"SELECT {select} FROM rel GROUP BY {group_by} ORDER BY {group_by}")
+    return rel.query(
+        "_aggregate_input",
+        f"SELECT {select} FROM _aggregate_input GROUP BY {group_by} ORDER BY {group_by}",
+    )

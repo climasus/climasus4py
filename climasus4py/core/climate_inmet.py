@@ -73,7 +73,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
     "es": {
         "cache_config": "Usando cache en: {dir}",
         "import_start": "Importando datos INMET para {n_years} año(s)...",
-        "import_done": "Importación completada: {n_rows:,} observaciones de {n_stations} estaciones",
+        "import_done": "Importación completada: {n_rows:,} observaciones de {n_stations} estaciones",  # noqa: E501
         "filter_code": "Filtrando por {n} código(s) de estación...",
         "no_rows_code": "No se encontraron observaciones para los códigos de station_code: {codes}",
     },
@@ -274,7 +274,7 @@ def sus_climate_inmet(
 
     if verbose:
         console.print(
-            f"[green]✔[/]  {msg['import_done'].format(n_rows=len(climate_data), n_stations=n_stations)}"
+            f"[green]✔[/]  {msg['import_done'].format(n_rows=len(climate_data), n_stations=n_stations)}"  # noqa: E501
         )
 
     return climate_data
@@ -370,7 +370,7 @@ def _download_robust(
                 capture_output=True, text=True,
             )
             http_code = int(result.stdout.strip() or "0")
-            if result.returncode == 0 and http_code == 200 and tmp.exists() and tmp.stat().st_size > 0:
+            if result.returncode == 0 and http_code == 200 and tmp.exists() and tmp.stat().st_size > 0:  # noqa: E501
                 tmp.rename(dest)
                 return True
             if 400 <= http_code < 500:

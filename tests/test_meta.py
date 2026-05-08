@@ -1,11 +1,10 @@
 """Tests for sus_meta and the expanded _stage.py metadata tracking."""
 
-import pytest
 import duckdb
+import pytest
 
-from climasus4py.core._stage import set_stage, get_stage, get_meta, CANONICAL_STAGES
+from climasus4py.core._stage import get_meta, get_stage, set_stage
 from climasus4py.core.meta import sus_meta
-
 
 # ---------------------------------------------------------------------------
 # Helpers

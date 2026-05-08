@@ -69,7 +69,7 @@ def sus_data_clean_encoding(
             # ORDER BY partition keys for deterministic results
             rel = conn.sql(
                 f"SELECT {all_cols} FROM ("
-                f"  SELECT *, ROW_NUMBER() OVER (PARTITION BY {partition} ORDER BY {partition}) AS __rn"
+                f"  SELECT *, ROW_NUMBER() OVER (PARTITION BY {partition} ORDER BY {partition}) AS __rn"  # noqa: E501
                 f"  FROM rel"
                 f") WHERE __rn = 1"
             )
@@ -103,7 +103,7 @@ def sus_data_clean_encoding(
             f'    THEN TRY_CAST(SUBSTR(TRIM("{age_col}"), 2) AS INTEGER) '
             f'  WHEN LENGTH(TRIM("{age_col}")) = 3 AND SUBSTR(TRIM("{age_col}"), 1, 1) = \'3\' '
             f'    THEN 0  '  # months → 0 years (infant)
-            f'  WHEN LENGTH(TRIM("{age_col}")) = 3 AND SUBSTR(TRIM("{age_col}"), 1, 1) IN (\'0\', \'1\', \'2\') '
+            f'  WHEN LENGTH(TRIM("{age_col}")) = 3 AND SUBSTR(TRIM("{age_col}"), 1, 1) IN (\'0\', \'1\', \'2\') '  # noqa: E501
             f'    THEN 0  '  # minutes/hours/days → 0 years (infant)
             f'  ELSE TRY_CAST("{age_col}" AS INTEGER) '
             f'END'

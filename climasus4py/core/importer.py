@@ -279,11 +279,11 @@ def _raw_cache_path(url: str, raw_cache_dir: Path) -> Path:
     # Security: ensure the resolved path stays inside the cache directory
     try:
         candidate.relative_to(raw_cache_dir.resolve())
-    except ValueError:
+    except ValueError as err:
         raise ValueError(
             f"Unsafe URL: path traversal detected outside the cache directory "
             f"({url!r} resolves to {candidate})."
-        )
+        ) from err
     return candidate
 
 

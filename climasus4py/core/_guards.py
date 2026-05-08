@@ -6,6 +6,8 @@ materialised objects (DataFrames, GeoDataFrames, etc.).
 
 from __future__ import annotations
 
+import warnings
+
 import duckdb
 
 from .engine import is_relation
@@ -40,6 +42,53 @@ def _assert_lazy(rel: object) -> None:
         "Pipeline functions require a lazy DuckDB relation. "
         "Use sus_data_read() or get_connection().from_df() to create one."
     )
+
+
+def _unwrap_sus_relation(
+    rel: object,
+    fn_name: str,
+) -> duckdb.DuckDBPyRelation:
+    """Unwrap *_SusRelation* wrappers and emit a UserWarning; validate otherwise.
+
+    When pipeline functions are called directly with a ``_SusRelation``
+    (returned by ``sus_sql()``), this helper:
+
+    1. Extracts the underlying ``DuckDBPyRelation`` from the wrapper.
+    2. Emits a ``UserWarning`` mentioning *fn_name* to guide users towards
+       the ``.pipe()`` calling convention.
+
+    When *rel* is already a ``DuckDBPyRelation``, delegates to
+    ``_assert_lazy()`` and returns it unchanged.
+
+    Args:
+        rel: Input relation — either a raw ``DuckDBPyRelation`` or a
+            ``_SusRelation`` wrapper.
+        fn_name: Name of the calling function (used in the warning message).
+
+    Returns:
+        The underlying ``DuckDBPyRelation``.
+
+    Raises:
+        TypeError: If *rel* is neither a ``DuckDBPyRelation`` nor a
+            ``_SusRelation`` wrapper.
+    """
+    # Try to unwrap _SusRelation (duck-typing: has a _rel DuckDBPyRelation attribute)
+    try:
+        inner = object.__getattribute__(rel, "_rel")
+        if is_relation(inner):
+            warnings.warn(
+                f"{fn_name} received a _SusRelation directly. "
+                f"Consider using rel.pipe(cs.{fn_name}, ...) for explicit "
+                "pipeline chaining.",
+                UserWarning,
+                stacklevel=3,
+            )
+            return inner
+    except AttributeError:
+        pass
+
+    _assert_lazy(rel)
+    return rel  # type: ignore[return-value]
 
 
 def _require_columns(rel: duckdb.DuckDBPyRelation, cols: list[str]) -> None:

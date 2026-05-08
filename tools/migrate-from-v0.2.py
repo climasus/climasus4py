@@ -72,7 +72,7 @@ def _migrate_ipynb(path: Path, dry_run: bool) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Migrate climasus4py v0.2 -> v0.3 API names")
-    parser.add_argument("path", nargs="?", default=".", help="File or directory to migrate (default: .)")
+    parser.add_argument("path", nargs="?", default=".", help="File or directory to migrate (default: .)")  # noqa: E501
     parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
     args = parser.parse_args()
 
@@ -89,7 +89,8 @@ def main() -> None:
             if _migrate_ipynb(f, args.dry_run):
                 total += 1
 
-    print(f"\n{'[DRY-RUN] ' if args.dry_run else ''}{'Modified' if not args.dry_run else 'Would modify'}: {total} file(s).")
+    dry = args.dry_run
+    print(f"\n{'[DRY-RUN] ' if dry else ''}{'Modified' if not dry else 'Would modify'}: {total} file(s).")  # noqa: E501
     sys.exit(0)
 
 

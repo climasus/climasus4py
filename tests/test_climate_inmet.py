@@ -9,17 +9,14 @@ Additional tests cover _download_robust with mocked requests.
 from __future__ import annotations
 
 import datetime
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
 
 from climasus4py.core.climate_inmet import (
-    _VALID_UFS,
     sus_climate_inmet,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shared fixture — minimal INMET-like DataFrame
@@ -237,8 +234,8 @@ class TestDownloadRobust:
 
     def test_no_requests_falls_through(self, tmp_path, monkeypatch):
         """When requests, curl, wget all fail, returns (False, reason)."""
-        from climasus4py.core.climate_inmet import _download_robust
         from climasus4py.core import climate_inmet as _ci_mod
+        from climasus4py.core.climate_inmet import _download_robust
 
         dest = tmp_path / "out.zip"
 
@@ -251,7 +248,7 @@ class TestDownloadRobust:
         sys.modules["requests"] = None  # type: ignore
 
         try:
-            ok, reason = _download_robust("https://example.com/x.zip", dest, max_retries=1, verbose=False)
+            ok, reason = _download_robust("https://example.com/x.zip", dest, max_retries=1, verbose=False)  # noqa: E501
             assert ok is False
         finally:
             if original is None:

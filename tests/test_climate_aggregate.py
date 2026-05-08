@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
+import duckdb
 import pandas as pd
 import pytest
 
-import duckdb
-
 from climasus4py.core.engine import get_connection
 from climasus4py.enrichment.climate_aggregate import sus_climate_aggregate
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

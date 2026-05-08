@@ -6,16 +6,18 @@ aiming to push overall coverage from 76% to ≥ 80%.
 
 from __future__ import annotations
 
-import os
-import tempfile
+import importlib.util
 from pathlib import Path
 from unittest.mock import patch
 
+import duckdb
 import pandas as pd
 import pytest
 
 from climasus4py.core.engine import get_connection
 
+_HAS_JOBLIB = importlib.util.find_spec("joblib") is not None
+_HAS_OPENPYXL = importlib.util.find_spec("openpyxl") is not None
 
 # ---------------------------------------------------------------------------
 # climate_fill — internal helpers
@@ -24,6 +26,7 @@ from climasus4py.core.engine import get_connection
 class TestClimateFillHelpers:
     """Target: enrichment/climate_fill.py lines 67-70, 84, 92, 102-118, 139, 151-152."""
 
+    @pytest.mark.skipif(not _HAS_JOBLIB, reason="joblib not installed (extra: [xgboost])")
     def test_joblib_available_returns_bool(self):
         """_joblib_available() runs (joblib installed) → True — covers lines 67-70."""
         from climasus4py.enrichment.climate_fill import _joblib_available
@@ -121,12 +124,12 @@ class TestCensusErrors:
         conn = get_connection()
         return conn.from_df(pd.DataFrame(data))
 
-    def test_census_none_raises_not_implemented(self):
-        """census=None → NotImplementedError — covers line 65."""
+    def test_census_none_uses_lazy_path(self):
+        """census=None → lazy path returns DuckDBPyRelation."""
         from climasus4py.enrichment.census import sus_census
         rel = self._make_rel({"municipality_code": ["355030"]})
-        with pytest.raises(NotImplementedError, match="Auto-loading"):
-            sus_census(rel, census=None)
+        result = sus_census(rel, census=None)
+        assert isinstance(result, duckdb.DuckDBPyRelation)
 
     def test_no_municipality_col_raises_value_error(self):
         """Health data without municipality column → ValueError — covers line 72."""
@@ -156,6 +159,7 @@ class TestEngineMultiFile:
         """read_parquets with 2 paths uses union_by_name — covers line 58."""
         import pyarrow as pa
         import pyarrow.parquet as pq
+
         from climasus4py.core.engine import read_parquets
 
         df1 = pa.table({"a": [1, 2], "b": ["x", "y"]})
@@ -176,6 +180,7 @@ class TestEngineMultiFile:
 class TestExportExcel:
     """Target: io/export.py lines 81-83."""
 
+    @pytest.mark.skipif(not _HAS_OPENPYXL, reason="openpyxl not installed (extra: [excel])")
     def test_export_xlsx_creates_file(self, tmp_path):
         """Export to xlsx uses openpyxl — covers lines 81-83."""
         from climasus4py.io.export import sus_export
@@ -351,6 +356,7 @@ class TestCacheClear:
         """before= param triggers date-based filtering — covers lines 97-100."""
         import pyarrow as pa
         import pyarrow.parquet as pq
+
         from climasus4py.io.cache import sus_cache_clear
 
         # Create a fake parquet file in the cache dir
@@ -437,7 +443,7 @@ class TestCidLabelMatch:
         result_by_id = codes_for_groups(["respiratory"])
         # Both should return the same codes (or label result is a subset)
         assert len(result_by_label) > 0
-        assert set(result_by_label).issubset(set(result_by_id)) or set(result_by_id).issubset(set(result_by_label))
+        assert set(result_by_label).issubset(set(result_by_id)) or set(result_by_id).issubset(set(result_by_label))  # noqa: E501
 
 
 # ---------------------------------------------------------------------------

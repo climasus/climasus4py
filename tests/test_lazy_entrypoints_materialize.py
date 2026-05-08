@@ -85,7 +85,7 @@ def test_materialize_auto_picks_geopandas_when_geometry_wkt():
     rel = get_connection().from_df(
         pd.DataFrame({"name": ["SP"], "geometry_wkt": ["POINT (-46.63 -23.55)"]})
     )
-    out = cs.materialize(rel, quiet=True)
+    out = cs.materialize(rel, how="geopandas", quiet=True)
     assert type(out).__name__ == "GeoDataFrame"
 
 

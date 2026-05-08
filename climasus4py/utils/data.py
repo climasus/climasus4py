@@ -93,7 +93,7 @@ def load_json(relative: str) -> Any:
     path = data_path(relative)
     if not path.is_file():
         raise FileNotFoundError(f"Arquivo não encontrado em climasus-data: {relative}\n"
-                                "Certifique-se de que o diretório clonado está presente e atualizado.")
+                                "Certifique-se de que o diretório clonado está presente e atualizado.")  # noqa: E501
     with open(path, encoding="utf-8") as f:
         return json.load(f)
 
@@ -179,7 +179,7 @@ def load_datasus_columns_spec() -> dict[str, Any]:
 # Update function: baixa/atualiza climasus-data localmente
 # ---------------------------------------------------------------------------
 
-def update_climasus_data(repo_url: str = "https://github.com/climasus/climasus-data.git", target_dir: str | None = None, branch: str = "main") -> None:
+def update_climasus_data(repo_url: str = "https://github.com/climasus/climasus-data.git", target_dir: str | None = None, branch: str = "main") -> None:  # noqa: E501
     """Baixa ou atualiza o repositório climasus-data localmente.
 
     Normalmente não é necessário quando ``climasus-data`` está instalado
@@ -230,11 +230,11 @@ def update_climasus_data(repo_url: str = "https://github.com/climasus/climasus-d
             )
         print(f"Removendo diretório existente e clonando climasus-data em {target}...")
         shutil.rmtree(target)
-        subprocess.run(["git", "clone", "--depth", "1", "-b", branch, repo_url, str(target)], check=True)
+        subprocess.run(["git", "clone", "--depth", "1", "-b", branch, repo_url, str(target)], check=True)  # noqa: E501
     else:
         # Não existe: clona
         print(f"Clonando climasus-data em {target}...")
-        subprocess.run(["git", "clone", "--depth", "1", "-b", branch, repo_url, str(target)], check=True)
+        subprocess.run(["git", "clone", "--depth", "1", "-b", branch, repo_url, str(target)], check=True)  # noqa: E501
     print("climasus-data atualizado com sucesso.")
 
 

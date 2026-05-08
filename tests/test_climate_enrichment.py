@@ -3,11 +3,8 @@
 import pandas as pd
 import pytest
 
-import duckdb
-
-from climasus4py.enrichment.climate import sus_climate
 from climasus4py.core.engine import get_connection
-
+from climasus4py.enrichment.climate import sus_climate
 
 # ---------------------------------------------------------------------------
 # Helpers

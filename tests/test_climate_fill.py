@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import warnings
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from climasus4py.enrichment.climate_fill import (
-    KNOWN_INMET_VARS,
     _xgboost_available,
     sus_climate_fill_inmet,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -36,7 +34,7 @@ def _make_inmet_df(
         # Introduce gaps
         gap_idx = rng.choice(n_days, size=int(n_days * gap_fraction), replace=False)
         temps[gap_idx] = np.nan
-        for date, temp in zip(dates, temps):
+        for date, temp in zip(dates, temps, strict=False):
             rows.append(
                 {
                     "station_code": station,
@@ -68,11 +66,10 @@ def test_linear_fallback_when_no_xgboost(inmet_df):
     """When xgboost unavailable, should fall back to linear and emit UserWarning."""
     with patch(
         "climasus4py.enrichment.climate_fill._xgboost_available", return_value=False
-    ):
-        with pytest.warns(UserWarning, match="xgboost not found"):
-            result = sus_climate_fill_inmet(
-                inmet_df, target_var="tair_dry_bulb_c", verbose=False
-            )
+    ), pytest.warns(UserWarning, match="xgboost not found"):
+        result = sus_climate_fill_inmet(
+            inmet_df, target_var="tair_dry_bulb_c", verbose=False
+        )
     assert isinstance(result, pd.DataFrame)
     assert "is_imputed_tair_dry_bulb_c" in result.columns
 
@@ -92,11 +89,10 @@ def test_backend_xgboost_raises_when_not_installed():
     """backend='xgboost' with no xgboost installed should raise ImportError."""
     with patch(
         "climasus4py.enrichment.climate_fill._xgboost_available", return_value=False
-    ):
-        with pytest.raises(ImportError, match="pip install climasus4py"):
-            sus_climate_fill_inmet(
-                _make_inmet_df(), target_var="tair_dry_bulb_c", backend="xgboost", verbose=False
-            )
+    ), pytest.raises(ImportError, match="pip install climasus4py"):
+        sus_climate_fill_inmet(
+            _make_inmet_df(), target_var="tair_dry_bulb_c", backend="xgboost", verbose=False
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -136,13 +132,12 @@ def test_quality_threshold_excludes_bad_stations():
     # With quality_threshold=0.4, BAD station (100% NaN) should be skipped
     with patch(
         "climasus4py.enrichment.climate_fill._xgboost_available", return_value=False
-    ):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result = sus_climate_fill_inmet(
-                df, target_var="tair_dry_bulb_c",
-                quality_threshold=0.4, backend="linear", verbose=False
-            )
+    ), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = sus_climate_fill_inmet(
+            df, target_var="tair_dry_bulb_c",
+            quality_threshold=0.4, backend="linear", verbose=False
+        )
     assert isinstance(result, pd.DataFrame)
 
 
@@ -186,10 +181,9 @@ def test_target_var_all_processes_inmet_vars():
 
     with patch(
         "climasus4py.enrichment.climate_fill._xgboost_available", return_value=False
-    ):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result = sus_climate_fill_inmet(df, target_var="all", verbose=False)
+    ), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = sus_climate_fill_inmet(df, target_var="all", verbose=False)
     assert isinstance(result, pd.DataFrame)
     assert result["tair_dry_bulb_c"].isna().sum() == 0
 
@@ -214,15 +208,14 @@ def test_workers_parameter_accepted(inmet_df):
     """workers=1 should not raise — just disables real parallelism."""
     with patch(
         "climasus4py.enrichment.climate_fill._xgboost_available", return_value=False
-    ):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result = sus_climate_fill_inmet(
-                inmet_df,
-                target_var="tair_dry_bulb_c",
-                workers=1,
-                verbose=False,
-            )
+    ), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = sus_climate_fill_inmet(
+            inmet_df,
+            target_var="tair_dry_bulb_c",
+            workers=1,
+            verbose=False,
+        )
     assert isinstance(result, pd.DataFrame)
 
 
@@ -234,15 +227,14 @@ def test_workers_parameter_accepted(inmet_df):
 def test_keep_features_retains_lag_columns(single_station_df):
     with patch(
         "climasus4py.enrichment.climate_fill._xgboost_available", return_value=False
-    ):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result = sus_climate_fill_inmet(
-                single_station_df,
-                target_var="tair_dry_bulb_c",
-                keep_features=True,
-                verbose=False,
-            )
+    ), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = sus_climate_fill_inmet(
+            single_station_df,
+            target_var="tair_dry_bulb_c",
+            keep_features=True,
+            verbose=False,
+        )
     # When XGBoost fills (if available), lag columns stay; linear doesn't add them
     # At minimum, the original columns must be present
     assert "tair_dry_bulb_c" in result.columns
@@ -256,11 +248,10 @@ def test_keep_features_retains_lag_columns(single_station_df):
 def test_verbose_does_not_raise(inmet_df, capsys):
     with patch(
         "climasus4py.enrichment.climate_fill._xgboost_available", return_value=False
-    ):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            sus_climate_fill_inmet(
-                inmet_df, target_var="tair_dry_bulb_c", verbose=True, lang="en"
-            )
+    ), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        sus_climate_fill_inmet(
+            inmet_df, target_var="tair_dry_bulb_c", verbose=True, lang="en"
+        )
     out = capsys.readouterr().out
     assert "sus_climate_fill_inmet" in out

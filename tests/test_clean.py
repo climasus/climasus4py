@@ -72,7 +72,7 @@ class TestDedup:
             "CAUSABAS": ["J189", "J189", "I219"],
             "IDADE": ["420", "430", "440"],
         })
-        cleaned = sus_data_clean_encoding(rel, dedup_cols=["CAUSABAS"], fix_enc=False, age_range=(0, 120))
+        cleaned = sus_data_clean_encoding(rel, dedup_cols=["CAUSABAS"], fix_enc=False, age_range=(0, 120))  # noqa: E501
         assert _count(cleaned) == 2  # J189 deduped, I219 kept
 
 

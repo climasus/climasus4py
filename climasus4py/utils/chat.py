@@ -48,9 +48,8 @@ def sus_chat(url: str | None = None) -> str:
     print(url)
 
     if sys.stdout.isatty():
-        try:
+        import contextlib
+        with contextlib.suppress(Exception):
             webbrowser.open(url)
-        except Exception:
-            pass
 
     return url

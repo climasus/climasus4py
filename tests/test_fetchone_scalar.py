@@ -1,7 +1,6 @@
 """P3 Sprint 2 — fetchone_scalar helper: guard against empty datasets."""
 
 import pandas as pd
-import pytest
 
 from climasus4py.core._sql import fetchone_scalar
 from climasus4py.core.engine import get_connection

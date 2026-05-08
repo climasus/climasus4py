@@ -464,7 +464,7 @@ class TestDropIgnored:
 # ---------------------------------------------------------------------------
 
 class TestCityFilter:
-    def test_city_raises_file_not_found_when_parquet_missing(self, sim_do_rel, tmp_path, monkeypatch):
+    def test_city_raises_file_not_found_when_parquet_missing(self, sim_do_rel, tmp_path, monkeypatch):  # noqa: E501
         """When municipalities.parquet is absent, raises FileNotFoundError."""
         import climasus4py.utils.data as _data
         monkeypatch.setattr(_data, "data_path", lambda rel_path: tmp_path / rel_path)

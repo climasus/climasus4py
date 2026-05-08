@@ -1,7 +1,7 @@
 """Script de migração: reorganiza src/climasus4py/ → climasus4py/ na raiz."""
+import pathlib
 import re
 import shutil
-import pathlib
 
 BASE = pathlib.Path(__file__).parent
 SRC = BASE / "src" / "climasus4py"

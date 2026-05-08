@@ -59,9 +59,7 @@ def materialize(
     Returns:
         The collected data in the requested format:
 
-        - ``"pandas"`` → ``pandas.DataFrame`` (auto-upgraded to
-          ``GeoDataFrame`` when a ``geometry_wkt`` column is present
-          and *geopandas* is installed)
+        - ``"pandas"`` → ``pandas.DataFrame``
         - ``"pyarrow"`` → ``pyarrow.Table``
         - ``"geopandas"`` → ``geopandas.GeoDataFrame``
           (requires a ``geometry_wkt`` column and ``geopandas`` installed)
@@ -87,14 +85,6 @@ def materialize(
         )
 
     if how == "pandas":
-        # Auto-upgrade to GeoDataFrame when geometry_wkt column is present
-        if "geometry_wkt" in rel.columns:
-            try:
-                import geopandas as _gp  # noqa: F401
-                _warn_size(rel, how="geopandas", quiet=quiet)
-                return _materialize_geopandas(rel)
-            except ImportError:
-                pass  # geopandas not installed — fall through to plain pandas
         _warn_size(rel, how="pandas", quiet=quiet)
         return rel.df()
 

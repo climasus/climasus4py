@@ -81,8 +81,8 @@ def sus_export(
         df = collect(data)
         try:
             df.to_excel(path, index=False, engine="openpyxl")
-        except ImportError:
-            raise ImportError("Install openpyxl: pip install climasus4py[excel]")
+        except ImportError as err:
+            raise ImportError("Install openpyxl: pip install climasus4py[excel]") from err
 
     else:
         raise ValueError(f"Unsupported format: {fmt}. Use parquet, csv, or xlsx.")

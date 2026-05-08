@@ -5,11 +5,12 @@ Cobre pipeline.py e _stage.py com mocks de sus_data_import para evitar I/O real.
 
 from __future__ import annotations
 
-import pandas as pd
-import pytest
+from pathlib import Path
 
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 from climasus4py.core._stage import (
     CANONICAL_STAGES,
@@ -18,7 +19,6 @@ from climasus4py.core._stage import (
     set_stage,
 )
 from climasus4py.core.engine import get_connection
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -534,7 +534,7 @@ class TestDateParseSql:
 # _build_fast_sql — geração de SQL de fast path
 # ---------------------------------------------------------------------------
 
-def _make_sim_do_parquet(path: "Path", n: int = 3) -> None:
+def _make_sim_do_parquet(path: Path, n: int = 3) -> None:
     """Cria parquet mínimo com colunas SIM-DO no formato real (DTOBITO=DDMMYYYY)."""
     df = pd.DataFrame({
         "DTOBITO": ["15012022", "20022022", "05032022"][:n],   # formato real DATASUS

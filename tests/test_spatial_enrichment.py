@@ -3,10 +3,8 @@
 import pandas as pd
 import pytest
 
-import duckdb
-
-from climasus4py.enrichment.spatial import sus_spatial_join
 from climasus4py.core.engine import get_connection
+from climasus4py.enrichment.spatial import sus_spatial_join
 
 gpd = pytest.importorskip("geopandas", reason="geopandas not installed")
 Point = pytest.importorskip("shapely.geometry", reason="shapely not installed").Point
