@@ -10,16 +10,20 @@ Documentation: https://climasus.github.io/climasus4py
 
 ## Installation
 
-Install from PyPI:
+> **Nota:** a versão atual (`0.2.0a1`) é uma pré-release (alfa). Use a flag `--pre`
+> para instalá-la. Quando a `0.2.0` estável for publicada, o comando padrão
+> funcionará sem flags adicionais.
+
+Install from PyPI (current pre-release):
 
 ```bash
-pip install climasus4py
+pip install --pre climasus4py
 ```
 
-Install with optional extras:
+Install a specific extra (current pre-release):
 
 ```bash
-pip install "climasus4py[all]"
+pip install --pre "climasus4py[all]"
 ```
 
 Install latest from GitHub:
