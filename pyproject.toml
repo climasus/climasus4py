@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "climasus4py"
-version = "0.2.0a1"
+version = "0.2.0a2"
 description = "Fast SUS and climate data workflows for Brazil - Python edition"
 readme = "README.md"
 license = "MIT"
