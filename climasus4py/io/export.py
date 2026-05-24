@@ -9,6 +9,7 @@ from pathlib import Path
 
 import duckdb
 
+from ..core._sql import sql_string
 from ..core.engine import collect, get_connection, is_relation
 
 
@@ -72,7 +73,13 @@ def sus_export(
         raise FileExistsError(f"File already exists: {path}")
 
     if fmt == "parquet":
-        _copy_to(data, path, "PARQUET", f"COMPRESSION '{compress}'")
+        _valid_compress = {"snappy", "zstd", "gzip", "none", "lz4"}
+        if compress not in _valid_compress:
+            raise ValueError(
+                f"Invalid parquet compression {compress!r}. "
+                f"Choose from: {sorted(_valid_compress)}."
+            )
+        _copy_to(data, path, "PARQUET", f"COMPRESSION {sql_string(compress)}")
 
     elif fmt == "csv":
         _copy_to(data, path, "CSV", "HEADER TRUE")
@@ -91,7 +98,20 @@ def sus_export(
 
 
 def _copy_to(rel: duckdb.DuckDBPyRelation, path: Path, fmt: str, opts: str) -> None:
-    """Use DuckDB COPY TO — faster than write_parquet/write_csv."""
+    """Use DuckDB COPY TO — faster than write_parquet/write_csv.
+
+    *path* is quoted via :func:`sql_string`; *fmt* and *opts* are caller-controlled
+    SQL fragments and must come from a trusted source. The relation is registered
+    under a uuid-suffixed view name so the singleton connection's global namespace
+    stays clean between calls.
+    """
+    import uuid
+
     conn = get_connection()
-    dest = str(path).replace("\\", "/")
-    conn.sql(f"COPY rel TO '{dest}' (FORMAT {fmt}, {opts})")
+    dest = sql_string(str(path).replace("\\", "/"))
+    view_name = f"_export_view_{uuid.uuid4().hex[:12]}"
+    conn.register(view_name, rel)
+    try:
+        conn.execute(f"COPY {view_name} TO {dest} (FORMAT {fmt}, {opts})")
+    finally:
+        conn.unregister(view_name)

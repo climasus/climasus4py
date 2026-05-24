@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "climasus4py"
-version = "0.2.0a2"
+version = "0.2.0a3"
 description = "Fast SUS and climate data workflows for Brazil - Python edition"
 readme = "README.md"
 license = "MIT"
@@ -35,8 +35,13 @@ dependencies = [
     "climasus-data>=0.2.0",
     "climasus_readdbc_py>=0.2.0",
     "duckdb>=1.0",
-    "pyarrow>=12.0",
-    "pandas>=2.0",
+    "pyarrow>=12.0,<22",
+    # Upper bound on pandas/numpy is conservative: pandas 3.x is still in
+    # preview and shipped a ``Pandas4Warning`` symbol that broke ABI with
+    # numpy in Colab as of 2026-05-24. Revisit when pandas 3.0 ships
+    # stable. See CHANGELOG entry for context.
+    "pandas>=2.0,<3.0",
+    "numpy>=1.26,<3",
     "rich>=13.0",
 ]
 

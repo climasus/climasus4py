@@ -97,6 +97,9 @@ def codes_for_groups(group_names: list[str]) -> list[str]:
     Raises:
         FileNotFoundError: If the required JSON files are not present
             in the climasus-data directory.
+        KeyError: If any name in *group_names* matches no group (typos
+            previously produced an empty list silently, which caused
+            zero-row downstream results without warning).
 
     Example:
         >>> codes_for_groups(["respiratory"])
@@ -104,6 +107,8 @@ def codes_for_groups(group_names: list[str]) -> list[str]:
         >>> len(codes_for_groups(["cardiovascular", "dengue"]))
     """
     all_codes: list[str] = []
+    matched_names: set[str] = set()
+    available_groups: set[str] = set()
 
     for json_file in ("disease_groups/core.json", "disease_groups/climate_sensitive.json"):
         data = load_json(json_file)
@@ -114,16 +119,29 @@ def codes_for_groups(group_names: list[str]) -> list[str]:
                 continue  # skip _meta
             if not isinstance(group_data, dict):
                 continue
+            available_groups.add(group_id)
             if group_id in group_names:
                 _codes = group_data.get("codes", group_data.get("icd10_codes", []))
                 raw: list[str] = cast(list[str], _codes)
                 all_codes.extend(expand_cid_ranges(raw))
+                matched_names.add(group_id)
                 continue
             # Also match by label
             label = group_data.get("label", {})
-            if isinstance(label, dict) and any(v in group_names for v in label.values()):
-                _codes2 = group_data.get("codes", group_data.get("icd10_codes", []))
-                raw2: list[str] = cast(list[str], _codes2)
-                all_codes.extend(expand_cid_ranges(raw2))
+            if isinstance(label, dict):
+                for v in label.values():
+                    if v in group_names:
+                        _codes2 = group_data.get("codes", group_data.get("icd10_codes", []))
+                        raw2: list[str] = cast(list[str], _codes2)
+                        all_codes.extend(expand_cid_ranges(raw2))
+                        matched_names.add(v)
+                        break
+
+    unmatched = [g for g in group_names if g not in matched_names]
+    if unmatched:
+        raise KeyError(
+            f"Disease group(s) not found: {unmatched}. "
+            f"Available groups: {sorted(available_groups)}."
+        )
 
     return sorted(set(all_codes))

@@ -587,9 +587,9 @@ def expand_city_to_codes(city: str | list[str]) -> list[str]:
 
     Reads ``spatial/municipalities.parquet`` from the climasus-data
     package and matches on the ``municipality_name`` column (case-
-    insensitive, accent-insensitive via NFC normalisation).  When a name
-    matches multiple municipalities (e.g. "São José"), all codes are
-    returned and a :class:`UserWarning` is emitted.
+    insensitive, accent-insensitive via NFKD decomposition + combining-mark
+    strip). When a name matches multiple municipalities (e.g. "São José"),
+    all codes are returned and a :class:`UserWarning` is emitted.
 
     Mirrors ``climasus4r::sus_data_filter_demographics`` city= handling.
 
@@ -642,7 +642,13 @@ def expand_city_to_codes(city: str | list[str]) -> list[str]:
         )
 
     def _norm(s: str) -> str:
-        return unicodedata.normalize("NFC", s).strip().lower()
+        # NFKD decomposes "ç" → "ç", "ã" → "ã", etc.;
+        # the comprehension drops the combining marks so "São Paulo"
+        # and "Sao Paulo" both normalise to "sao paulo".
+        decomposed = unicodedata.normalize("NFKD", s)
+        return "".join(
+            ch for ch in decomposed if not unicodedata.combining(ch)
+        ).strip().lower()
 
     city_list = [city] if isinstance(city, str) else list(city)
     all_codes: list[str] = []

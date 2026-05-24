@@ -32,6 +32,23 @@ Install latest from GitHub:
 pip install git+https://github.com/climasus/climasus4py.git
 ```
 
+### Notebooks (Colab / Jupyter)
+
+Após `pip install`, **reinicie o kernel** antes do primeiro `import climasus4py`.
+O Colab pré-carrega `numpy`/`pandas` na inicialização do runtime; se o `pip` faz
+upgrade dessas dependências in-place, o processo Python fica com dois conjuntos
+de extensões C carregadas e o import falha com
+`ImportError: numpy._core.multiarray failed to import` /
+`cannot load module more than once per process`.
+
+No Colab: `Runtime → Restart runtime` (atalho `Ctrl+M .`). No JupyterLab:
+`Kernel → Restart Kernel`. Em caso de problema persistente, pinar as versões
+antes da instalação resolve:
+
+```bash
+pip install "numpy<3" "pandas<3" climasus4py
+```
+
 ## Quick Example
 
 ```python

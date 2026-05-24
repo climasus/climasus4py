@@ -439,15 +439,26 @@ def sus_climate_fill_inmet(
         for st in stations:
             mask = result_df[_station_col] == st
             n_total = mask.sum()
-            n_missing = result_df.loc[mask, vars_to_fill[0]].isna().sum()
-            if n_total > 0 and (n_missing / n_total) > quality_threshold:
+            if n_total == 0:
+                continue
+            # Quality threshold is computed across all target variables —
+            # a station is excluded only when *every* target column exceeds
+            # the missing-rate ceiling. Previously only ``vars_to_fill[0]``
+            # was considered, which silently kept stations that were unusable
+            # for the remaining variables (or excluded ones still good for
+            # them).
+            per_var_ratio = [
+                result_df.loc[mask, v].isna().sum() / n_total
+                for v in vars_to_fill
+            ]
+            if all(r > quality_threshold for r in per_var_ratio):
                 stations_excluded.append(str(st))
             else:
                 stations_kept.append(st)
         if verbose and stations_excluded:
             print(
-                f"  Estações excluídas (>{quality_threshold*100:.0f}% NaN): "
-                f"{stations_excluded}"
+                f"  Estações excluídas (>{quality_threshold*100:.0f}% NaN "
+                f"em todas as variáveis): {stations_excluded}"
             )
     else:
         stations_kept = [None]

@@ -31,6 +31,7 @@ from ..utils.data import (
     load_uf_codes,
     resolve_uf,
 )
+from ._stage import set_stage
 from .engine import read_parquets
 
 console = Console(stderr=True)
@@ -623,4 +624,4 @@ def sus_data_import(
     filter_expr = _state_filter_expression(system, ufs)
     if filter_expr:
         rel = rel.filter(filter_expr)
-    return rel
+    return set_stage(rel, "import", system=system, rel_type="health")

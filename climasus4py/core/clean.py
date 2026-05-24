@@ -14,12 +14,12 @@ from .engine import get_connection, schema_columns
 def sus_data_clean_encoding(
     rel: duckdb.DuckDBPyRelation,
     *,
-    fix_enc: bool = True,
     dedup: bool = True,
     dedup_cols: list[str] | None = None,
     age_range: tuple[int, int] = (0, 120),
+    fix_enc: bool | None = None,
 ) -> duckdb.DuckDBPyRelation:
-    """Clean SUS data: deduplicate, fix encoding, and validate age range.
+    """Clean SUS data: deduplicate and validate age range.
 
     All operations remain lazy (DuckDB relation) until materialised.
     Deduplication uses ROW_NUMBER() over known DATASUS key columns for
@@ -28,8 +28,6 @@ def sus_data_clean_encoding(
 
     Args:
         rel: Lazy DuckDB relation to clean.
-        fix_enc: If ``True``, schedule encoding fixes (applied at
-            standardisation time when columns are collected).
         dedup: If ``True``, remove duplicate records.
         dedup_cols: Columns to use for deduplication. If ``None``, uses
             known DATASUS key columns (faster). Pass ``["*"]`` to force
@@ -37,6 +35,12 @@ def sus_data_clean_encoding(
         age_range: ``(min_age, max_age)`` tuple in years. Records with
             decoded age outside this range are dropped. Handles the
             DATASUS 3-digit coding scheme for SIM-DO IDADE fields.
+        fix_enc: **Deprecated and ignored.** Previous versions accepted
+            this flag but never applied encoding fixes (it was a no-op);
+            kept as a keyword-only argument purely to avoid breaking
+            existing call sites. Use UTF-8 conversion at the parquet
+            reader level instead. Passing a non-``None`` value emits a
+            ``DeprecationWarning``.
 
     Returns:
         Lazy DuckDB relation with duplicates removed and invalid ages
@@ -47,6 +51,16 @@ def sus_data_clean_encoding(
         >>> clean = cs.sus_data_clean_encoding(rel, age_range=(0, 110))
         >>> clean = cs.sus_data_clean_encoding(rel, dedup_cols=["CONTADOR"])
     """
+    if fix_enc is not None:
+        import warnings as _warnings
+        _warnings.warn(
+            "sus_data_clean_encoding(fix_enc=...) is deprecated and has no "
+            "effect — encoding fixes were never implemented at this stage. "
+            "The argument is accepted only for backward compatibility and "
+            "will be removed in a future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
     _assert_lazy(rel)
     columns = schema_columns(rel)
 
@@ -119,9 +133,5 @@ def sus_data_clean_encoding(
         # Drop helper column
         final_cols = [c for c in schema_columns(rel) if c != "__age_years"]
         rel = rel.project(", ".join(f'"{c}"' for c in final_cols))
-
-    # Note: encoding fixes for string columns require materialization
-    # or a UDF. For now, we mark that encoding fix should happen at
-    # standardization time when we collect column subsets.
 
     return rel

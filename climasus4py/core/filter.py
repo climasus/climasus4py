@@ -175,17 +175,17 @@ def sus_filter(
         if match_type == "exact":
             # Exact match: full code must equal one of the requested codes
             unique_codes = sorted(set(icd_codes))
-            vals = ", ".join(f"'{c}'" for c in unique_codes)
+            vals = ", ".join(sql_string(c) for c in unique_codes)
             rel = rel.filter(f'"{cause_col}" IN ({vals})')
         else:
             # starts_with (default): normalise to 3-char prefix
-            unique_codes = sorted(set(c[:3] for c in icd_codes))
+            unique_codes = sorted({c[:3] for c in icd_codes})
             if len(unique_codes) <= 100:
-                codes_str = ", ".join(f"'{c}'" for c in unique_codes)
+                codes_str = ", ".join(sql_string(c) for c in unique_codes)
                 rel = rel.filter(f'SUBSTR("{cause_col}", 1, 3) IN ({codes_str})')
             else:
                 # Semi-join via temporary table for large code lists
-                codes_sql = ", ".join(f"('{c}')" for c in unique_codes)
+                codes_sql = ", ".join(f"({sql_string(c)})" for c in unique_codes)
                 conn.execute(
                     f"CREATE OR REPLACE TEMP TABLE _icd_filter AS "
                     f"SELECT * FROM (VALUES {codes_sql}) AS t(code)"
@@ -221,9 +221,9 @@ def sus_filter(
                 "Expected one of: sex, SEXO, CS_SEXO."
             )
         if len(sex_codes) == 1:
-            rel = rel.filter(f'"{sex_col}" = \'{sex_codes[0]}\'')
+            rel = rel.filter(f'"{sex_col}" = {sql_string(sex_codes[0])}')
         else:
-            vals = ", ".join(f"'{c}'" for c in sex_codes)
+            vals = ", ".join(sql_string(c) for c in sex_codes)
             rel = rel.filter(f'"{sex_col}" IN ({vals})')
 
     # --- Race filtering ---
@@ -284,11 +284,11 @@ def sus_filter(
             )
         if date_start:
             rel = rel.filter(
-                f'TRY_CAST("{date_col}" AS DATE) >= \'{date_start}\''
+                f'TRY_CAST("{date_col}" AS DATE) >= {sql_string(date_start)}'
             )
         if date_end:
             rel = rel.filter(
-                f'TRY_CAST("{date_col}" AS DATE) <= \'{date_end}\''
+                f'TRY_CAST("{date_col}" AS DATE) <= {sql_string(date_end)}'
             )
 
     # --- Education filtering ---
@@ -321,7 +321,7 @@ def sus_filter(
     # --- Drop ignored demographic values ---
     if drop_ignored:
         ignorable_present = [c for c in _IGNORABLE_DEMO_COLUMNS if c in columns]
-        ignored_vals_sql = ", ".join(f"'{v}'" for v in _IGNORED_VALUES if v != "")
+        ignored_vals_sql = ", ".join(sql_string(v) for v in _IGNORED_VALUES if v != "")
         for col in ignorable_present:
             rel = rel.filter(
                 f'("{col}" IS NOT NULL AND '

@@ -10,8 +10,8 @@ from typing import cast
 import duckdb
 import pandas as pd
 
-from ..core._sql import fetchone_scalar
-from ..core.engine import get_connection, is_relation
+from ..core._sql import fetchone_scalar, quote_ident
+from ..core.engine import is_relation
 
 
 def sus_data_quality_report(
@@ -43,16 +43,18 @@ def sus_data_quality_report(
         >>> isinstance(metrics.get("completeness"), dict)
         True
     """
-    conn = get_connection()
-
     if is_relation(data):
         columns = data.columns
         total_rows: int = cast(int, fetchone_scalar(data.aggregate("count(*)"), fallback=0))
 
         completeness = {}
         for col in columns:
+            qcol = quote_ident(col)
             non_null = cast(int, fetchone_scalar(
-                conn.sql(f'SELECT COUNT("{col}") FROM data WHERE "{col}" IS NOT NULL'),
+                data.query(
+                    "_quality_input",
+                    f"SELECT COUNT({qcol}) FROM _quality_input",
+                ),
                 fallback=0,
             ))
             completeness[col] = round(non_null / max(total_rows, 1) * 100, 1)

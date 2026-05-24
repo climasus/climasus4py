@@ -5,7 +5,7 @@ Mirrors R: pipeline.R + pipeline-fast.R
 
 from __future__ import annotations
 
-import logging
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +13,7 @@ import duckdb
 import pandas as pd
 
 from ..io.export import sus_export
+from ._sql import sql_string
 from .aggregate import sus_data_aggregate
 from .clean import sus_data_clean_encoding
 from .engine import get_connection
@@ -95,8 +96,10 @@ def _build_fast_sql(
     if not date_col:
         return None
 
-    # If no direct geo column for "state", try deriving from municipality code
-    geo_alias = geo  # output column name: "state" or "municipality"
+    # Output column name is always ``geo`` ("state" / "municipality") so the
+    # fast path's schema is stable regardless of which DATASUS column was
+    # detected in the source — matches the staged pipeline's contract.
+    geo_alias = geo
     if not geo_col and geo == "state":
         muni_col = detect_geo_column(columns, level="municipality")
         if muni_col:
@@ -105,7 +108,6 @@ def _build_fast_sql(
             return None
     elif geo_col:
         geo_sql = f'CAST("{geo_col}" AS VARCHAR)'
-        geo_alias = geo_col
     else:
         return None
 
@@ -115,14 +117,21 @@ def _build_fast_sql(
 
     where_parts = ["__date IS NOT NULL"]
 
-    # Disease filter
+    # Disease filter — fast path returns ``None`` if the CID prefix list is too
+    # large to embed inline; the caller then falls back to the staged pipeline.
+    # Previously the list was silently truncated to the first 200 prefixes,
+    # which produced results inconsistent with the staged pipeline.
     if groups:
         cause_col = detect_cause_column(columns)
         if cause_col:
             codes = codes_for_groups(groups)
-            prefixes = sorted(set(c[:3] for c in codes))
+            prefixes = sorted({c[:3] for c in codes})
+            if len(prefixes) > 200:
+                # Defer to the staged pipeline which uses a SEMI JOIN for
+                # large code lists (see filter.py).
+                return None
             select_parts.append(f'SUBSTR(CAST("{cause_col}" AS VARCHAR), 1, 3) AS __cid')
-            codes_str = ", ".join(f"'{c}'" for c in prefixes[:200])
+            codes_str = ", ".join(sql_string(c) for c in prefixes)
             where_parts.append(f"__cid IN ({codes_str})")
 
     # Age filter
@@ -133,12 +142,14 @@ def _build_fast_sql(
             decoded = decode_age_sql(age_col)
             select_parts.append(f'({decoded}) AS __age')
             if age_min is not None:
-                where_parts.append(f"__age >= {age_min}")
+                where_parts.append(f"__age >= {int(age_min)}")
             if age_max is not None:
-                where_parts.append(f"__age <= {age_max}")
+                where_parts.append(f"__age <= {int(age_max)}")
 
     # --- Assemble ---
-    paths_sql = ", ".join(f"'{str(p).replace(chr(92), '/')}'" for p in parquet_paths)
+    paths_sql = ", ".join(
+        sql_string(str(p).replace("\\", "/")) for p in parquet_paths
+    )
     source = f"read_parquet([{paths_sql}], union_by_name=True)"
 
     time_sql = _TIME_EXPR.get(time, "STRFTIME(__date, '%Y-%m')")
@@ -257,10 +268,16 @@ def sus_pipeline(
                     if output:
                         sus_export(result, output)
                     return result
-                except Exception:
-                    logging.getLogger(__name__).debug(
-                        "Fast path failed, falling through to staged pipeline",
-                        exc_info=True,
+                except Exception as exc:
+                    # Fast path failed — warn the user before falling back so
+                    # silent divergence between fast and staged results does
+                    # not go unnoticed.
+                    warnings.warn(
+                        f"sus_pipeline: fast path failed ({exc!r}); "
+                        "falling back to the staged pipeline. "
+                        "Results should be equivalent but slower.",
+                        UserWarning,
+                        stacklevel=2,
                     )
 
     # --- Staged pipeline (fallback) ---

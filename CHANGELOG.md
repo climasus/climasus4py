@@ -1,5 +1,69 @@
 # Changelog
 
+## [0.2.0a3] - 2026-05-24
+
+> Hotfix release implementando o plano [`2026-05-24-py-correcoes-revisao-OWASP-correctness.md`](../governanca/3-planos/em-execucao/2026-05-24-py-correcoes-revisao-OWASP-correctness.md). Todos os itens entram nas **exceções da diretriz de paridade** (OWASP + correctness silencioso + bugs com evidência empírica de crash em produção). Demais achados da revisão estrutural de 2026-05-24 foram registrados em [`ideias-climasus4py-v2.md`](../governanca/6-instancia/ideias-climasus4py-v2.md) para o v2.0.
+
+### Fixed — SQL injection / OWASP
+
+- **`sus_filter(date_start=, date_end=)`** ([core/filter.py](climasus4py/core/filter.py)) — datas embutidas via `_sql.sql_string()` em vez de `f'\'{date_start}\''`. Mesma normalização aplicada em filtros de sex, race, ICD e `drop_ignored`.
+- **`sus_export()`** ([io/export.py](climasus4py/io/export.py)) — `_copy_to` reescrito para passar o destino via `sql_string()` e registrar a relação sob view com sufixo UUID (em vez de depender da resolução implícita de locais `rel`). Adicionada allowlist para `compress` (`snappy`/`zstd`/`gzip`/`none`/`lz4`).
+- **`sus_data_quality_report()`** ([utils/quality.py](climasus4py/climasus4py/utils/quality.py)) — nomes de coluna passados por `quote_ident()`, migrado para o padrão `rel.query(alias, sql)` (não polui mais o namespace global da conexão singleton).
+- **`sus_pipeline` fast path** ([core/pipeline.py](climasus4py/climasus4py/core/pipeline.py)) — paths dos parquets embutidos via `sql_string()`; `age_min`/`age_max` coagidos com `int()`.
+
+### Fixed — Correctness silencioso
+
+- **`sus_pipeline` fast path: truncamento silencioso de CID** — antes, `prefixes[:200]` descartava prefixos extras sem aviso, produzindo resultados divergentes do staged pipeline. Agora, quando a lista de prefixos excede 200, o fast path retorna `None` e o staged (que usa `SEMI JOIN`) toma o controle.
+- **`sus_pipeline` fast path: fallback silencioso** — `except Exception` agora emite `UserWarning` em vez de `logging.debug`, expondo quando o fast path falhou e o staged está sendo usado.
+- **`sus_pipeline` fast path: nome da coluna geográfica** — `geo_alias` agora é sempre `"state"` ou `"municipality"` (antes mudava conforme a coluna detectada no source).
+- **`codes_for_groups(group_names)`** ([utils/cid.py](climasus4py/climasus4py/utils/cid.py)) — grupos desconhecidos agora levantam `KeyError` listando os disponíveis. Antes, typos retornavam lista vazia silenciosamente e produziam zero linhas downstream sem aviso.
+- **`expand_city_to_codes()`** ([utils/data.py](climasus4py/climasus4py/utils/data.py)) — normalização agora é **realmente** accent-insensitive (NFKD + strip de combining marks). A versão anterior usava NFC, que **mantém** acentos — "São Paulo" não batia com "Sao Paulo". Docstring corrigida.
+- **`sus_data_clean_encoding(fix_enc=)`** ([core/clean.py](climasus4py/climasus4py/core/clean.py)) — argumento era no-op silencioso (nunca aplicou correção de encoding). Agora documentado como `deprecated` e emite `DeprecationWarning`; mantido apenas para retrocompatibilidade.
+- **`sus_climate_fill_inmet` quality filter** ([enrichment/climate_fill.py](climasus4py/climasus4py/enrichment/climate_fill.py)) — exclusão de estações por threshold de missing values agora considera **todas** as `vars_to_fill`, não apenas `vars_to_fill[0]`. A estação só é excluída quando todas as variáveis-alvo excedem o threshold.
+- **`sus_data_import` agora registra stage** ([core/importer.py](climasus4py/climasus4py/core/importer.py)) — chama `set_stage("import", system=..., rel_type="health")`. O exemplo do docstring de `sus_meta` agora funciona; docstring de `sus_meta` ([core/meta.py](climasus4py/climasus4py/core/meta.py)) atualizada para explicar honestamente a limitação do `WeakKeyDictionary` (transformações criam objetos novos).
+- **`sus_census` legacy path** ([enrichment/census.py](climasus4py/climasus4py/enrichment/census.py)) — emite `UserWarning` ao materializar `DuckDBPyRelation` em DataFrame para o pandas merge.
+
+### Fixed — OOM em `sus_climate_inmet` (BUG-2026-05-24-A)
+
+Crash reportado em uso real: chamada padrão materializava o dataset nacional INMET (~5-10 GB/ano em pandas), com `parallel=True` mantendo múltiplos DataFrames de anos simultaneamente, resultando em OOM em máquinas com < 32 GB RAM. Cinco mitigações combinadas ([core/climate_inmet.py](climasus4py/climasus4py/core/climate_inmet.py)):
+
+- **Parsing por UF (correção principal):** quando o usuário supre `uf=`, apenas os CSVs cujo nome contém o código da UF são parseados. A versão anterior parseava o conjunto nacional inteiro antes de aplicar o filtro UF, o que era a causa raiz do OOM no cache miss.
+- **Cache em Hive partition por UF:** cada UF tem agora seu próprio sub-diretório (`year=<YYYY>/UF=<XX>/data.parquet`); chamadas subsequentes para uma UF diferente só baixam/parseiam o subset novo. O layout legado nacional (`year=<YYYY>/data.parquet`) ainda é aceito na leitura. Helpers `_year_cache_covers` + `_read_year_cache_filtered` cobrem ambos os layouts.
+- Default `parallel=False` (era `True`). Documentado no docstring; opt-in explícito para máquinas com folga de RAM.
+- `UserWarning` quando `uf=None`, alertando sobre o tamanho do dataset nacional e o número de anos solicitados.
+- `gc.collect()` explícito entre anos no path sequencial.
+- O refactor estrutural (`sus_climate_inmet` retornar `DuckDBPyRelation` lazy, eliminando a materialização interna por design) foi registrado em [`ideias-climasus4py-v2.md`](../governanca/6-instancia/ideias-climasus4py-v2.md) para o v2.0.
+
+**Validação empírica (2026-05-24, smoke real com download INMET):**
+
+| Cenário | Antes (v0.2.0a1) | Depois (v0.2.0a3) | Redução |
+|---|---|---|---|
+| Pico RSS cache miss (`uf="SP", years=2023`) | 11.240 MB | **713 MB** | **-94%** |
+| Duração cache miss | 215 s | 24 s | -89% |
+| Pico RSS cache hit | 2.627 MB | **487 MB** | -81% |
+| Layout do cache | `year=YYYY/data.parquet` (nacional) | `year=YYYY/UF=XX/data.parquet` (Hive) | — |
+
+### Fixed — `ImportError: numpy._core.multiarray` em Colab (BUG-2026-05-24-B)
+
+Erro reportado em Colab: `pip install climasus4py` puxava `pandas` 3.x preview que disparava `cannot load module more than once per process` por incompatibilidade ABI com `numpy` pré-carregado. Mitigações:
+
+- Pin conservador em [pyproject.toml](climasus4py/pyproject.toml): `pandas>=2.0,<3.0`, `numpy>=1.26,<3`, `pyarrow>=12.0,<20`. Revisar quando pandas 3.0 sair estável.
+- Nova seção **"Notebooks (Colab / Jupyter)"** no [README.md](climasus4py/README.md) explicando o restart de kernel necessário após `pip install` e fornecendo comando alternativo de pin.
+
+### Plumbing
+
+- `_version.py` e `pyproject.toml` em sincronia (`0.2.0a3`).
+- Plano formal registrado em [`governanca/3-planos/em-execucao/2026-05-24-py-correcoes-revisao-OWASP-correctness.md`](../governanca/3-planos/em-execucao/2026-05-24-py-correcoes-revisao-OWASP-correctness.md).
+- Backlog v2 atualizado em [`governanca/6-instancia/ideias-climasus4py-v2.md`](../governanca/6-instancia/ideias-climasus4py-v2.md) com 7 entradas cobrindo refactor lazy de `sus_climate_inmet`/`sus_fill_gaps`, padronização `rel.query()`, cobertura de testes, fragilidade do `_stage_map` e itens menores agregados.
+
+### Validação
+
+- `pytest tests/` → 504 passed, 16 skipped, 30 warnings (todas intencionais: `DeprecationWarning` para `fix_enc`, `UserWarning` para INMET sem `uf` e census legacy).
+- `ruff check` → All checks passed.
+- Smoke `import climasus4py as cs` → OK.
+
+---
+
 ## [0.2.0a1] - 2026-05-08
 
 > **Renumeração:** as tags `v0.3.0`, `v0.3.1` e `v0.3.2` **nunca foram publicadas**.

@@ -17,10 +17,12 @@ Pipeline
 
 from __future__ import annotations
 
+import gc
 import shutil
 import subprocess
 import tempfile
 import time
+import warnings
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -90,7 +92,7 @@ def sus_climate_inmet(
     station_code: str | list[str] | None = None,
     use_cache: bool = True,
     cache_dir: str | Path = _DEFAULT_CACHE,
-    parallel: bool = True,
+    parallel: bool = False,
     workers: int = 4,
     lang: Literal["pt", "en", "es"] = "pt",
     verbose: bool = True,
@@ -119,8 +121,12 @@ def sus_climate_inmet(
         Directory path for disk cache. Created automatically.
         Default: ~/.climasus4py_cache/climate
     parallel:
-        If True (default), enables two levels of parallelism:
-        between years (ThreadPoolExecutor) and within year (CSV files).
+        If True, enables two levels of parallelism: between years
+        (ThreadPoolExecutor) and within year (CSV files). **Default
+        ``False``** because each year of national INMET data expands to
+        ~5-10 GB in pandas; running multiple years in parallel routinely
+        triggered OOM crashes on machines with < 32 GB RAM. Set to
+        ``True`` explicitly when you have RAM headroom and want speed.
     workers:
         Number of parallel workers. Default: 4. Ignored if parallel=False.
     lang:
@@ -191,6 +197,21 @@ def sus_climate_inmet(
                 f"Invalid values in 'uf': {invalid_ufs}. "
                 f"Valid codes: {sorted(_VALID_UFS)}"
             )
+    else:
+        # Nationwide INMET hourly data expands to ~5-10 GB/year in pandas
+        # (~600 stations × 24h × 365d × ~20 cols). Without a UF filter the
+        # in-memory footprint is large enough to crash typical machines
+        # (reported as OOM in real usage). Pass ``uf=...`` to narrow the
+        # download and the in-memory dataset.
+        warnings.warn(
+            "sus_climate_inmet: no 'uf' supplied — the full national INMET "
+            "dataset will be loaded (~5-10 GB/year in pandas, "
+            f"{len(years_list)} year(s) requested). For most workflows "
+            'prefer ``uf=["SP", "RJ", ...]`` or a single state. Set '
+            "``parallel=True`` only on machines with ≥ 32 GB RAM.",
+            UserWarning,
+            stacklevel=2,
+        )
 
     # --- station_code --------------------------------------------------------
     sc_list: list[str] | None = None
@@ -449,6 +470,71 @@ def _download_robust(
 
 
 # ---------------------------------------------------------------------------
+# Internal: read year cache with optional UF push-down filter
+# ---------------------------------------------------------------------------
+
+def _year_cache_covers(year_cache_path: Path, uf: list[str] | None) -> bool:
+    """Return True if the cached year directory satisfies the UF request.
+
+    Two layouts are accepted:
+      * **National (legacy):** ``year=<YYYY>/data.parquet`` — single file
+        containing all UFs. Always satisfies any UF request.
+      * **Hive per-UF (new):** ``year=<YYYY>/UF=<XX>/data.parquet`` — one
+        sub-directory per UF. Satisfies the request only if all requested
+        UFs have a corresponding sub-directory.
+
+    When ``uf`` is ``None`` (national request), only the national layout
+    counts as a hit; a partial Hive cache forces re-download to avoid
+    silent gaps.
+    """
+    if not year_cache_path.exists():
+        return False
+    has_national = (year_cache_path / "data.parquet").is_file()
+    uf_dirs = {
+        p.name.split("=", 1)[1]
+        for p in year_cache_path.iterdir()
+        if p.is_dir() and p.name.startswith("UF=")
+    }
+    if uf is None:
+        return has_national
+    if has_national:
+        return True
+    return all(u in uf_dirs for u in uf)
+
+
+def _read_year_cache_filtered(
+    year_cache_path: Path,
+    *,
+    uf: list[str] | None,
+) -> pd.DataFrame:
+    """Read a year's Parquet cache, filtering by UF via DuckDB push-down.
+
+    Previously this used ``pq.read_table(...).to_pandas()`` which loaded
+    the full national dataset (~5-10 GB) into RAM before the UF filter
+    was applied — frequent cause of OOM. DuckDB applies the predicate
+    while reading so only the requested UFs reach memory.
+    """
+    from ._sql import sql_string
+    from .engine import get_connection
+
+    # Glob both ``year=YYYY/data.parquet`` (current writer) and any nested
+    # parquet files DuckDB chooses to expose under the directory.
+    glob_path = sql_string(
+        str(year_cache_path / "**" / "*.parquet").replace("\\", "/")
+    )
+    conn = get_connection()
+    if uf:
+        uf_vals = ", ".join(sql_string(u) for u in uf)
+        sql = (
+            f"SELECT * FROM read_parquet({glob_path}, union_by_name=true) "
+            f'WHERE "UF" IN ({uf_vals})'
+        )
+    else:
+        sql = f"SELECT * FROM read_parquet({glob_path}, union_by_name=true)"
+    return conn.sql(sql).df()
+
+
+# ---------------------------------------------------------------------------
 # Internal: process one year
 # ---------------------------------------------------------------------------
 
@@ -463,9 +549,18 @@ def _process_year(
 ) -> pd.DataFrame:
     """Download, unzip, parse and cache INMET data for a single year.
 
-    The Parquet cache always stores the full national dataset so that
-    subsequent calls with a different ``uf`` can be served from cache
-    without re-downloading the ZIP.
+    Cache layout
+    ------------
+    The cache is partitioned per UF (Hive-style) so that requesting a
+    single state never has to parse the national CSV set. Files are
+    written to::
+
+        <cache_dir>/inmet_parquet/year=<YYYY>/UF=<XX>/data.parquet
+
+    When ``uf=None`` the legacy single-file layout
+    (``year=<YYYY>/data.parquet``) is used instead. The reader
+    (:func:`_read_year_cache_filtered`) globs both layouts transparently
+    and lets DuckDB push the UF filter into the parquet scan.
     """
     import re
 
@@ -474,16 +569,24 @@ def _process_year(
     year_cache_path = dataset_dir / f"year={year}"
 
     # 1. Parquet disk cache ---------------------------------------------------
-    if use_cache and year_cache_path.exists():
+    # Cache hit when the year directory exists AND it covers the UFs requested.
+    # The reader pushes the UF predicate into the parquet scan, so loading
+    # only the requested UFs is cheap even when the cache holds the national
+    # dataset (legacy layout) or many UF sub-partitions.
+    cache_hit = (
+        use_cache
+        and year_cache_path.exists()
+        and _year_cache_covers(year_cache_path, uf)
+    )
+    if cache_hit:
         try:
-            cached = pq.read_table(str(year_cache_path)).to_pandas()
+            cached = _read_year_cache_filtered(year_cache_path, uf=uf)
             if not cached.empty:
                 if verbose:
                     console.print(
                         f"[cyan]ℹ[/]  Year {year}: Loading from Parquet cache"
+                        + (f" (UF filter: {', '.join(uf)})" if uf else "")
                     )
-                if uf and "UF" in cached.columns:
-                    cached = cached[cached["UF"].isin(uf)]
                 return cached
         except Exception as e:
             if verbose:
@@ -545,9 +648,10 @@ def _process_year(
         files_all = csv_files
 
         # 4. Filename-based UF pre-filter ------------------------------------
-        # Keep TWO lists:
-        #   files_all     → full national set (used for cache write)
-        #   files_for_uf  → UF-filtered (used when cache already exists)
+        # When the user supplied ``uf``, we parse **only** the CSVs for those
+        # states — never the whole national set. This is the key fix for the
+        # OOM observed when ``uf="SP"`` was previously triggering a parse of
+        # all ~600 national stations before the UF filter was applied.
         if uf:
             pattern = "|".join(uf)
             files_for_uf = [
@@ -561,12 +665,9 @@ def _process_year(
                         f"UF filter ({', '.join(uf)})."
                     )
                 return pd.DataFrame()
+            files_to_parse = files_for_uf
         else:
-            files_for_uf = files_all
-
-        cache_exists = use_cache and year_cache_path.exists()
-        # Parse all national files when writing cache; only UF files otherwise.
-        files_to_parse = files_all if not cache_exists else files_for_uf
+            files_to_parse = files_all
 
         # 5. Parse CSV files -------------------------------------------------
         if parallel and len(files_to_parse) > 1:
@@ -586,20 +687,45 @@ def _process_year(
         year_data = pd.concat(frames, ignore_index=True)
         year_data["year"] = year
 
-        # 6. Write Parquet cache (full national dataset) ----------------------
-        if not cache_exists and use_cache:
-            year_cache_path.mkdir(parents=True, exist_ok=True)
+        # 6. Write Parquet cache ---------------------------------------------
+        # Hive partition per UF when ``uf`` is supplied — each subsequent call
+        # for a different UF will fetch only the new sub-partition, never
+        # touching the existing ones. When ``uf=None``, fall back to the
+        # legacy single-file layout (``year=<YYYY>/data.parquet``).
+        if use_cache:
             try:
-                pq.write_table(
-                    pa.Table.from_pandas(year_data),
-                    str(year_cache_path / "data.parquet"),
-                    compression="zstd",
-                    compression_level=6,
-                )
-                if verbose:
-                    console.print(
-                        f"[green]✔[/]  Year {year}: Full national dataset cached."
+                year_cache_path.mkdir(parents=True, exist_ok=True)
+                if uf and "UF" in year_data.columns:
+                    for u in uf:
+                        u_subset = year_data[year_data["UF"] == u]
+                        if u_subset.empty:
+                            continue
+                        uf_dir = year_cache_path / f"UF={u}"
+                        uf_dir.mkdir(parents=True, exist_ok=True)
+                        pq.write_table(
+                            pa.Table.from_pandas(u_subset),
+                            str(uf_dir / "data.parquet"),
+                            compression="zstd",
+                            compression_level=6,
+                        )
+                    if verbose:
+                        console.print(
+                            f"[green]✔[/]  Year {year}: Cached UF partitions "
+                            f"({', '.join(uf)})."
+                        )
+                else:
+                    # National dataset (uf=None): legacy single-file layout
+                    pq.write_table(
+                        pa.Table.from_pandas(year_data),
+                        str(year_cache_path / "data.parquet"),
+                        compression="zstd",
+                        compression_level=6,
                     )
+                    if verbose:
+                        console.print(
+                            f"[green]✔[/]  Year {year}: Full national "
+                            "dataset cached."
+                        )
             except Exception as e:
                 if verbose:
                     console.print(
@@ -607,6 +733,9 @@ def _process_year(
                     )
 
         # 7. Post-cache UF column filter --------------------------------------
+        # Belt-and-suspenders: the filename pre-filter above is usually
+        # sufficient, but stations whose filenames omit the UF token still
+        # appear in the parsed DataFrame and must be dropped here.
         if uf and "UF" in year_data.columns:
             year_data = year_data[year_data["UF"].isin(uf)]
 
@@ -652,12 +781,22 @@ def _download_inmet(
             verbose=verbose,
         )
 
-    # Between-year parallelism uses threads (I/O bound)
+    # Between-year parallelism uses threads (I/O bound).
+    # NOTE: ``parallel=False`` is the default since 2026-05-24 because each
+    # year of national INMET data expands to ~5-10 GB in pandas; running
+    # multiple years simultaneously triggered OOM crashes in real usage.
     if parallel and len(years) > 1:
         with ThreadPoolExecutor(max_workers=min(workers, len(years))) as pool:
             results = list(pool.map(_process, years))
     else:
-        results = [_process(y) for y in years]
+        results = []
+        for y in years:
+            results.append(_process(y))
+            # Free any temporary pandas/pyarrow allocations from the
+            # previous year before parsing the next one. Without this,
+            # holding three or four full-year DataFrames alive
+            # simultaneously was observed to OOM Colab kernels.
+            gc.collect()
 
     results = [r for r in results if r is not None and not r.empty]
 

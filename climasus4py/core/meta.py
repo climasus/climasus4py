@@ -22,8 +22,17 @@ def sus_meta(
 ) -> dict | str | list | None:
     """Return pipeline metadata for a DuckDB relation.
 
-    Metadata is recorded automatically by pipeline functions (``sus_data_import``,
-    ``sus_data_clean_encoding``, ``sus_filter``, etc.) via ``set_stage``.
+    Metadata is keyed on the exact relation object (``WeakKeyDictionary``).
+    ``sus_data_import`` and the enrichment functions (``sus_climate``,
+    ``sus_spatial_join``, ``sus_census``) tag their *output* relation with
+    a stage marker. **DuckDB operations such as ``.filter()`` and
+    ``.project()`` create a new relation object that does not carry the
+    parent's metadata** — call ``sus_meta`` on the immediate output of
+    these tagged functions or apply ``set_stage`` manually after each
+    transformation. The ``sus_data_clean_encoding`` /
+    ``sus_data_standardize`` / ``sus_filter`` / ``sus_data_create_variables``
+    / ``sus_data_aggregate`` chain is not currently instrumented (tracked
+    in ``ideias-climasus4py-v2.md`` as a v2.0 refactor).
 
     Args:
         rel: DuckDB relation to inspect.

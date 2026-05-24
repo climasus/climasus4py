@@ -81,6 +81,13 @@ def sus_census(
             )
         # Materialise health data if lazy
         if isinstance(rel, duckdb.DuckDBPyRelation):
+            warnings.warn(
+                "sus_census legacy path: the input DuckDBPyRelation is being "
+                "materialised to a DataFrame for the pandas merge. For large "
+                "datasets prefer the lazy path (omit the ``census`` argument).",
+                UserWarning,
+                stacklevel=2,
+            )
             from ..core.engine import collect
             df = collect(rel)
         else:
