@@ -60,6 +60,36 @@ _UA = (
 )
 _REFERER = "https://portal.inmet.gov.br/dadoshistoricos"
 
+_INMET_CATEGORY_COLUMNS: frozenset[str] = frozenset({
+    "region",
+    "UF",
+    "station_name",
+    "wmo_code",
+})
+
+_INMET_FLOAT32_COLUMNS: frozenset[str] = frozenset({
+    "latitude",
+    "longitude",
+    "altitude",
+    "rainfall_mm",
+    "patm_mb",
+    "patm_max_mb",
+    "patm_min_mb",
+    "sr_kj_m2",
+    "tair_dry_bulb_c",
+    "tair_max_c",
+    "tair_min_c",
+    "dew_tmean_c",
+    "dew_tmax_c",
+    "dew_tmin_c",
+    "rh_mean_porc",
+    "rh_max_porc",
+    "rh_min_porc",
+    "ws_2_m_s",
+    "ws_gust_m_s",
+    "wd_degrees",
+})
+
 _MESSAGES: dict[str, dict[str, str]] = {
     "pt": {
         "cache_config": "Usando cache em: {dir}",
@@ -623,13 +653,28 @@ def _materialize_relation_temp(
 
 def _collect_inmet_relation(rel: duckdb.DuckDBPyRelation) -> pd.DataFrame:
     """Collect an INMET relation to pandas with compact metadata columns."""
-    result = rel.arrow()
+    select_parts: list[str] = []
+    for col in rel.columns:
+        col_sql = quote_ident(col)
+        if col in _INMET_FLOAT32_COLUMNS:
+            select_parts.append(f"CAST({col_sql} AS REAL) AS {col_sql}")
+        elif col == "year":
+            select_parts.append(f"CAST({col_sql} AS SMALLINT) AS {col_sql}")
+        elif col == "founded_date":
+            select_parts.append(f"CAST({col_sql} AS DATE) AS {col_sql}")
+        else:
+            select_parts.append(col_sql)
+
+    compact_rel = rel.project(", ".join(select_parts))
+    result = compact_rel.arrow()
     table = result.read_all() if hasattr(result, "read_all") else result
     df = table.to_pandas(
-        categories=["region", "UF", "station_name", "wmo_code"],
+        categories=[c for c in _INMET_CATEGORY_COLUMNS if c in compact_rel.columns],
+        date_as_object=False,
         split_blocks=True,
         self_destruct=True,
     )
+    del result, table, compact_rel
     pa.default_memory_pool().release_unused()
     return df
 
@@ -654,7 +699,10 @@ def _process_year(
     zip_file = cache_dir / f"inmet_{year}.zip"
     year_cache_path = dataset_dir / f"year={year}"
     conn = get_connection()
-    conn.execute("SET memory_limit='192MB'")
+    conn.execute("SET memory_limit='96MB'")
+    conn.execute("SET allocator_flush_threshold='1MB'")
+    conn.execute("SET allocator_bulk_deallocation_flush_threshold='1MB'")
+    conn.execute("SET enable_external_file_cache=false")
     conn.execute("SET preserve_insertion_order=false")
     conn.execute("SET threads=1")
 

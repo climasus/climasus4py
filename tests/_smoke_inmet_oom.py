@@ -39,7 +39,7 @@ class RssTracker:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
-    def __enter__(self) -> "RssTracker":
+    def __enter__(self) -> RssTracker:
         self.peak_rss = PROC.memory_info().rss
         self._stop.clear()
         self._thread = threading.Thread(target=self._sample, daemon=True)
@@ -178,9 +178,8 @@ def main() -> int:
             try:
                 import climasus4py.core.climate_inmet as inmet_mod
                 _orig = inmet_mod._download_inmet
-                import pandas as pd
                 def _stub(years, uf, cache_dir, use_cache, parallel,
-                          workers, verbose):
+                          workers, verbose, **kwargs):
                     raise ValueError("STUB_BLOCKS_DOWNLOAD")
                 inmet_mod._download_inmet = _stub
                 try:
