@@ -35,9 +35,9 @@ import pandas as pd
 import pyarrow as pa
 from rich.console import Console
 
+from ..utils.inmet_parser import parse_inmet_csv  # internal CSV parser
 from ._sql import quote_ident, register_relation, sql_string
 from .engine import get_connection
-from ..utils.inmet_parser import parse_inmet_csv  # internal CSV parser
 
 console = Console(stderr=True)
 
@@ -288,7 +288,7 @@ def sus_climate_inmet(
             )
         climate_data = climate_data[
             climate_data[code_col].str.upper().isin(sc_list)
-        ]
+        ].copy()
 
     if sc_list is not None and climate_data.empty:
         raise ValueError(msg["no_rows_code"].format(codes=", ".join(sc_list)))
