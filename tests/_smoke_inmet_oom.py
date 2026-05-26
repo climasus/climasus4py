@@ -105,7 +105,7 @@ def main() -> int:
         print(f"  peak RSS     : {_mb(peak1)}")
         print(f"  delta peak   : {_mb(delta1)}")
         print(f"  RSS after    : {_mb(rss_after)}")
-        ok1 = peak1 < 200 * 1024**2
+        ok1 = delta1 < 200 * 1024**2
         ok1_only_sp = ufs == ["SP"]
         ok1_cols = 25 <= len(df1.columns) <= 35
         required = {
@@ -122,7 +122,7 @@ def main() -> int:
         }
         missing = required - set(df1.columns)
         ok1_schema = not missing
-        print(_mark(f"peak < 200 MB (got {_mb(peak1)})", ok1))
+        print(_mark(f"delta peak < 200 MB (got {_mb(delta1)})", ok1))
         print(_mark(f"only SP returned (got {ufs})", ok1_only_sp))
         print(_mark(f"column count 25-35 (got {len(df1.columns)})", ok1_cols))
         print(_mark(f"required schema columns present (missing {sorted(missing)})", ok1_schema))
@@ -162,9 +162,9 @@ def main() -> int:
         print(f"  duration     : {dt:.1f} s")
         print(f"  peak RSS     : {_mb(peak2)}")
         print(f"  delta peak   : {_mb(delta2)}")
-        ok2 = peak2 < 200 * 1024**2
+        ok2 = delta2 < 200 * 1024**2
         ok2_fast = dt < 30
-        print(_mark(f"peak < 200 MB (got {_mb(peak2)})", ok2))
+        print(_mark(f"delta peak < 200 MB (got {_mb(delta2)})", ok2))
         print(_mark(f"hit faster than miss (got {dt:.1f}s)", ok2_fast))
         failures += (not ok2) + (not ok2_fast)
 

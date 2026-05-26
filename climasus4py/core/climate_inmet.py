@@ -32,6 +32,7 @@ from typing import Literal
 
 import duckdb
 import pandas as pd
+import pyarrow as pa
 from rich.console import Console
 
 from ._sql import quote_ident, register_relation, sql_string
@@ -265,13 +266,15 @@ def sus_climate_inmet(
                 f"{quote_ident('wmo_code')} IN ({codes_sql})"
             )
 
-    climate_data = (
-        climate_result.df()
-        if isinstance(climate_result, duckdb.DuckDBPyRelation)
-        else climate_result
-    )
+    climate_result_is_relation = isinstance(climate_result, duckdb.DuckDBPyRelation)
+    if climate_result_is_relation:
+        climate_data = _collect_inmet_relation(climate_result)
+        del climate_result
+        gc.collect()
+    else:
+        climate_data = climate_result
 
-    if sc_list is not None and not isinstance(climate_result, duckdb.DuckDBPyRelation):
+    if sc_list is not None and not climate_result_is_relation:
         code_col = (
             "wmo_code"
             if "wmo_code" in climate_data.columns
@@ -289,6 +292,10 @@ def sus_climate_inmet(
 
     if sc_list is not None and climate_data.empty:
         raise ValueError(msg["no_rows_code"].format(codes=", ".join(sc_list)))
+
+    for col in ("region", "UF", "station_name", "wmo_code"):
+        if col in climate_data.columns:
+            climate_data[col] = climate_data[col].astype("category")
 
     # --- metadata ------------------------------------------------------------
     station_id_col = (
@@ -574,24 +581,6 @@ def _relation_is_empty(rel: duckdb.DuckDBPyRelation) -> bool:
     return rel.limit(1).fetchone() is None
 
 
-def _relation_count(rel: duckdb.DuckDBPyRelation) -> int:
-    """Count rows in a relation for verbose progress output."""
-    conn = get_connection()
-    if hasattr(rel, "sql_query"):
-        row = conn.sql(f"SELECT COUNT(*) FROM ({rel.sql_query()})").fetchone()
-        return int(row[0]) if row is not None else 0
-
-    view_name = f"_inmet_count_{uuid.uuid4().hex}"
-    register_relation(conn, rel, view_name)
-    try:
-        row = conn.sql(
-            f"SELECT COUNT(*) FROM {quote_ident(view_name)}"
-        ).fetchone()
-        return int(row[0]) if row is not None else 0
-    finally:
-        conn.unregister(view_name)
-
-
 def _copy_relation_to_parquet(
     rel: duckdb.DuckDBPyRelation,
     dest: Path,
@@ -632,6 +621,19 @@ def _materialize_relation_temp(
     return conn.sql(f"SELECT * FROM {quote_ident(table_name)}")
 
 
+def _collect_inmet_relation(rel: duckdb.DuckDBPyRelation) -> pd.DataFrame:
+    """Collect an INMET relation to pandas with compact metadata columns."""
+    result = rel.arrow()
+    table = result.read_all() if hasattr(result, "read_all") else result
+    df = table.to_pandas(
+        categories=["region", "UF", "station_name", "wmo_code"],
+        split_blocks=True,
+        self_destruct=True,
+    )
+    pa.default_memory_pool().release_unused()
+    return df
+
+
 # ---------------------------------------------------------------------------
 # Internal: process one year
 # ---------------------------------------------------------------------------
@@ -652,6 +654,9 @@ def _process_year(
     zip_file = cache_dir / f"inmet_{year}.zip"
     year_cache_path = dataset_dir / f"year={year}"
     conn = get_connection()
+    conn.execute("SET memory_limit='192MB'")
+    conn.execute("SET preserve_insertion_order=false")
+    conn.execute("SET threads=1")
 
     # 1. Parquet disk cache ---------------------------------------------------
     cache_hit = (
@@ -745,6 +750,39 @@ def _process_year(
             files_to_parse = files_for_uf
         else:
             files_to_parse = files_all
+
+        if use_cache and uf:
+            try:
+                year_cache_path.mkdir(parents=True, exist_ok=True)
+                cached_ufs: set[str] = set()
+                for idx, csv_path in enumerate(files_to_parse):
+                    rel = parse_inmet_csv(csv_path)
+                    if rel is None:
+                        continue
+                    for u in uf:
+                        subset = rel.filter(f"{quote_ident('UF')} = {sql_string(u)}")
+                        if _relation_is_empty(subset):
+                            continue
+                        _copy_relation_to_parquet(
+                            subset,
+                            year_cache_path / f"UF={u}" / f"part-{idx:04d}.parquet",
+                            conn,
+                        )
+                        cached_ufs.add(u)
+
+                if cached_ufs:
+                    if verbose:
+                        console.print(
+                            f"[green]OK[/]  Year {year}: Cached UF partitions "
+                            f"({', '.join(sorted(cached_ufs))})."
+                        )
+                    return _read_year_cache_filtered(year_cache_path, uf=uf)
+            except Exception as e:
+                if verbose:
+                    console.print(
+                        f"[yellow]WARN[/]  Year {year}: Failed to stream cache ({e})."
+                    )
+                shutil.rmtree(year_cache_path, ignore_errors=True)
 
         # 5. Parse CSV files -------------------------------------------------
         if parallel and len(files_to_parse) > 1:
@@ -889,6 +927,6 @@ def _download_inmet(
         combined = combined.order("date")
 
     if verbose:
-        console.print(f"[green]OK[/]  Loaded {_relation_count(combined):,} total rows.")
+        console.print("[green]OK[/]  Loaded INMET DuckDB relation.")
 
     return combined
