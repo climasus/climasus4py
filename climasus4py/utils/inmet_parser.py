@@ -9,8 +9,8 @@ variants and normalises them to the canonical ClimaSUS names.
 
 Canonical output columns
 ------------------------
-station_code, station_name, region, UF, latitude, longitude, altitude,
-date (UTC, datetime64[ns]), year,
+date (UTC), year,
+region, UF, station_name, wmo_code, latitude, longitude, altitude, founded_date,
 rainfall_mm, patm_mb, patm_max_mb, patm_min_mb,
 sr_kj_m2,
 tair_dry_bulb_c, tair_max_c, tair_min_c,
@@ -26,10 +26,10 @@ import unicodedata
 import warnings
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
+import duckdb
 
 from ..core._sql import quote_ident, sql_string
+from ..core.engine import get_connection
 
 # ---------------------------------------------------------------------------
 # Canonical column mapping — raw INMET names → ClimaSUS names
@@ -139,17 +139,6 @@ _PHYSICAL_LIMITS: dict[str, tuple[float, float]] = {
     "wd_degrees":      (0.0, 360.0),
 }
 
-# INMET header keys (row 0–7 of each CSV)
-_HEADER_KEYS = {
-    "regiao":         "region",
-    "uf":             "UF",
-    "estacao":        "station_name",
-    "codigo estacao": "station_code",
-    "latitude":       "latitude",
-    "longitude":      "longitude",
-    "altitude":       "altitude",
-}
-
 _METADATA_KEYS = {
     "regiao": "region",
     "uf": "UF",
@@ -168,8 +157,8 @@ _METADATA_KEYS = {
 # Public parser
 # ---------------------------------------------------------------------------
 
-def parse_inmet_csv(path: str | Path) -> pd.DataFrame | None:
-    """Parse a single INMET hourly CSV file into a normalised DataFrame.
+def parse_inmet_csv(path: str | Path) -> duckdb.DuckDBPyRelation | None:
+    """Parse a single INMET hourly CSV file into a normalised DuckDB relation.
 
     Parameters
     ----------
@@ -178,8 +167,8 @@ def parse_inmet_csv(path: str | Path) -> pd.DataFrame | None:
 
     Returns
     -------
-    pd.DataFrame or None
-        Normalised DataFrame with canonical columns, or None on failure.
+    duckdb.DuckDBPyRelation or None
+        Lazy relation with canonical columns, or None on failure.
     """
     path = Path(path)
     try:
@@ -202,101 +191,25 @@ def parse_inmet_csv(path: str | Path) -> pd.DataFrame | None:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _parse(path: Path) -> pd.DataFrame:
-    raw = path.read_text(encoding="latin-1", errors="replace")
-    lines = raw.splitlines()
+def _parse(path: Path) -> duckdb.DuckDBPyRelation:
+    metadata = _read_inmet_metadata(path)
+    header_line, raw_columns = _detect_data_header_line(path)
 
-    # --- extract metadata from header (first 8 lines) -----------------------
-    meta: dict[str, str] = {}
-    header_end: int | None = None
-    for i, line in enumerate(lines[:20]):
-        parts = line.split(";", maxsplit=1)
-        if len(parts) == 2:
-            key = parts[0].strip().lower().rstrip(":")
-            val = parts[1].strip().strip('"')
-            canonical = _HEADER_KEYS.get(key)
-            if canonical:
-                meta[canonical] = val
-        if _is_data_header_line(line):
-            header_end = i
-            break
-
-    if header_end is None:
-        raise ValueError(f"INMET CSV malformed: no HORA header in {path}")
-
-    # --- read data block -----------------------------------------------------
-    data_lines = lines[header_end:]
-    if not data_lines:
-        return pd.DataFrame()
-
-    # Use the first data_lines entry as header; handle BOM
-    header_line = data_lines[0].lstrip("\ufeff")
-    sep = ";" if ";" in header_line else ","
-
-    from io import StringIO
-    df = pd.read_csv(
-        StringIO("\n".join(data_lines)),
-        sep=sep,
-        encoding="utf-8",
-        na_values=["", "null", "NULL", "-9999", "-9999.0", "///"],
-        decimal=",",
-        dtype=str,
-        low_memory=False,
+    conn = get_connection()
+    select_clause = _build_select_clause(raw_columns, metadata)
+    path_sql = sql_string(str(path).replace("\\", "/"))
+    base_sql = (
+        f"SELECT {select_clause} "
+        f"FROM read_csv({path_sql}, "
+        f"skip={header_line}, "
+        "delim=';', "
+        "header=true, "
+        "ignore_errors=true, "
+        "all_varchar=true, "
+        "null_padding=true, "
+        "encoding='latin-1')"
     )
-
-    if df.empty:
-        return pd.DataFrame()
-
-    # --- normalise column names ----------------------------------------------
-    df = _rename_columns(df)
-
-    # --- parse date + time ---------------------------------------------------
-    df = _parse_datetime(df)
-
-    # --- coerce numerics + replace commas ------------------------------------
-    numeric_cols = set(_PHYSICAL_LIMITS.keys())
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = (
-                df[col]
-                .astype(str)
-                .str.replace(",", ".", regex=False)
-                .pipe(pd.to_numeric, errors="coerce")
-            )
-
-    # --- QC: physical range --------------------------------------------------
-    df = _apply_physical_qc(df)
-
-    # --- QC: dew point consistency (Magnus formula) -------------------------
-    df = _qc_dew_point(df)
-
-    # --- QC: nighttime solar radiation → 0 ----------------------------------
-    df = _qc_solar_radiation(df)
-
-    # --- attach station metadata from header --------------------------------
-    for col, val in meta.items():
-        if col not in df.columns:
-            df[col] = val
-
-    for coord_col in ("latitude", "longitude", "altitude"):
-        if coord_col in df.columns:
-            df[coord_col] = pd.to_numeric(
-                df[coord_col].astype(str).str.replace(",", ".", regex=False),
-                errors="coerce",
-            )
-
-    return df.reset_index(drop=True)
-
-
-def _rename_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Map raw INMET column names to canonical ClimaSUS names."""
-    mapping: dict[str, str] = {}
-    for col in df.columns:
-        normalised = _normalise_key(col)
-        canonical = _COL_MAP.get(normalised)
-        if canonical:
-            mapping[col] = canonical
-    return df.rename(columns=mapping)
+    return conn.sql(_wrap_sql_qc(base_sql))
 
 
 def _read_inmet_metadata(path: str | Path) -> dict[str, str]:
@@ -368,6 +281,39 @@ def _build_select_clause(raw_columns: list[str], metadata: dict[str, str]) -> st
         )
 
     return ", ".join(parts)
+
+
+def _wrap_sql_qc(base_sql: str) -> str:
+    """Apply cross-column INMET QC rules in SQL."""
+    gamma_expr = (
+        "LN(rh_mean_porc / 100.0) + "
+        "(17.625 * tair_dry_bulb_c) / (243.04 + tair_dry_bulb_c)"
+    )
+    dew_calc = f"(243.04 * ({gamma_expr})) / (17.625 - ({gamma_expr}))"
+    dew_expr = (
+        "CASE WHEN dew_tmean_c IS NOT NULL "
+        "AND tair_dry_bulb_c IS NOT NULL "
+        "AND rh_mean_porc IS NOT NULL "
+        "AND rh_mean_porc > 0 "
+        f"AND ABS(dew_tmean_c - ({dew_calc})) > 3.0 "
+        "THEN NULL ELSE dew_tmean_c END"
+    )
+    solar_expr = (
+        "CASE WHEN sr_kj_m2 IS NOT NULL "
+        "AND (EXTRACT(HOUR FROM date) >= 18 OR EXTRACT(HOUR FROM date) < 6) "
+        "THEN 0.0 ELSE sr_kj_m2 END"
+    )
+
+    select_parts: list[str] = []
+    for col in _OUTPUT_COLUMNS:
+        if col == "dew_tmean_c":
+            select_parts.append(f"{dew_expr} AS {quote_ident(col)}")
+        elif col == "sr_kj_m2":
+            select_parts.append(f"{solar_expr} AS {quote_ident(col)}")
+        else:
+            select_parts.append(quote_ident(col))
+
+    return f"WITH base AS ({base_sql}) SELECT {', '.join(select_parts)} FROM base"
 
 
 def _canonical_raw_columns(raw_columns: list[str]) -> dict[str, str]:
@@ -453,81 +399,3 @@ def _normalise_key(s: str) -> str:
     text = unicodedata.normalize("NFKD", s)
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
     return re.sub(r"\s+", " ", text.strip().lower())
-
-
-def _parse_datetime(df: pd.DataFrame) -> pd.DataFrame:
-    """Combine DATA + HORA columns into a UTC datetime column."""
-    date_col = next(
-        (c for c in df.columns if re.match(r"data", c, re.I)), None
-    )
-    time_col = next(
-        (c for c in df.columns if re.match(r"hora", c, re.I)), None
-    )
-
-    if date_col is None:
-        df["date"] = pd.NaT
-        return df
-
-    date_str = df[date_col].astype(str).str.strip()
-
-    if time_col is not None:
-        # HORA can be "0000 UTC", "00:00", "0" etc.
-        hour_str = (
-            df[time_col]
-            .astype(str)
-            .str.replace(r"\s*UTC", "", regex=True)
-            .str.strip()
-            .str.zfill(4)
-            .str[:2]  # keep HH only
-        )
-        combined = date_str + " " + hour_str + ":00"
-    else:
-        combined = date_str
-
-    df["date"] = pd.to_datetime(combined, errors="coerce", utc=True)
-    return df
-
-
-def _apply_physical_qc(df: pd.DataFrame) -> pd.DataFrame:
-    """Set values outside physical limits to NaN."""
-    for col, (lo, hi) in _PHYSICAL_LIMITS.items():
-        if col in df.columns:
-            mask = df[col].notna() & ((df[col] < lo) | (df[col] > hi))
-            df.loc[mask, col] = np.nan
-    return df
-
-
-def _qc_dew_point(df: pd.DataFrame) -> pd.DataFrame:
-    """Validate dew point via Magnus formula; outliers → NaN."""
-    t_col = "tair_dry_bulb_c"
-    rh_col = "rh_mean_porc"
-    dp_col = "dew_tmean_c"
-
-    if not all(c in df.columns for c in (t_col, rh_col, dp_col)):
-        return df
-
-    T = df[t_col]
-    RH = df[rh_col]
-    # Magnus approximation: Td = (243.04 * γ) / (17.625 - γ)
-    # where γ = ln(RH/100) + (17.625 * T) / (243.04 + T)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        gamma = np.log(RH / 100.0) + (17.625 * T) / (243.04 + T)
-        td_calc = (243.04 * gamma) / (17.625 - gamma)
-
-    diff = (df[dp_col] - td_calc).abs()
-    df.loc[diff > 3.0, dp_col] = np.nan
-
-    return df
-
-
-def _qc_solar_radiation(df: pd.DataFrame) -> pd.DataFrame:
-    """Set nighttime solar radiation (18h–6h UTC) to 0."""
-    sr_col = "sr_kj_m2"
-    if sr_col not in df.columns or "date" not in df.columns:
-        return df
-
-    hour = df["date"].dt.hour
-    nighttime = (hour >= 18) | (hour < 6)
-    df.loc[nighttime & df[sr_col].notna(), sr_col] = 0.0
-
-    return df
