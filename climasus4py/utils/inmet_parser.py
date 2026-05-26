@@ -22,6 +22,7 @@ ws_2_m_s, ws_gust_m_s, wd_degrees
 from __future__ import annotations
 
 import re
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -123,7 +124,17 @@ def parse_inmet_csv(path: str | Path) -> pd.DataFrame | None:
     path = Path(path)
     try:
         return _parse(path)
-    except Exception:
+    except FileNotFoundError:
+        return None
+    except ValueError as exc:
+        warnings.warn(str(exc), UserWarning, stacklevel=2)
+        return None
+    except Exception as exc:
+        warnings.warn(
+            f"Failed to parse INMET CSV {path}: {exc}",
+            UserWarning,
+            stacklevel=2,
+        )
         return None
 
 
@@ -137,8 +148,8 @@ def _parse(path: Path) -> pd.DataFrame:
 
     # --- extract metadata from header (first 8 lines) -----------------------
     meta: dict[str, str] = {}
-    header_end = 0
-    for i, line in enumerate(lines[:10]):
+    header_end: int | None = None
+    for i, line in enumerate(lines[:20]):
         parts = line.split(";", maxsplit=1)
         if len(parts) == 2:
             key = parts[0].strip().lower().rstrip(":")
@@ -146,10 +157,15 @@ def _parse(path: Path) -> pd.DataFrame:
             canonical = _HEADER_KEYS.get(key)
             if canonical:
                 meta[canonical] = val
-        # Data block starts after the row containing "DATA"
-        if "DATA" in line.upper() and ";" in line:
+        # Data block starts at the actual observation header, not metadata
+        # rows such as "DATA DE FUNDAÇÃO".
+        upper = line.lstrip("\ufeff").strip().upper()
+        if (";HORA" in upper) or upper.startswith("DATA MEDICAO"):
             header_end = i
             break
+
+    if header_end is None:
+        raise ValueError(f"INMET CSV malformed: no HORA header in {path}")
 
     # --- read data block -----------------------------------------------------
     data_lines = lines[header_end:]

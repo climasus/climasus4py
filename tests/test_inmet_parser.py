@@ -11,6 +11,8 @@ import pandas as pd
 
 from climasus4py.utils.inmet_parser import parse_inmet_csv
 
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "inmet"
+
 # ---------------------------------------------------------------------------
 # Fixtures de CSV INMET
 # ---------------------------------------------------------------------------
@@ -123,6 +125,17 @@ class TestParseHeader:
 # ---------------------------------------------------------------------------
 
 class TestParseData:
+    def test_header_detection_does_not_match_data_de_fundacao(self):
+        path = FIXTURE_DIR / "inmet_2015_SC_A806_FLORIANOPOLIS_stub.CSV"
+        df = parse_inmet_csv(path)
+        assert df is not None
+        assert not any("FUNDA" in col.upper() for col in df.columns)
+        assert "date" in df.columns
+        ts = pd.Timestamp(df["date"].iloc[0])
+        assert ts.year == 2015
+        assert ts.month == 1
+        assert ts.day == 1
+
     def test_returns_dataframe(self, tmp_path):
         path = _write_csv(tmp_path, _MINIMAL_CSV)
         df = parse_inmet_csv(path)
@@ -332,10 +345,10 @@ class TestEdgeCases:
 # ---------------------------------------------------------------------------
 
 class TestMissingHoraColumn:
-    """CSV sem coluna de hora: _parse_datetime usa apenas a data — covers line 261."""
+    """CSV sem coluna de hora nao reproduz o formato horario INMET real."""
 
-    def test_csv_without_hora_has_date(self, tmp_path):
-        """CSV with only Data column (no Hora) sets date from date string alone."""
+    def test_csv_without_hora_returns_none(self, tmp_path):
+        """CSV with only Data column (no Hora) is treated as malformed."""
         content = (
             "REGIAO:;SUL\nUF:;PR\nESTACAO:;TEST\nCODIGO ESTACAO:;A001\n"
             "LATITUDE:;-25,0\nLONGITUDE:;-49,0\nALTITUDE:;900,0\n"
@@ -345,13 +358,7 @@ class TestMissingHoraColumn:
         )
         path = _write_csv(tmp_path, content)
         df = parse_inmet_csv(path)
-        assert df is not None
-        assert "date" in df.columns
-        assert len(df) == 2
-        ts = pd.Timestamp(df["date"].iloc[0])
-        assert ts.year == 2023
-        assert ts.month == 3
-        assert ts.day == 15
+        assert df is None
 
 
 # ---------------------------------------------------------------------------
