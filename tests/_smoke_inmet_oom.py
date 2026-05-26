@@ -73,7 +73,7 @@ def _mark(label: str, ok: bool) -> str:
 def main() -> int:
     failures = 0
     print("=" * 70)
-    print("Smoke OOM -- sus_climate_inmet (climasus4py 0.2.0a3)")
+    print("Smoke OOM -- sus_climate_inmet (climasus4py 0.2.0a4 target)")
     print(f"Process baseline RSS: {_mb(PROC.memory_info().rss)}")
     print("=" * 70)
 
@@ -105,11 +105,28 @@ def main() -> int:
         print(f"  peak RSS     : {_mb(peak1)}")
         print(f"  delta peak   : {_mb(delta1)}")
         print(f"  RSS after    : {_mb(rss_after)}")
-        ok1 = peak1 < 4 * 1024**3  # 4 GB target
+        ok1 = peak1 < 200 * 1024**2
         ok1_only_sp = ufs == ["SP"]
-        print(_mark(f"peak < 4 GB (got {_mb(peak1)})", ok1))
+        ok1_cols = 25 <= len(df1.columns) <= 35
+        required = {
+            "region",
+            "UF",
+            "station_name",
+            "wmo_code",
+            "latitude",
+            "longitude",
+            "altitude",
+            "founded_date",
+            "date",
+            "year",
+        }
+        missing = required - set(df1.columns)
+        ok1_schema = not missing
+        print(_mark(f"peak < 200 MB (got {_mb(peak1)})", ok1))
         print(_mark(f"only SP returned (got {ufs})", ok1_only_sp))
-        failures += (not ok1) + (not ok1_only_sp)
+        print(_mark(f"column count 25-35 (got {len(df1.columns)})", ok1_cols))
+        print(_mark(f"required schema columns present (missing {sorted(missing)})", ok1_schema))
+        failures += (not ok1) + (not ok1_only_sp) + (not ok1_cols) + (not ok1_schema)
 
         del df1
         gc.collect()
@@ -145,9 +162,9 @@ def main() -> int:
         print(f"  duration     : {dt:.1f} s")
         print(f"  peak RSS     : {_mb(peak2)}")
         print(f"  delta peak   : {_mb(delta2)}")
-        ok2 = peak2 < 4 * 1024**3
+        ok2 = peak2 < 200 * 1024**2
         ok2_fast = dt < 30
-        print(_mark(f"peak < 4 GB (got {_mb(peak2)})", ok2))
+        print(_mark(f"peak < 200 MB (got {_mb(peak2)})", ok2))
         print(_mark(f"hit faster than miss (got {dt:.1f}s)", ok2_fast))
         failures += (not ok2) + (not ok2_fast)
 
