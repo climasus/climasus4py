@@ -26,7 +26,7 @@ def _make_inmet_df(n: int = 10) -> pd.DataFrame:
     """Synthetic INMET observation data sufficient for all smoke tests."""
     dates = pd.date_range("2023-01-01", periods=n, freq="h", tz="UTC")
     return pd.DataFrame({
-        "station_code": (["A701"] * (n // 2)) + (["A702"] * (n - n // 2)),
+        "wmo_code": (["A701"] * (n // 2)) + (["A702"] * (n - n // 2)),
         "station_name": ["SAO PAULO"] * n,
         "region": ["SUDESTE"] * n,
         "UF": ["SP"] * n,
@@ -98,7 +98,7 @@ class TestSuccessfulImport:
 
     def test_has_expected_columns(self, df_out):
         assert "tair_dry_bulb_c" in df_out.columns
-        assert "station_code" in df_out.columns
+        assert "wmo_code" in df_out.columns
 
     def test_sus_meta_attached(self, df_out):
         assert "sus_meta" in df_out.attrs
@@ -138,7 +138,7 @@ class TestStationCodeFilter:
         df = sus_climate_inmet(
             years=2023, station_code="A701", cache_dir=tmp_path, verbose=False
         )
-        assert (df["station_code"] == "A701").all()
+        assert (df["wmo_code"] == "A701").all()
         assert len(df) == 5  # half the rows
 
     def test_station_code_no_match_raises(self, tmp_path, monkeypatch):

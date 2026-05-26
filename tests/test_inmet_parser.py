@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import duckdb
 import pandas as pd
 
 from climasus4py.utils.inmet_parser import (
@@ -63,6 +64,12 @@ def _write_csv(tmp_path: Path, content: str, name: str = "test.csv") -> Path:
     return p
 
 
+def _parse_df(path: Path) -> pd.DataFrame:
+    rel = parse_inmet_csv(path)
+    assert isinstance(rel, duckdb.DuckDBPyRelation)
+    return rel.df()
+
+
 # ---------------------------------------------------------------------------
 # TestParseHeader — extração de metadados do cabeçalho
 # ---------------------------------------------------------------------------
@@ -104,37 +111,32 @@ class TestParseHeader:
 
     def test_region_extracted(self, tmp_path):
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         assert "region" in df.columns
         assert df["region"].iloc[0] == "SUL"
 
     def test_uf_extracted(self, tmp_path):
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         assert "UF" in df.columns
         assert df["UF"].iloc[0] == "PR"
 
     def test_station_name_extracted(self, tmp_path):
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         assert "station_name" in df.columns
         assert df["station_name"].iloc[0] == "CURITIBA"
 
-    def test_station_code_extracted(self, tmp_path):
+    def test_wmo_code_extracted(self, tmp_path):
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
-        assert "station_code" in df.columns
-        assert df["station_code"].iloc[0] == "A803"
+        df = _parse_df(path)
+        assert "wmo_code" in df.columns
+        assert df["wmo_code"].iloc[0] == "A803"
 
     def test_latitude_numeric(self, tmp_path):
         """Latitude com vírgula decimal deve ser convertida para float."""
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         assert "latitude" in df.columns
         lat = df["latitude"].iloc[0]
         assert isinstance(lat, float)
@@ -142,8 +144,7 @@ class TestParseHeader:
 
     def test_longitude_numeric(self, tmp_path):
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         assert "longitude" in df.columns
         lon = df["longitude"].iloc[0]
         assert isinstance(lon, float)
@@ -151,8 +152,7 @@ class TestParseHeader:
 
     def test_altitude_numeric(self, tmp_path):
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         assert "altitude" in df.columns
         alt = df["altitude"].iloc[0]
         assert isinstance(alt, float)
@@ -166,8 +166,7 @@ class TestParseHeader:
 class TestParseData:
     def test_header_detection_does_not_match_data_de_fundacao(self):
         path = FIXTURE_DIR / "inmet_2015_SC_A806_FLORIANOPOLIS_stub.CSV"
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         assert not any("FUNDA" in col.upper() for col in df.columns)
         assert "date" in df.columns
         ts = pd.Timestamp(df["date"].iloc[0])
@@ -175,84 +174,102 @@ class TestParseData:
         assert ts.month == 1
         assert ts.day == 1
 
-    def test_returns_dataframe(self, tmp_path):
+    def test_metadata_columns_present(self):
+        path = FIXTURE_DIR / "inmet_2015_SC_A806_FLORIANOPOLIS_stub.CSV"
+        df = _parse_df(path)
+        assert {
+            "region",
+            "UF",
+            "station_name",
+            "wmo_code",
+            "latitude",
+            "longitude",
+            "altitude",
+            "founded_date",
+        } <= set(df.columns)
+
+    def test_real_fixture_schema_has_no_exploded_columns(self):
+        path = FIXTURE_DIR / "inmet_2015_SC_A806_FLORIANOPOLIS_stub.CSV"
+        df = _parse_df(path)
+        assert len(df.columns) == 27
+        assert "DATA DE FUNDAÇÃO (YYYY-MM-DD)" not in df.columns
+        assert not any(col.startswith("DATA (") for col in df.columns)
+
+    def test_parse_returns_duckdb_relation(self, tmp_path):
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert isinstance(df, pd.DataFrame)
+        rel = parse_inmet_csv(path)
+        assert isinstance(rel, duckdb.DuckDBPyRelation)
 
     def test_correct_row_count(self, tmp_path):
         """CSV com 3 linhas de dados deve retornar 3 linhas."""
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         assert len(df) == 3
 
     def test_rainfall_column_present_and_mapped(self, tmp_path):
         """'Precipitacao Total, Horario (mm)' deve mapear para 'rainfall_mm'."""
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         assert "rainfall_mm" in df.columns
 
     def test_humidity_column_mapped(self, tmp_path):
         """'Umidade Relativa do Ar (%)' deve mapear para 'rh_mean_porc'."""
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         assert "rh_mean_porc" in df.columns
 
     def test_solar_radiation_column_mapped(self, tmp_path):
         """'Radiacao Global (kJ/m2)' deve mapear para 'sr_kj_m2'."""
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         assert "sr_kj_m2" in df.columns
+
+    def test_qc_solar_nighttime_zero(self, tmp_path):
+        """Nighttime solar radiation is forced to zero in SQL."""
+        path = _write_csv(tmp_path, _MINIMAL_CSV)
+        df = _parse_df(path)
+        assert df["date"].iloc[0].hour == 0
+        assert df["sr_kj_m2"].iloc[0] == 0.0
 
     def test_rainfall_first_row_value(self, tmp_path):
         """Primeira linha: precipitação 0,4 → 0.4 float."""
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         val = df["rainfall_mm"].iloc[0]
         assert abs(val - 0.4) < 1e-6
 
     def test_humidity_second_row_value(self, tmp_path):
         """Segunda linha: umidade 70 → 70.0 float."""
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         val = df["rh_mean_porc"].iloc[1]
         assert abs(val - 70.0) < 1e-6
 
     def test_sentinel_minus9999_rainfall_becomes_nan(self, tmp_path):
         """-9999 em precipitação deve ser NaN."""
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         val = df["rainfall_mm"].iloc[2]
         assert pd.isna(val), f"Esperado NaN, obtido {val!r}"
 
     def test_sentinel_minus9999_humidity_becomes_nan(self, tmp_path):
         """-9999 em umidade deve ser NaN."""
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         val = df["rh_mean_porc"].iloc[2]
         assert pd.isna(val)
 
     def test_sentinel_minus9999_radiation_becomes_nan(self, tmp_path):
         """-9999 em radiação deve ser NaN."""
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         val = df["sr_kj_m2"].iloc[2]
         assert pd.isna(val)
 
     def test_date_column_is_datetime(self, tmp_path):
         """Coluna 'date' deve ser datetime64 (UTC)."""
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         assert "date" in df.columns
         assert pd.api.types.is_datetime64_any_dtype(df["date"]), (
             f"Tipo esperado datetime64, obtido {df['date'].dtype}"
@@ -260,8 +277,7 @@ class TestParseData:
 
     def test_date_first_row_is_2023_01_01(self, tmp_path):
         path = _write_csv(tmp_path, _MINIMAL_CSV)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         ts = pd.Timestamp(df["date"].iloc[0])
         assert ts.year == 2023
         assert ts.month == 1
@@ -276,24 +292,21 @@ class TestDecimalComma:
     def test_temperature_decimal_comma_converted(self, tmp_path):
         """27,4 em temperatura deve virar 27.4 float."""
         path = _write_csv(tmp_path, _CSV_DECIMAL_COMMA)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         assert "tair_dry_bulb_c" in df.columns
         val = df["tair_dry_bulb_c"].iloc[0]
         assert abs(val - 27.4) < 1e-4
 
     def test_second_row_temperature(self, tmp_path):
         path = _write_csv(tmp_path, _CSV_DECIMAL_COMMA)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         val = df["tair_dry_bulb_c"].iloc[1]
         assert abs(val - 28.1) < 1e-4
 
     def test_coordinate_with_comma_in_second_csv(self, tmp_path):
         """Latitude -15,55 deve ser convertida para -15.55."""
         path = _write_csv(tmp_path, _CSV_DECIMAL_COMMA)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         lat = df["latitude"].iloc[0]
         assert abs(lat - (-15.55)) < 1e-4
 
@@ -309,7 +322,7 @@ class TestEdgeCases:
         result = parse_inmet_csv(path)
         # Parser pode retornar None ou df sem colunas canônicas
         canonical = {"rainfall_mm", "rh_mean_porc", "sr_kj_m2", "tair_dry_bulb_c", "ws_2_m_s"}
-        if result is not None and isinstance(result, pd.DataFrame):
+        if result is not None:
             overlap = canonical & set(result.columns)
             assert not overlap, f"Colunas canônicas não esperadas: {overlap}"
 
@@ -327,14 +340,16 @@ class TestEdgeCases:
         path.write_text(content, encoding="latin-1")
         result = parse_inmet_csv(path)
         # Não deve levantar; pode retornar df ou None dependendo do conteúdo
-        assert result is None or isinstance(result, pd.DataFrame)
+        assert result is None or isinstance(result, duckdb.DuckDBPyRelation)
 
     def test_empty_file_returns_none_or_empty(self, tmp_path):
         """Arquivo vazio → None ou DataFrame vazio."""
         path = tmp_path / "empty.csv"
         path.write_text("", encoding="latin-1")
         result = parse_inmet_csv(path)
-        assert result is None or (isinstance(result, pd.DataFrame) and result.empty)
+        assert result is None or (
+            isinstance(result, duckdb.DuckDBPyRelation) and result.df().empty
+        )
 
     def test_header_only_no_data_returns_empty_or_none(self, tmp_path):
         """CSV com cabeçalho mas sem linhas de dados."""
@@ -346,7 +361,9 @@ class TestEdgeCases:
         path = _write_csv(tmp_path, content)
         result = parse_inmet_csv(path)
         # Parser pode retornar df vazio ou None — ambos são aceitáveis
-        assert result is None or (isinstance(result, pd.DataFrame) and len(result) == 0)
+        assert result is None or (
+            isinstance(result, duckdb.DuckDBPyRelation) and len(result.df()) == 0
+        )
 
     def test_physical_qc_removes_out_of_range_humidity(self, tmp_path):
         """Umidade fora do range físico (0–100%) → NaN após QC."""
@@ -357,8 +374,7 @@ class TestEdgeCases:
             "2023-01-01;0000;150\n"  # 150% está fora do range [0, 100]
         )
         path = _write_csv(tmp_path, content)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         assert "rh_mean_porc" in df.columns
         assert pd.isna(df["rh_mean_porc"].iloc[0])
 
@@ -371,8 +387,7 @@ class TestEdgeCases:
             "2023-01-01;0000;75\n"
         )
         path = _write_csv(tmp_path, content)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         assert "rh_mean_porc" in df.columns
         val = df["rh_mean_porc"].iloc[0]
         assert not pd.isna(val)
@@ -420,8 +435,7 @@ class TestDewPointQC:
             "2023-06-01;1200;25;50;40\n"
         )
         path = _write_csv(tmp_path, content)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         assert "dew_tmean_c" in df.columns
         assert pd.isna(df["dew_tmean_c"].iloc[0])
 
@@ -438,7 +452,6 @@ class TestDewPointQC:
             "2023-06-01;1200;25;50;14\n"
         )
         path = _write_csv(tmp_path, content)
-        df = parse_inmet_csv(path)
-        assert df is not None
+        df = _parse_df(path)
         assert "dew_tmean_c" in df.columns
         assert not pd.isna(df["dew_tmean_c"].iloc[0])
