@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from climasus4py.utils.inmet_parser import (
+    _build_select_clause,
     _detect_data_header_line,
     _read_inmet_metadata,
     parse_inmet_csv,
@@ -86,6 +87,20 @@ class TestParseHeader:
             "altitude": "1,8",
             "founded_date": "2003-01-22",
         }
+
+    def test_build_select_clause_contains_canonical_schema(self):
+        path = FIXTURE_DIR / "inmet_2015_SC_A806_FLORIANOPOLIS_stub.CSV"
+        _, raw_columns = _detect_data_header_line(path)
+        metadata = _read_inmet_metadata(path)
+        clause = _build_select_clause(raw_columns, metadata)
+
+        assert 'AS "date"' in clause
+        assert 'AS "year"' in clause
+        assert "'FLORIANOPOLIS' AS \"station_name\"" in clause
+        assert "'A806' AS \"wmo_code\"" in clause
+        assert '"PRECIPITAÇÃO TOTAL, HORÁRIO (mm)"' in clause
+        assert 'AS "rainfall_mm"' in clause
+        assert 'AS "station_code"' not in clause
 
     def test_region_extracted(self, tmp_path):
         path = _write_csv(tmp_path, _MINIMAL_CSV)

@@ -29,6 +29,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from ..core._sql import quote_ident, sql_string
+
 # ---------------------------------------------------------------------------
 # Canonical column mapping — raw INMET names → ClimaSUS names
 # Keys are lowercased + stripped for fuzzy matching.
@@ -41,6 +43,7 @@ _COL_MAP: dict[str, str] = {
     "precipitacao total (mm)":                "rainfall_mm",
     # atmospheric pressure
     "pressao atmosferica ao nivel da estacao, horaria  mb": "patm_mb",
+    "pressao atmosferica ao nivel da estacao, horaria (mb)": "patm_mb",
     "pressao atmosferica ao nivel da estacao (mb)":         "patm_mb",
     "pressao atmosferica max.na hora ant. (aut) (mb)":      "patm_max_mb",
     "pressao atmosferica min. na hora ant. (aut) (mb)":     "patm_min_mb",
@@ -50,6 +53,7 @@ _COL_MAP: dict[str, str] = {
     "radiacao global (kj/m2)":               "sr_kj_m2",
     # temperature
     "temperatura do ar - bulbo seco, horaria  °c": "tair_dry_bulb_c",
+    "temperatura do ar - bulbo seco, horaria (°c)": "tair_dry_bulb_c",
     "temperatura do ar - bulbo seco (°c)":          "tair_dry_bulb_c",
     "temperatura maxima na hora ant. (aut) (°c)":   "tair_max_c",
     "temperatura minima na hora ant. (aut) (°c)":   "tair_min_c",
@@ -58,8 +62,11 @@ _COL_MAP: dict[str, str] = {
     "temperatura do ponto de orvalho (°c)":         "dew_tmean_c",
     "temperatura max. do ponto de orvalho (aut) (°c)": "dew_tmax_c",
     "temperatura min. do ponto de orvalho (aut) (°c)": "dew_tmin_c",
+    "temperatura orvalho max. na hora ant. (aut) (°c)": "dew_tmax_c",
+    "temperatura orvalho min. na hora ant. (aut) (°c)": "dew_tmin_c",
     # relative humidity
     "umidade relativa do ar, horaria  %":     "rh_mean_porc",
+    "umidade relativa do ar, horaria (%)":    "rh_mean_porc",
     "umidade relativa do ar (%)":             "rh_mean_porc",
     "umidade rel. max. na hora ant. (aut) (%)": "rh_max_porc",
     "umidade rel. min. na hora ant. (aut) (%)": "rh_min_porc",
@@ -70,7 +77,46 @@ _COL_MAP: dict[str, str] = {
     "vento, rajada maxima (m/s)":             "ws_gust_m_s",
     "vento, direcao horaria  gr":             "wd_degrees",
     "vento, direcao horaria (gr)":            "wd_degrees",
+    "vento, direcao horaria (gr) (° (gr))":   "wd_degrees",
 }
+
+_MEASUREMENT_COLUMNS: tuple[str, ...] = (
+    "rainfall_mm",
+    "patm_mb",
+    "patm_max_mb",
+    "patm_min_mb",
+    "sr_kj_m2",
+    "tair_dry_bulb_c",
+    "tair_max_c",
+    "tair_min_c",
+    "dew_tmean_c",
+    "dew_tmax_c",
+    "dew_tmin_c",
+    "rh_mean_porc",
+    "rh_max_porc",
+    "rh_min_porc",
+    "ws_2_m_s",
+    "ws_gust_m_s",
+    "wd_degrees",
+)
+
+_METADATA_COLUMNS: tuple[str, ...] = (
+    "region",
+    "UF",
+    "station_name",
+    "wmo_code",
+    "latitude",
+    "longitude",
+    "altitude",
+    "founded_date",
+)
+
+_OUTPUT_COLUMNS: tuple[str, ...] = (
+    "date",
+    "year",
+    *_METADATA_COLUMNS,
+    *_MEASUREMENT_COLUMNS,
+)
 
 # Physical range limits: (min, max)
 _PHYSICAL_LIMITS: dict[str, tuple[float, float]] = {
@@ -288,6 +334,113 @@ def _detect_data_header_line(path: str | Path) -> tuple[int, list[str]]:
                 return i, raw_columns
 
     raise ValueError(f"INMET CSV malformed: no HORA header in {path}")
+
+
+def _build_select_clause(raw_columns: list[str], metadata: dict[str, str]) -> str:
+    """Build the canonical DuckDB SELECT list for one INMET CSV."""
+    raw_by_canonical = _canonical_raw_columns(raw_columns)
+    date_expr = _date_time_sql(raw_columns)
+
+    parts = [
+        f"{date_expr} AS {quote_ident('date')}",
+        f"CAST(EXTRACT(YEAR FROM {date_expr}) AS INTEGER) AS {quote_ident('year')}",
+        f"{_nullable_text_sql(metadata.get('region'))} AS {quote_ident('region')}",
+        f"{_nullable_text_sql(metadata.get('UF'))} AS {quote_ident('UF')}",
+        f"{_nullable_text_sql(metadata.get('station_name'))} AS {quote_ident('station_name')}",
+        f"{_nullable_text_sql(metadata.get('wmo_code'))} AS {quote_ident('wmo_code')}",
+        f"{_nullable_double_sql(metadata.get('latitude'))} AS {quote_ident('latitude')}",
+        f"{_nullable_double_sql(metadata.get('longitude'))} AS {quote_ident('longitude')}",
+        f"{_nullable_double_sql(metadata.get('altitude'))} AS {quote_ident('altitude')}",
+        f"{_nullable_date_sql(metadata.get('founded_date'))} AS {quote_ident('founded_date')}",
+    ]
+
+    for canonical in _MEASUREMENT_COLUMNS:
+        raw = raw_by_canonical.get(canonical)
+        if raw is None:
+            parts.append(f"CAST(NULL AS DOUBLE) AS {quote_ident(canonical)}")
+            continue
+
+        value_expr = _numeric_column_sql(raw)
+        lo, hi = _PHYSICAL_LIMITS[canonical]
+        parts.append(
+            f"CASE WHEN {value_expr} BETWEEN {lo} AND {hi} "
+            f"THEN {value_expr} ELSE NULL END AS {quote_ident(canonical)}"
+        )
+
+    return ", ".join(parts)
+
+
+def _canonical_raw_columns(raw_columns: list[str]) -> dict[str, str]:
+    mapped: dict[str, str] = {}
+    for raw in raw_columns:
+        canonical = _COL_MAP.get(_normalise_key(raw))
+        if canonical and canonical not in mapped:
+            mapped[canonical] = raw
+    return mapped
+
+
+def _date_time_sql(raw_columns: list[str]) -> str:
+    date_col = next(
+        (
+            col
+            for col in raw_columns
+            if _normalise_key(col) in {"data", "data (yyyy-mm-dd)", "data medicao"}
+        ),
+        None,
+    )
+    hour_col = next(
+        (col for col in raw_columns if _normalise_key(col).startswith("hora")),
+        None,
+    )
+    if date_col is None or hour_col is None:
+        raise ValueError("INMET CSV malformed: data header lacks DATA/HORA columns")
+
+    date_sql = (
+        f"TRY_CAST(REPLACE(TRIM({quote_ident(date_col)}), '/', '-') AS DATE)"
+    )
+    utc_suffix_pattern = sql_string(r"\s*UTC$")
+    hour_clean = (
+        f"REGEXP_REPLACE(UPPER(TRIM({quote_ident(hour_col)})), "
+        f"{utc_suffix_pattern}, '')"
+    )
+    hour_part = (
+        f"CASE WHEN STRPOS({hour_clean}, ':') > 0 "
+        f"THEN SPLIT_PART({hour_clean}, ':', 1) "
+        f"ELSE SUBSTR({hour_clean}, 1, 2) END"
+    )
+    time_sql = f"TRY_CAST(LPAD({hour_part}, 2, '0') || ':00:00' AS TIME)"
+    return f"({date_sql} + {time_sql})"
+
+
+def _numeric_column_sql(raw_column: str) -> str:
+    quoted = quote_ident(raw_column)
+    return f"TRY_CAST(NULLIF(REPLACE(TRIM({quoted}), ',', '.'), '') AS DOUBLE)"
+
+
+def _nullable_text_sql(value: str | None) -> str:
+    if value is None or value.strip() == "":
+        return "CAST(NULL AS VARCHAR)"
+    return sql_string(value)
+
+
+def _nullable_double_sql(value: str | None) -> str:
+    if value is None or value.strip() == "":
+        return "CAST(NULL AS DOUBLE)"
+    return f"TRY_CAST(REPLACE({sql_string(value)}, ',', '.') AS DOUBLE)"
+
+
+def _nullable_date_sql(value: str | None) -> str:
+    if value is None or value.strip() == "":
+        return "CAST(NULL AS DATE)"
+    literal = sql_string(value)
+    ddmmyy_pattern = sql_string(r"^\d{2}/\d{2}/\d{2}$")
+    return (
+        "CASE "
+        f"WHEN REGEXP_MATCHES({literal}, {ddmmyy_pattern}) "
+        f"THEN CAST(STRPTIME({literal}, '%d/%m/%y') AS DATE) "
+        f"ELSE TRY_CAST({literal} AS DATE) "
+        "END"
+    )
 
 
 def _is_data_header_line(line: str) -> bool:
