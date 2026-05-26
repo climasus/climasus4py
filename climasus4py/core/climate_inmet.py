@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import uuid
 import warnings
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -29,11 +30,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
+import duckdb
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 from rich.console import Console
 
+from ._sql import quote_ident, register_relation, sql_string
+from .engine import get_connection
 from ..utils.inmet_parser import parse_inmet_csv  # internal CSV parser
 
 console = Console(stderr=True)
@@ -99,8 +101,9 @@ def sus_climate_inmet(
 ) -> pd.DataFrame:
     """Import and process INMET meteorological data.
 
-    Downloads, imports, standardizes, and quality-controls Brazilian
-    meteorological data from the National Institute of Meteorology (INMET).
+    Downloads Brazilian meteorological data from INMET, parses hourly CSVs
+    through DuckDB SQL, writes Parquet/Zstd cache via DuckDB COPY, and returns
+    the final result as a pandas DataFrame for API compatibility.
 
     Parameters
     ----------
@@ -112,7 +115,7 @@ def sus_climate_inmet(
         If None (default), imports all 27 states.
     station_code:
         INMET station codes to filter (e.g. ["A101", "A122"]). Optional.
-        Matched case-insensitively against the station_code column.
+        Matched case-insensitively against the canonical ``wmo_code`` column.
     use_cache:
         If True (default), enables two-level caching:
         session cache (MD5 hash) + Parquet/Zstd on disk.
@@ -143,8 +146,8 @@ def sus_climate_inmet(
 
     Standardized Columns
     --------------------
-    station_code, station_name, region, UF, latitude, longitude, altitude,
-    date (UTC), year, rainfall_mm, patm_mb, patm_max_mb, patm_min_mb,
+    date, year, region, UF, station_name, wmo_code, latitude, longitude,
+    altitude, founded_date, rainfall_mm, patm_mb, patm_max_mb, patm_min_mb,
     sr_kj_m2, tair_dry_bulb_c, tair_max_c, tair_min_c, dew_tmean_c,
     dew_tmax_c, dew_tmin_c, rh_mean_porc, rh_max_porc, rh_min_porc,
     ws_2_m_s, ws_gust_m_s, wd_degrees
@@ -235,7 +238,7 @@ def sus_climate_inmet(
             f"[cyan]ℹ[/]  {msg['import_start'].format(n_years=len(years_list))}"
         )
 
-    climate_data = _download_inmet(
+    climate_result = _download_inmet(
         years=years_list,
         uf=uf_list,
         cache_dir=cache_path,
@@ -247,24 +250,59 @@ def sus_climate_inmet(
 
     # --- filter by station_code ----------------------------------------------
     if sc_list is not None:
-        if "station_code" not in climate_data.columns:
+        if verbose:
+            console.print(
+                f"[cyan]INFO[/]  {msg['filter_code'].format(n=len(sc_list))}"
+            )
+        if isinstance(climate_result, duckdb.DuckDBPyRelation):
+            if "wmo_code" not in climate_result.columns:
+                raise ValueError(
+                    "Cannot filter by 'station_code': column 'wmo_code' not found "
+                    "in the downloaded data."
+                )
+            codes_sql = ", ".join(sql_string(code) for code in sc_list)
+            climate_result = climate_result.filter(
+                f"{quote_ident('wmo_code')} IN ({codes_sql})"
+            )
+
+    climate_data = (
+        climate_result.df()
+        if isinstance(climate_result, duckdb.DuckDBPyRelation)
+        else climate_result
+    )
+
+    if sc_list is not None and not isinstance(climate_result, duckdb.DuckDBPyRelation):
+        code_col = (
+            "wmo_code"
+            if "wmo_code" in climate_data.columns
+            else "station_code"
+            if "station_code" in climate_data.columns
+            else None
+        )
+        if code_col is None:
             raise ValueError(
                 "Cannot filter by 'station_code': column not found in the downloaded data."
             )
-        if verbose:
-            console.print(
-                f"[cyan]ℹ[/]  {msg['filter_code'].format(n=len(sc_list))}"
-            )
         climate_data = climate_data[
-            climate_data["station_code"].str.upper().isin(sc_list)
+            climate_data[code_col].str.upper().isin(sc_list)
         ]
-        if climate_data.empty:
-            raise ValueError(msg["no_rows_code"].format(codes=", ".join(sc_list)))
+
+    if sc_list is not None and climate_data.empty:
+        raise ValueError(msg["no_rows_code"].format(codes=", ".join(sc_list)))
 
     # --- metadata ------------------------------------------------------------
-    n_stations: int | None = (
-        climate_data["station_code"].nunique()
+    station_id_col = (
+        "wmo_code"
+        if "wmo_code" in climate_data.columns
+        else "station_code"
         if "station_code" in climate_data.columns
+        else "station_name"
+        if "station_name" in climate_data.columns
+        else None
+    )
+    n_stations: int | None = (
+        climate_data[station_id_col].nunique()
+        if station_id_col is not None
         else None
     )
     temporal: dict = {}
@@ -506,17 +544,14 @@ def _read_year_cache_filtered(
     year_cache_path: Path,
     *,
     uf: list[str] | None,
-) -> pd.DataFrame:
-    """Read a year's Parquet cache, filtering by UF via DuckDB push-down.
+) -> duckdb.DuckDBPyRelation:
+    """Read a year's Parquet cache relation with optional UF push-down.
 
     Previously this used ``pq.read_table(...).to_pandas()`` which loaded
     the full national dataset (~5-10 GB) into RAM before the UF filter
     was applied — frequent cause of OOM. DuckDB applies the predicate
     while reading so only the requested UFs reach memory.
     """
-    from ._sql import sql_string
-    from .engine import get_connection
-
     # Glob both ``year=YYYY/data.parquet`` (current writer) and any nested
     # parquet files DuckDB chooses to expose under the directory.
     glob_path = sql_string(
@@ -531,7 +566,70 @@ def _read_year_cache_filtered(
         )
     else:
         sql = f"SELECT * FROM read_parquet({glob_path}, union_by_name=true)"
-    return conn.sql(sql).df()
+    return conn.sql(sql)
+
+
+def _relation_is_empty(rel: duckdb.DuckDBPyRelation) -> bool:
+    """Return True if a relation has no rows without materialising it."""
+    return rel.limit(1).fetchone() is None
+
+
+def _relation_count(rel: duckdb.DuckDBPyRelation) -> int:
+    """Count rows in a relation for verbose progress output."""
+    conn = get_connection()
+    if hasattr(rel, "sql_query"):
+        row = conn.sql(f"SELECT COUNT(*) FROM ({rel.sql_query()})").fetchone()
+        return int(row[0]) if row is not None else 0
+
+    view_name = f"_inmet_count_{uuid.uuid4().hex}"
+    register_relation(conn, rel, view_name)
+    try:
+        row = conn.sql(
+            f"SELECT COUNT(*) FROM {quote_ident(view_name)}"
+        ).fetchone()
+        return int(row[0]) if row is not None else 0
+    finally:
+        conn.unregister(view_name)
+
+
+def _copy_relation_to_parquet(
+    rel: duckdb.DuckDBPyRelation,
+    dest: Path,
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """Write a DuckDB relation to Parquet using COPY."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest_sql = sql_string(str(dest).replace("\\", "/"))
+
+    if hasattr(rel, "sql_query"):
+        conn.execute(
+            f"COPY ({rel.sql_query()}) TO {dest_sql} "
+            "(FORMAT PARQUET, COMPRESSION zstd, COMPRESSION_LEVEL 6)"
+        )
+        return
+
+    view_name = f"_inmet_copy_{uuid.uuid4().hex}"
+    register_relation(conn, rel, view_name)
+    try:
+        conn.execute(
+            f"COPY (SELECT * FROM {quote_ident(view_name)}) TO {dest_sql} "
+            "(FORMAT PARQUET, COMPRESSION zstd, COMPRESSION_LEVEL 6)"
+        )
+    finally:
+        conn.unregister(view_name)
+
+
+def _materialize_relation_temp(
+    rel: duckdb.DuckDBPyRelation,
+    conn: duckdb.DuckDBPyConnection,
+) -> duckdb.DuckDBPyRelation:
+    """Materialise a relation into a UUID-named DuckDB temp table."""
+    table_name = f"_inmet_year_{uuid.uuid4().hex}"
+    conn.execute(
+        f"CREATE TEMP TABLE {quote_ident(table_name)} AS "
+        f"SELECT * FROM ({rel.sql_query()})"
+    )
+    return conn.sql(f"SELECT * FROM {quote_ident(table_name)}")
 
 
 # ---------------------------------------------------------------------------
@@ -546,33 +644,16 @@ def _process_year(
     parallel: bool,
     workers: int,
     verbose: bool,
-) -> pd.DataFrame:
-    """Download, unzip, parse and cache INMET data for a single year.
-
-    Cache layout
-    ------------
-    The cache is partitioned per UF (Hive-style) so that requesting a
-    single state never has to parse the national CSV set. Files are
-    written to::
-
-        <cache_dir>/inmet_parquet/year=<YYYY>/UF=<XX>/data.parquet
-
-    When ``uf=None`` the legacy single-file layout
-    (``year=<YYYY>/data.parquet``) is used instead. The reader
-    (:func:`_read_year_cache_filtered`) globs both layouts transparently
-    and lets DuckDB push the UF filter into the parquet scan.
-    """
+) -> duckdb.DuckDBPyRelation | None:
+    """Download, unzip, parse and cache INMET data for a single year."""
     import re
 
     dataset_dir = cache_dir / "inmet_parquet"
     zip_file = cache_dir / f"inmet_{year}.zip"
     year_cache_path = dataset_dir / f"year={year}"
+    conn = get_connection()
 
     # 1. Parquet disk cache ---------------------------------------------------
-    # Cache hit when the year directory exists AND it covers the UFs requested.
-    # The reader pushes the UF predicate into the parquet scan, so loading
-    # only the requested UFs is cheap even when the cache holds the national
-    # dataset (legacy layout) or many UF sub-partitions.
     cache_hit = (
         use_cache
         and year_cache_path.exists()
@@ -581,17 +662,17 @@ def _process_year(
     if cache_hit:
         try:
             cached = _read_year_cache_filtered(year_cache_path, uf=uf)
-            if not cached.empty:
+            if not _relation_is_empty(cached):
                 if verbose:
                     console.print(
-                        f"[cyan]ℹ[/]  Year {year}: Loading from Parquet cache"
+                        f"[cyan]INFO[/]  Year {year}: Loading from Parquet cache"
                         + (f" (UF filter: {', '.join(uf)})" if uf else "")
                     )
                 return cached
         except Exception as e:
             if verbose:
                 console.print(
-                    f"[yellow]⚠[/]  Year {year}: Cache read failed ({e}). Re-downloading."
+                    f"[yellow]WARN[/]  Year {year}: Cache read failed ({e}). Re-downloading."
                 )
             shutil.rmtree(year_cache_path, ignore_errors=True)
 
@@ -600,29 +681,29 @@ def _process_year(
         zip_file.unlink()
         if verbose:
             console.print(
-                f"[yellow]⚠[/]  Year {year}: Removed empty ZIP from previous attempt."
+                f"[yellow]WARN[/]  Year {year}: Removed empty ZIP from previous attempt."
             )
 
     if not zip_file.exists():
         url = _INMET_BASE_URL.format(year=year)
         if verbose:
-            console.print(f"[cyan]ℹ[/]  Year {year}: Downloading from {url}")
+            console.print(f"[cyan]INFO[/]  Year {year}: Downloading from {url}")
         ok, reason = _download_robust(url, zip_file, max_retries=3, verbose=verbose)
         if not ok:
             if reason and "HTTP 40" in reason:
                 console.print(
-                    f"[yellow]⚠[/]  Year {year}: {reason}. "
+                    f"[yellow]WARN[/]  Year {year}: {reason}. "
                     "Check https://portal.inmet.gov.br/dadoshistoricos"
                 )
             else:
                 console.print(
-                    f"[yellow]⚠[/]  Year {year}: Download failed ({reason}). Skipping."
+                    f"[yellow]WARN[/]  Year {year}: Download failed ({reason}). Skipping."
                 )
             zip_file.unlink(missing_ok=True)
-            return pd.DataFrame()
+            return None
     else:
         if verbose:
-            console.print(f"[cyan]ℹ[/]  Year {year}: Using cached ZIP")
+            console.print(f"[cyan]INFO[/]  Year {year}: Using cached ZIP")
 
     # 3. Unzip ----------------------------------------------------------------
     with tempfile.TemporaryDirectory(prefix=f"inmet_{year}_") as tmpdir:
@@ -633,25 +714,21 @@ def _process_year(
                 zf.extractall(tmp_path)
         except Exception as e:
             console.print(
-                f"[yellow]⚠[/]  Year {year}: Failed to unzip ({e}). Removing corrupt ZIP."
+                f"[yellow]WARN[/]  Year {year}: Failed to unzip ({e}). Removing corrupt ZIP."
             )
             zip_file.unlink(missing_ok=True)
-            return pd.DataFrame()
+            return None
 
         csv_files = sorted(tmp_path.rglob("*.[Cc][Ss][Vv]"))
         if not csv_files:
             console.print(
-                f"[yellow]⚠[/]  Year {year}: No CSV files found inside ZIP."
+                f"[yellow]WARN[/]  Year {year}: No CSV files found inside ZIP."
             )
-            return pd.DataFrame()
+            return None
 
         files_all = csv_files
 
         # 4. Filename-based UF pre-filter ------------------------------------
-        # When the user supplied ``uf``, we parse **only** the CSVs for those
-        # states — never the whole national set. This is the key fix for the
-        # OOM observed when ``uf="SP"`` was previously triggering a parse of
-        # all ~600 national stations before the UF filter was applied.
         if uf:
             pattern = "|".join(uf)
             files_for_uf = [
@@ -661,10 +738,10 @@ def _process_year(
             if not files_for_uf:
                 if verbose:
                     console.print(
-                        f"[yellow]⚠[/]  Year {year}: No CSV matched "
+                        f"[yellow]WARN[/]  Year {year}: No CSV matched "
                         f"UF filter ({', '.join(uf)})."
                     )
-                return pd.DataFrame()
+                return None
             files_to_parse = files_for_uf
         else:
             files_to_parse = files_all
@@ -672,74 +749,78 @@ def _process_year(
         # 5. Parse CSV files -------------------------------------------------
         if parallel and len(files_to_parse) > 1:
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                frames = list(pool.map(parse_inmet_csv, files_to_parse))
+                rels = list(pool.map(parse_inmet_csv, files_to_parse))
         else:
-            frames = [parse_inmet_csv(f) for f in files_to_parse]
+            rels = [parse_inmet_csv(f) for f in files_to_parse]
 
-        frames = [f for f in frames if f is not None and not f.empty]
-        if not frames:
+        parsed = [rel for rel in rels if rel is not None]
+        if not parsed:
             if verbose:
                 console.print(
-                    f"[yellow]⚠[/]  Year {year}: Parsing produced 0 rows."
+                    f"[yellow]WARN[/]  Year {year}: Parsing produced 0 rows."
                 )
-            return pd.DataFrame()
+            return None
 
-        year_data = pd.concat(frames, ignore_index=True)
-        year_data["year"] = year
+        unioned = parsed[0]
+        for rel in parsed[1:]:
+            unioned = unioned.union(rel)
+
+        if uf:
+            uf_vals = ", ".join(sql_string(u) for u in uf)
+            unioned = unioned.filter(f"{quote_ident('UF')} IN ({uf_vals})")
+
+        if _relation_is_empty(unioned):
+            if verbose:
+                console.print(
+                    f"[yellow]WARN[/]  Year {year}: Parsing produced 0 rows."
+                )
+            return None
 
         # 6. Write Parquet cache ---------------------------------------------
-        # Hive partition per UF when ``uf`` is supplied — each subsequent call
-        # for a different UF will fetch only the new sub-partition, never
-        # touching the existing ones. When ``uf=None``, fall back to the
-        # legacy single-file layout (``year=<YYYY>/data.parquet``).
+        cache_written = False
         if use_cache:
             try:
                 year_cache_path.mkdir(parents=True, exist_ok=True)
-                if uf and "UF" in year_data.columns:
+                if uf:
+                    cached_ufs: list[str] = []
                     for u in uf:
-                        u_subset = year_data[year_data["UF"] == u]
-                        if u_subset.empty:
+                        subset = unioned.filter(f"{quote_ident('UF')} = {sql_string(u)}")
+                        if _relation_is_empty(subset):
                             continue
-                        uf_dir = year_cache_path / f"UF={u}"
-                        uf_dir.mkdir(parents=True, exist_ok=True)
-                        pq.write_table(
-                            pa.Table.from_pandas(u_subset),
-                            str(uf_dir / "data.parquet"),
-                            compression="zstd",
-                            compression_level=6,
+                        _copy_relation_to_parquet(
+                            subset,
+                            year_cache_path / f"UF={u}" / "data.parquet",
+                            conn,
                         )
-                    if verbose:
+                        cached_ufs.append(u)
+                    if verbose and cached_ufs:
                         console.print(
-                            f"[green]✔[/]  Year {year}: Cached UF partitions "
-                            f"({', '.join(uf)})."
+                            f"[green]OK[/]  Year {year}: Cached UF partitions "
+                            f"({', '.join(cached_ufs)})."
                         )
+                    cache_written = bool(cached_ufs)
                 else:
-                    # National dataset (uf=None): legacy single-file layout
-                    pq.write_table(
-                        pa.Table.from_pandas(year_data),
-                        str(year_cache_path / "data.parquet"),
-                        compression="zstd",
-                        compression_level=6,
+                    _copy_relation_to_parquet(
+                        unioned,
+                        year_cache_path / "data.parquet",
+                        conn,
                     )
                     if verbose:
                         console.print(
-                            f"[green]✔[/]  Year {year}: Full national "
+                            f"[green]OK[/]  Year {year}: Full national "
                             "dataset cached."
                         )
+                    cache_written = True
             except Exception as e:
                 if verbose:
                     console.print(
-                        f"[yellow]⚠[/]  Year {year}: Failed to write cache ({e})."
+                        f"[yellow]WARN[/]  Year {year}: Failed to write cache ({e})."
                     )
 
-        # 7. Post-cache UF column filter --------------------------------------
-        # Belt-and-suspenders: the filename pre-filter above is usually
-        # sufficient, but stations whose filenames omit the UF token still
-        # appear in the parsed DataFrame and must be dropped here.
-        if uf and "UF" in year_data.columns:
-            year_data = year_data[year_data["UF"].isin(uf)]
+        if use_cache and cache_written:
+            return _read_year_cache_filtered(year_cache_path, uf=uf)
 
-    return year_data.reset_index(drop=True)
+        return _materialize_relation_temp(unioned, conn)
 
 
 # ---------------------------------------------------------------------------
@@ -754,21 +835,21 @@ def _download_inmet(
     parallel: bool,
     workers: int,
     verbose: bool,
-) -> pd.DataFrame:
+) -> duckdb.DuckDBPyRelation:
     """Download and cache INMET data for one or more years."""
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     if verbose:
         console.rule("[bold]INMET Data Download[/]")
-        console.print(f"[cyan]ℹ[/]  Years: {', '.join(str(y) for y in years)}")
+        console.print(f"[cyan]INFO[/]  Years: {', '.join(str(y) for y in years)}")
         if uf:
-            console.print(f"[cyan]ℹ[/]  States: {', '.join(uf)}")
+            console.print(f"[cyan]INFO[/]  States: {', '.join(uf)}")
         console.print(
-            f"[cyan]ℹ[/]  Cache: {'ENABLED' if use_cache else 'DISABLED'}"
+            f"[cyan]INFO[/]  Cache: {'ENABLED' if use_cache else 'DISABLED'}"
         )
-        console.print(f"[cyan]ℹ[/]  Cache dir: {cache_dir}")
+        console.print(f"[cyan]INFO[/]  Cache dir: {cache_dir}")
 
-    def _process(year: int) -> pd.DataFrame:
+    def _process(year: int) -> duckdb.DuckDBPyRelation | None:
         return _process_year(
             year=year,
             uf=uf,
@@ -781,10 +862,6 @@ def _download_inmet(
             verbose=verbose,
         )
 
-    # Between-year parallelism uses threads (I/O bound).
-    # NOTE: ``parallel=False`` is the default since 2026-05-24 because each
-    # year of national INMET data expands to ~5-10 GB in pandas; running
-    # multiple years simultaneously triggered OOM crashes in real usage.
     if parallel and len(years) > 1:
         with ThreadPoolExecutor(max_workers=min(workers, len(years))) as pool:
             results = list(pool.map(_process, years))
@@ -792,15 +869,11 @@ def _download_inmet(
         results = []
         for y in years:
             results.append(_process(y))
-            # Free any temporary pandas/pyarrow allocations from the
-            # previous year before parsing the next one. Without this,
-            # holding three or four full-year DataFrames alive
-            # simultaneously was observed to OOM Colab kernels.
             gc.collect()
 
-    results = [r for r in results if r is not None and not r.empty]
+    relations = [r for r in results if r is not None and not _relation_is_empty(r)]
 
-    if not results:
+    if not relations:
         raise ValueError(
             f"No data could be downloaded for year(s): {', '.join(str(y) for y in years)}.\n"
             "Check that the year(s) are published at "
@@ -808,12 +881,14 @@ def _download_inmet(
             "Run with verbose=True for per-year failure details."
         )
 
-    combined = pd.concat(results, ignore_index=True)
+    combined = relations[0]
+    for rel in relations[1:]:
+        combined = combined.union(rel)
 
     if "date" in combined.columns:
-        combined = combined.sort_values("date").reset_index(drop=True)
+        combined = combined.order("date")
 
     if verbose:
-        console.print(f"[green]✔[/]  Loaded {len(combined):,} total rows.")
+        console.print(f"[green]OK[/]  Loaded {_relation_count(combined):,} total rows.")
 
     return combined
