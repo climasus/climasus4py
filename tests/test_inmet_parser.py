@@ -9,7 +9,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from climasus4py.utils.inmet_parser import parse_inmet_csv
+from climasus4py.utils.inmet_parser import (
+    _detect_data_header_line,
+    _read_inmet_metadata,
+    parse_inmet_csv,
+)
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "inmet"
 
@@ -63,6 +67,26 @@ def _write_csv(tmp_path: Path, content: str, name: str = "test.csv") -> Path:
 # ---------------------------------------------------------------------------
 
 class TestParseHeader:
+    def test_detect_data_header_line_ignores_founded_date_metadata(self):
+        path = FIXTURE_DIR / "inmet_2015_SC_A806_FLORIANOPOLIS_stub.CSV"
+        line_no, raw_columns = _detect_data_header_line(path)
+        assert line_no == 8
+        assert raw_columns[:2] == ["DATA (YYYY-MM-DD)", "HORA (UTC)"]
+
+    def test_read_inmet_metadata_real_fixture(self):
+        path = FIXTURE_DIR / "inmet_2015_SC_A806_FLORIANOPOLIS_stub.CSV"
+        metadata = _read_inmet_metadata(path)
+        assert metadata == {
+            "region": "S",
+            "UF": "SC",
+            "station_name": "FLORIANOPOLIS",
+            "wmo_code": "A806",
+            "latitude": "-27,6025",
+            "longitude": "-48,61999999",
+            "altitude": "1,8",
+            "founded_date": "2003-01-22",
+        }
+
     def test_region_extracted(self, tmp_path):
         path = _write_csv(tmp_path, _MINIMAL_CSV)
         df = parse_inmet_csv(path)

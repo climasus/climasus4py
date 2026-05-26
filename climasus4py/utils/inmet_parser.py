@@ -22,6 +22,7 @@ ws_2_m_s, ws_gust_m_s, wd_degrees
 from __future__ import annotations
 
 import re
+import unicodedata
 import warnings
 from pathlib import Path
 
@@ -103,6 +104,19 @@ _HEADER_KEYS = {
     "altitude":       "altitude",
 }
 
+_METADATA_KEYS = {
+    "regiao": "region",
+    "uf": "UF",
+    "estacao": "station_name",
+    "codigo estacao": "wmo_code",
+    "codigo (wmo)": "wmo_code",
+    "latitude": "latitude",
+    "longitude": "longitude",
+    "altitude": "altitude",
+    "data de fundacao": "founded_date",
+    "data de fundacao (yyyy-mm-dd)": "founded_date",
+}
+
 
 # ---------------------------------------------------------------------------
 # Public parser
@@ -157,10 +171,7 @@ def _parse(path: Path) -> pd.DataFrame:
             canonical = _HEADER_KEYS.get(key)
             if canonical:
                 meta[canonical] = val
-        # Data block starts at the actual observation header, not metadata
-        # rows such as "DATA DE FUNDAÇÃO".
-        upper = line.lstrip("\ufeff").strip().upper()
-        if (";HORA" in upper) or upper.startswith("DATA MEDICAO"):
+        if _is_data_header_line(line):
             header_end = i
             break
 
@@ -242,9 +253,53 @@ def _rename_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.rename(columns=mapping)
 
 
+def _read_inmet_metadata(path: str | Path) -> dict[str, str]:
+    """Read station metadata from an INMET CSV header."""
+    path = Path(path)
+    header_line, _ = _detect_data_header_line(path)
+    meta: dict[str, str] = {}
+
+    with path.open("r", encoding="latin-1", errors="replace") as f:
+        for i, line in enumerate(f):
+            if i >= header_line:
+                break
+            parts = line.rstrip("\r\n").split(";", maxsplit=1)
+            if len(parts) != 2:
+                continue
+            key = _normalise_key(parts[0].strip().rstrip(":"))
+            canonical = _METADATA_KEYS.get(key)
+            if canonical:
+                meta[canonical] = parts[1].strip().strip('"')
+
+    return meta
+
+
+def _detect_data_header_line(path: str | Path) -> tuple[int, list[str]]:
+    """Return the line index and raw columns for the INMET data header."""
+    path = Path(path)
+    with path.open("r", encoding="latin-1", errors="replace") as f:
+        for i, line in enumerate(f):
+            if _is_data_header_line(line):
+                raw_columns = [
+                    col.lstrip("\ufeff").strip()
+                    for col in line.rstrip("\r\n").split(";")
+                    if col.strip()
+                ]
+                return i, raw_columns
+
+    raise ValueError(f"INMET CSV malformed: no HORA header in {path}")
+
+
+def _is_data_header_line(line: str) -> bool:
+    upper = line.lstrip("\ufeff").strip().upper()
+    return (";HORA" in upper) or upper.startswith("DATA MEDICAO")
+
+
 def _normalise_key(s: str) -> str:
     """Lowercase, strip and collapse whitespace for fuzzy key matching."""
-    return re.sub(r"\s+", " ", s.strip().lower())
+    text = unicodedata.normalize("NFKD", s)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return re.sub(r"\s+", " ", text.strip().lower())
 
 
 def _parse_datetime(df: pd.DataFrame) -> pd.DataFrame:
