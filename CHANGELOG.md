@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.0a4] - 2026-05-26
+
+### Fixed - INMET header correctness
+
+- `parse_inmet_csv()` agora detecta o cabeçalho real de dados pelo token `HORA`, evitando o falso match em metadados como `DATA DE FUNDAÇÃO (YYYY-MM-DD)`. Isso impede schemas explodidos quando várias estações INMET são unidas.
+- Fixtures reais latin-1 foram adicionadas para FLORIANOPOLIS/A806 e ERECHIM/A828 cobrindo formatos INMET com metadados antes do bloco horário.
+
+### Changed - INMET lazy backend
+
+- O parser INMET agora retorna `duckdb.DuckDBPyRelation`; a API pública `sus_climate_inmet()` continua retornando `pd.DataFrame` por compatibilidade.
+- Parsing, renomeação canônica, casts numéricos, QC físico, QC dew-point e QC solar noturno foram migrados para DuckDB SQL.
+- `_process_year` deixou de usar `pd.concat` e `pa.Table.from_pandas`; a união é feita por `UNION ALL` DuckDB e o cache Parquet/Zstd é escrito com `COPY`.
+- A saída canônica usa `wmo_code` e inclui `date`, `year`, 8 metadados de estação e as colunas de medição documentadas, sem colunas raw extras.
+
 ## [0.2.0a3] - 2026-05-24
 
 > Hotfix release implementando o plano [`2026-05-24-py-correcoes-revisao-OWASP-correctness.md`](../governanca/3-planos/em-execucao/2026-05-24-py-correcoes-revisao-OWASP-correctness.md). Todos os itens entram nas **exceções da diretriz de paridade** (OWASP + correctness silencioso + bugs com evidência empírica de crash em produção). Demais achados da revisão estrutural de 2026-05-24 foram registrados em [`ideias-climasus4py-v2.md`](../governanca/6-instancia/ideias-climasus4py-v2.md) para o v2.0.
