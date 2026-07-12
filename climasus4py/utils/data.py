@@ -104,61 +104,29 @@ def load_json(relative: str) -> dict[str, Any]:
 
 _FALLBACK_DATASUS_COLUMNS: dict[str, Any] = {
     "all_date_columns": [
-        "DTOBITO",
-        "DTNASC",
-        "DTCADINF",
-        "DTCADMUN",
-        "DTCONCASO",
-        "DTINVESTIG",
-        "DTRECEBIM",
-        "DTRECORIG",
-        "DTCONINV",
-        "DTINTERNACAO",
-        "DTSAIDA",
-        "DTCADASTRO",
-        "DTATESTADO",
-        "DTREGCART",
-        "DTCASAM",
-        "DTULTMENST",
-        "DTCONSULT",
-        "DTDECLARAC",
+        "DTOBITO", "DTNASC", "DTCADINF", "DTCADMUN", "DTCONCASO",
+        "DTINVESTIG", "DTRECEBIM", "DTRECORIG", "DTCONINV", "DTINTERNACAO",
+        "DTSAIDA", "DTCADASTRO", "DTATESTADO", "DTREGCART", "DTCASAM",
+        "DTULTMENST", "DTCONSULT", "DTDECLARAC",
     ],
     "all_numeric_columns": [
-        "CONTADOR",
-        "PESO",
-        "QTDFILVIVO",
-        "QTDFILMORT",
-        "GESTACAO",
-        "SEMAGESTAC",
-        "OBITOGRAV",
-        "GRAESSION",
-        "CODMUNNATU",
-        "CODMUNRES",
-        "CODMUNOCOR",
-        "CODESTAB",
-        "LOCOCOR",
-        "IDADEMAE",
-        "ESCMAE",
-        "CODOCUPMAE",
-        "QTDGESTANT",
-        "QTDPARTNOR",
-        "QTDPARTCES",
-        "IDADEPAI",
-        "ESCPAI",
-        "SERIESCPAI",
-        "SERIESCMAE",
+        "CONTADOR", "PESO", "QTDFILVIVO", "QTDFILMORT", "GESTACAO",
+        "SEMAGESTAC", "OBITOGRAV", "GRAESSION", "CODMUNNATU", "CODMUNRES",
+        "CODMUNOCOR", "CODESTAB", "LOCOCOR", "IDADEMAE", "ESCMAE",
+        "CODOCUPMAE", "QTDGESTANT", "QTDPARTNOR", "QTDPARTCES",
+        "IDADEPAI", "ESCPAI", "SERIESCPAI", "SERIESCMAE",
     ],
     "system_signatures": {
-        "SIM-DO": {"any_of": ["CAUSABAS", "DTOBITO"]},
-        "SIH-RD": {"any_of": ["DIAG_PRINC"]},
-        "SINAN-DENGUE": {"any_of": ["NU_NOTIFIC"]},
-        "SINASC": {"any_of": ["NUMERODN"]},
+        "SIM-DO":      {"any_of": ["CAUSABAS", "DTOBITO"]},
+        "SIH-RD":      {"any_of": ["DIAG_PRINC"]},
+        "SINAN-DENGUE":{"any_of": ["NU_NOTIFIC"]},
+        "SINASC":      {"any_of": ["NUMERODN"]},
     },
     "role_priority": {
-        "date": ["death_date", "date", "DTOBITO", "DTNASC", "admission_date"],
+        "date":  ["death_date", "date", "DTOBITO", "DTNASC", "admission_date"],
         "cause": ["underlying_cause", "cause", "CAUSABAS", "DIAG_PRINC"],
-        "age": ["age", "age_years", "age_code", "IDADE", "IDADEMAE"],
-        "sex": ["sex", "SEXO", "CS_SEXO"],
+        "age":   ["age", "age_years", "age_code", "IDADE", "IDADEMAE"],
+        "sex":   ["sex", "SEXO", "CS_SEXO"],
     },
 }
 
@@ -179,37 +147,17 @@ def load_datasus_columns_spec() -> dict[str, Any]:
 # Update function: baixa/atualiza climasus-data localmente
 # ---------------------------------------------------------------------------
 
-def update_climasus_data(repo_url: str = "https://github.com/climasus/climasus-data.git", target_dir: str | None = None, branch: str = "main") -> None:  # noqa: E501
-    """Baixa ou atualiza o repositório climasus-data localmente.
-
-    Normalmente não é necessário quando ``climasus-data`` está instalado
-    como pacote Python. Útil durante desenvolvimento ou para forçar
-    atualização dos arquivos de referência offline.
-
-    Args:
-        repo_url: URL do repositório Git a clonar.
-        target_dir: Diretório de destino. Se ``None``, usa a variável de
-            ambiente ``CLIMASUS_DATA_DIR`` ou o diretório do pacote
-            instalado.
-        branch: Branch Git a clonar/atualizar. Padrão: ``"main"``.
-
-    Raises:
-        RuntimeError: Se *target_dir* existe mas não contém
-            ``manifest.json`` (proteção contra remoção acidental).
-        subprocess.CalledProcessError: Se o comando ``git`` falhar.
-
-    Example:
-        >>> import climasus4py as cs
-        >>> cs.update_climasus_data()
-        Clonando climasus-data em ...
-        climasus-data atualizado com sucesso.
-    """
+def update_climasus_data(
+    repo_url: str = "https://github.com/climasus/climasus-data.git",
+    target_dir: str | None = None,
+    branch: str = "main",
+) -> None:
+    """Baixa ou atualiza o repositório climasus-data localmente."""
     if target_dir is None:
         env = os.environ.get("CLIMASUS_DATA_DIR")
         if env:
             target_dir = env
         else:
-            # Tenta usar o diretório do pacote instalado
             try:
                 target_dir = str(climasus_data.data_root())
             except FileNotFoundError:
@@ -217,12 +165,9 @@ def update_climasus_data(repo_url: str = "https://github.com/climasus/climasus-d
 
     target = Path(target_dir)
     if target.exists() and (target / ".git").is_dir():
-        # Já existe: git pull
         print(f"Atualizando climasus-data em {target}...")
         subprocess.run(["git", "-C", str(target), "pull", "origin", branch], check=True)
     elif target.exists():
-        # Existe mas não é git: remove e clona
-        # Safety check: only remove if it looks like a climasus-data directory
         if not (target / "manifest.json").is_file():
             raise RuntimeError(
                 f"Diretório {target} não parece ser climasus-data "
@@ -232,51 +177,23 @@ def update_climasus_data(repo_url: str = "https://github.com/climasus/climasus-d
         shutil.rmtree(target)
         subprocess.run(["git", "clone", "--depth", "1", "-b", branch, repo_url, str(target)], check=True)  # noqa: E501
     else:
-        # Não existe: clona
         print(f"Clonando climasus-data em {target}...")
         subprocess.run(["git", "clone", "--depth", "1", "-b", branch, repo_url, str(target)], check=True)  # noqa: E501
     print("climasus-data atualizado com sucesso.")
 
 
 def load_systems() -> dict:
-    """Load SUS system definitions from climasus-data.
-
-    Returns:
-        Dict mapping system identifiers to their metadata.
-
-    Example:
-        >>> systems = load_systems()
-        >>> "SIM-DO" in systems
-        True
-    """
+    """Load SUS system definitions from climasus-data."""
     return load_json("metadata/datasus_systems.json")["systems"]
 
 
 def load_uf_codes() -> dict:
-    """Load Brazilian state (UF) codes from climasus-data.
-
-    Returns:
-        Dict mapping 2-letter UF abbreviations to state metadata.
-
-    Example:
-        >>> ufs = load_uf_codes()
-        >>> "name" in ufs["SP"]
-        True
-    """
+    """Load Brazilian state (UF) codes from climasus-data."""
     return load_json("metadata/uf_codes.json")["states"]
 
 
 def load_regions() -> dict:
-    """Load Brazilian region definitions from climasus-data.
-
-    Returns:
-        Dict mapping region categories to their region metadata and
-        member state lists.
-
-    Example:
-        >>> regions = load_regions()
-        >>> list(regions.keys())
-    """
+    """Load Brazilian region definitions from climasus-data."""
     return load_json("metadata/regions.json")["categories"]
 
 
@@ -287,20 +204,28 @@ def load_regions() -> dict:
 def resolve_uf(uf: str | list[str]) -> list[str]:
     """Resolve a UF specification to a list of 2-letter state codes.
 
+    Accepts:
+    - A single UF string: ``"SP"``
+    - A list of UFs: ``["SP", "RJ"]``
+    - ``"all"`` — all 27 states
+    - A region name in PT, EN or ES, e.g. ``"nordeste"``, ``"northeast"``,
+      ``"amazonia_legal"``, ``"semi_arid"``
+
     Args:
-        uf: A single UF string (e.g. ``"SP"``), a list of UFs
-            (e.g. ``["SP", "RJ"]``), the special token ``"all"`` to
-            expand to all 27 states, or a region name
-            (e.g. ``"Sudeste"``) to expand to its member states.
+        uf: UF abbreviation(s), ``"all"``, or a region name.
 
     Returns:
         List of upper-case 2-letter UF abbreviations.
 
-    Example:
+    Examples:
         >>> resolve_uf("SP")
         ['SP']
-        >>> resolve_uf("Sudeste")
-        ['ES', 'MG', 'RJ', 'SP']
+        >>> resolve_uf("nordeste")
+        ['AL', 'BA', 'CE', 'MA', 'PB', 'PE', 'PI', 'RN', 'SE']
+        >>> resolve_uf("northeast")   # EN alias
+        ['AL', 'BA', 'CE', 'MA', 'PB', 'PE', 'PI', 'RN', 'SE']
+        >>> resolve_uf("noreste")     # ES alias
+        ['AL', 'BA', 'CE', 'MA', 'PB', 'PE', 'PI', 'RN', 'SE']
         >>> len(resolve_uf("all"))
         27
     """
@@ -311,15 +236,23 @@ def resolve_uf(uf: str | list[str]) -> list[str]:
 
     if len(uf_list) == 1:
         token = uf_list[0]
+
+        # "all" → todos os 27 estados
         if token.lower() == "all":
             return list(load_uf_codes().keys())
 
-        # Check if it's a region name
+        # verifica se é nome de região ou alias (PT/EN/ES)
         regions = load_regions()
+        token_lower = token.lower()
         for category in regions.values():
             for region_name, region_data in category.get("regions", {}).items():
-                if token == region_name:
+                # checa nome canônico
+                if token_lower == region_name.lower():
                     return region_data["states"]
+                # checa aliases (PT, EN, ES)
+                for alias in region_data.get("aliases", []):
+                    if token_lower == alias.lower():
+                        return region_data["states"]
 
     return [u.upper() for u in uf_list]
 
@@ -333,24 +266,7 @@ def _load_datasus_columns_json() -> dict:
 
 
 def detect_system(columns: list[str]) -> str | None:
-    """Detect the SUS system from a list of column names.
-
-    Uses characteristic columns as signatures: e.g. ``CAUSABAS`` and
-    ``DTOBITO`` identify SIM-DO; ``NUMERODN`` identifies SINASC.
-
-    Args:
-        columns: Column names present in the dataset.
-
-    Returns:
-        System identifier string (e.g. ``"SIM-DO"``), or ``None`` when
-        no known signature is found.
-
-    Example:
-        >>> detect_system(["CAUSABAS", "DTOBITO", "IDADE"])
-        'SIM-DO'
-        >>> detect_system(["UNKNOWN_COL"]) is None
-        True
-    """
+    """Detect the SUS system from a list of column names."""
     col_set = set(columns)
     signatures = _load_datasus_columns_json()["system_signatures"]
     for system, spec in signatures.items():
@@ -369,116 +285,27 @@ def _detect_column(columns: list[str], candidates: list[str]) -> str | None:
 
 
 def detect_date_column(columns: list[str]) -> str | None:
-    """Return the first recognised date column from a list of column names.
-
-    Searches *columns* for known DATASUS and standardised date column
-    names in priority order: ``death_date``, ``date``, ``DTOBITO``,
-    ``DTNASC``, ``admission_date``.
-
-    Args:
-        columns: Column names present in the dataset.
-
-    Returns:
-        Matching column name, or ``None`` if no date candidate is found.
-
-    Example:
-        >>> detect_date_column(["DTOBITO", "CAUSABAS", "IDADE"])
-        'DTOBITO'
-        >>> detect_date_column(["UNKNOWN"]) is None
-        True
-    """
+    """Return the first recognised date column from a list of column names."""
     return _detect_column(columns, _load_datasus_columns_json()["role_priority"]["date"])
 
 
 def detect_cause_column(columns: list[str]) -> str | None:
-    """Return the first recognised ICD-10 cause column from a list of column names.
-
-    Searches *columns* for known DATASUS and standardised cause column
-    names in priority order: ``underlying_cause``, ``cause``,
-    ``CAUSABAS``, ``DIAG_PRINC``.
-
-    Args:
-        columns: Column names present in the dataset.
-
-    Returns:
-        Matching column name, or ``None`` if no cause candidate is found.
-
-    Example:
-        >>> detect_cause_column(["CAUSABAS", "DTOBITO"])
-        'CAUSABAS'
-        >>> detect_cause_column(["OTHER"]) is None
-        True
-    """
+    """Return the first recognised ICD-10 cause column from a list of column names."""
     return _detect_column(columns, _load_datasus_columns_json()["role_priority"]["cause"])
 
 
 def detect_age_column(columns: list[str]) -> str | None:
-    """Return the first recognised age column from a list of column names.
-
-    Searches *columns* for known DATASUS and standardised age column
-    names in priority order: ``age``, ``age_years``, ``age_code``,
-    ``IDADE``, ``IDADEMAE``.
-
-    Args:
-        columns: Column names present in the dataset.
-
-    Returns:
-        Matching column name, or ``None`` if no age candidate is found.
-
-    Example:
-        >>> detect_age_column(["IDADE", "SEXO"])
-        'IDADE'
-        >>> detect_age_column(["UNKNOWN"]) is None
-        True
-    """
+    """Return the first recognised age column from a list of column names."""
     return _detect_column(columns, _load_datasus_columns_json()["role_priority"]["age"])
 
 
 def detect_sex_column(columns: list[str]) -> str | None:
-    """Return the first recognised sex column from a list of column names.
-
-    Searches *columns* for known DATASUS and standardised sex column
-    names in priority order: ``sex``, ``SEXO``, ``CS_SEXO``.
-
-    Args:
-        columns: Column names present in the dataset.
-
-    Returns:
-        Matching column name, or ``None`` if no sex candidate is found.
-
-    Example:
-        >>> detect_sex_column(["SEXO", "IDADE"])
-        'SEXO'
-        >>> detect_sex_column(["UNKNOWN"]) is None
-        True
-    """
+    """Return the first recognised sex column from a list of column names."""
     return _detect_column(columns, _load_datasus_columns_json()["role_priority"]["sex"])
 
 
 def decode_age_sql(age_col: str) -> str:
-    """Return a DuckDB SQL expression that decodes SIM-DO coded age to years.
-
-    DATASUS SIM-DO encodes age as a 3-digit string where the first
-    digit is a unit code:
-
-    - ``5xx`` — 100 + xx years (centenarians, e.g. 501 = 101 years)
-    - ``4xx`` — xx years       (e.g. 435 = 35 years)
-    - ``3xx`` — months         (decoded to 0 years)
-    - ``2xx`` — days           (decoded to 0 years)
-    - ``1xx`` — hours          (decoded to 0 years)
-    - ``0xx`` — minutes        (decoded to 0 years)
-
-    Args:
-        age_col: Column name containing the raw DATASUS age code.
-
-    Returns:
-        SQL ``CASE`` expression string that evaluates to an integer
-        representing age in years.
-
-    Example:
-        >>> expr = decode_age_sql("IDADE")
-        >>> conn.sql(f"SELECT ({expr}) AS age_years FROM rel").df()
-    """
+    """Return a DuckDB SQL expression that decodes SIM-DO coded age to years."""
     v = f'TRIM(CAST("{age_col}" AS VARCHAR))'
     return (
         f"CASE"
@@ -494,46 +321,23 @@ def decode_age_sql(age_col: str) -> str:
 
 
 def detect_geo_column(columns: list[str], level: str = "municipality") -> str | None:
-    """Return the first recognised geographic column for the requested level.
-
-    Args:
-        columns: Column names present in the dataset.
-        level: Geographic level to detect — ``"municipality"``
-            (default), ``"state"``, ``"region"``, or ``"country"``.
-
-    Returns:
-        Matching column name, or ``None`` if no candidate is found.
-
-    Example:
-        >>> detect_geo_column(["CODMUNRES", "DTOBITO"])
-        'CODMUNRES'
-        >>> detect_geo_column(["UF", "DTOBITO"], level="state")
-        'UF'
-    """
+    """Return the first recognised geographic column for the requested level."""
     candidates = {
-        "municipality": ["municipality_code", "CODMUNRES", "ID_MUNICIP"],
-        "state": ["state", "SG_UF", "UF", "SG_UF_NOT"],
-        "region": ["region"],
+        "municipality": [
+            "CODMUNRES", "ID_MUNICIP",
+            "municipality_code", "residence_municipality_code",
+            "occurrence_municipality_code",
+            "codigo_municipio_residencia", "codigo_municipio_ocurrencia",
+        ],
+        "state":   ["state", "SG_UF", "UF", "SG_UF_NOT"],
+        "region":  ["region"],
         "country": ["country"],
     }
     return _detect_column(columns, candidates.get(level, []))
 
 
 def system_family(system: str) -> str:
-    """Extract the family prefix from a SUS system identifier.
-
-    Args:
-        system: Full system name, e.g. ``"SIM-DO"`` or ``"SIH-RD"``.
-
-    Returns:
-        Family prefix string, e.g. ``"SIM"`` or ``"SIH"``.
-
-    Example:
-        >>> system_family("SIM-DO")
-        'SIM'
-        >>> system_family("SIH-RD")
-        'SIH'
-    """
+    """Extract the family prefix from a SUS system identifier."""
     return system.split("-")[0]
 
 
@@ -541,7 +345,6 @@ def system_family(system: str) -> str:
 # Sub-plano D helpers (parity with climasus4r legacy)
 # ---------------------------------------------------------------------------
 
-#: Values considered "ignored/unknown" across DATASUS demographic columns.
 _IGNORED_VALUES: tuple[str, ...] = (
     "9", "99", "999", "0", "",
     "Ignorado", "ignorado",
@@ -551,7 +354,6 @@ _IGNORED_VALUES: tuple[str, ...] = (
     "NaN", "nan", "null", "NULL",
 )
 
-#: Demographic columns that carry coded "ignored" markers in DATASUS.
 _IGNORABLE_DEMO_COLUMNS: tuple[str, ...] = (
     "sex", "SEXO", "CS_SEXO",
     "race", "RACACOR",
@@ -561,56 +363,12 @@ _IGNORABLE_DEMO_COLUMNS: tuple[str, ...] = (
 
 
 def detect_education_column(columns: list[str]) -> str | None:
-    """Return the first recognised education column from *columns*.
-
-    Priority: ``education``, ``education_2010``, ``ESC``, ``ESC2010``.
-
-    Mirrors ``climasus4r::sus_data_filter_demographics`` education= logic.
-
-    Args:
-        columns: Column names present in the dataset.
-
-    Returns:
-        Matching column name, or ``None`` if not found.
-
-    Example:
-        >>> detect_education_column(["ESC", "CAUSABAS"])
-        'ESC'
-        >>> detect_education_column(["UNKNOWN"]) is None
-        True
-    """
+    """Return the first recognised education column from *columns*."""
     return _detect_column(columns, ["education", "education_2010", "ESC", "ESC2010"])
 
 
 def expand_city_to_codes(city: str | list[str]) -> list[str]:
-    """Resolve city name(s) to IBGE 6-digit municipality codes.
-
-    Reads ``spatial/municipalities.parquet`` from the climasus-data
-    package and matches on the ``municipality_name`` column (case-
-    insensitive, accent-insensitive via NFKD decomposition + combining-mark
-    strip). When a name matches multiple municipalities (e.g. "São José"),
-    all codes are returned and a :class:`UserWarning` is emitted.
-
-    Mirrors ``climasus4r::sus_data_filter_demographics`` city= handling.
-
-    Args:
-        city: One or more city names to resolve.
-
-    Returns:
-        List of IBGE 6-digit municipality code strings.
-
-    Raises:
-        ValueError: If a city name has no match in the municipalities
-            parquet.
-        FileNotFoundError: If ``spatial/municipalities.parquet`` is not
-            present in the climasus-data directory.
-
-    Example:
-        >>> expand_city_to_codes("São Paulo")
-        ['355030']
-        >>> expand_city_to_codes(["São Paulo", "Rio de Janeiro"])
-        ['355030', '330455']
-    """
+    """Resolve city name(s) to IBGE 6-digit municipality codes."""
     import unicodedata
     import warnings
 
@@ -625,7 +383,6 @@ def expand_city_to_codes(city: str | list[str]) -> list[str]:
 
     df = pd.read_parquet(parquet_path)
 
-    # Find the name column (case-insensitive search)
     name_col = next(
         (c for c in df.columns if c.lower() in ("municipality_name", "name", "nome", "municipio")),
         None,
@@ -642,9 +399,6 @@ def expand_city_to_codes(city: str | list[str]) -> list[str]:
         )
 
     def _norm(s: str) -> str:
-        # NFKD decomposes "ç" → "ç", "ã" → "ã", etc.;
-        # the comprehension drops the combining marks so "São Paulo"
-        # and "Sao Paulo" both normalise to "sao paulo".
         decomposed = unicodedata.normalize("NFKD", s)
         return "".join(
             ch for ch in decomposed if not unicodedata.combining(ch)
@@ -671,4 +425,4 @@ def expand_city_to_codes(city: str | list[str]) -> list[str]:
             )
         all_codes.extend(matches)
 
-    return list(dict.fromkeys(all_codes))  # deduplicate, preserve order
+    return list(dict.fromkeys(all_codes))
