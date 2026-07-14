@@ -20,6 +20,7 @@ from ..utils.data import (
     expand_city_to_codes,
     load_json,
 )
+from ._stage import add_history, set_stage
 from ._sql import sql_string
 from .engine import get_connection, schema_columns
 
@@ -191,63 +192,35 @@ def sus_filter(
             (default), auto-detects among ``CAUSABAS``, ``DIAG_PRINC``,
             ``underlying_cause``, ``cause``.
             Mirrors ``climasus4r::sus_data_filter_cid`` icd_column=.
-        age_min: Minimum age in years (inclusive). Decoded from DATASUS
-            coded age when the column is in SIM-DO format.
+        age_min: Minimum age in years (inclusive).
         age_max: Maximum age in years (inclusive).
-        sex: Sex code to keep — ``"M"`` (male) or ``"F"`` (female).
+        sex: Sex code to keep — ``"M"`` / ``"Male"`` / ``"Masculino"``
+            or ``"F"`` / ``"Female"`` / ``"Feminino"``.
         race: ``RACACOR`` code(s) to keep, e.g. ``["1", "4"]``.
-        uf: One or more Brazilian state abbreviations, e.g.
-            ``["SP", "RJ"]``. Requires a UF/state column in the relation
-            (available after ``sus_spatial_join()`` or in SINAN/SIH data).
-        region: Brazilian region name(s), e.g. ``"nordeste"`` or
-            ``["norte", "nordeste"]``. Resolved to state codes via
-            ``metadata/regions.json``. Requires a UF/state column.
-            If not found, emits a warning and skips the filter.
-            Mirrors ``climasus4r::sus_data_filter_demographics`` region=.
-        municipality: Municipality code(s) (IBGE 6-digit), e.g.
-            ``["355030"]``.
-        date_start: Earliest event date (inclusive), ISO format
-            ``"YYYY-MM-DD"``.
-        date_end: Latest event date (inclusive), ISO format
-            ``"YYYY-MM-DD"``.
+        uf: One or more Brazilian state abbreviations, e.g. ``["SP", "RJ"]``.
+        region: Brazilian region name(s) in PT/EN/ES, e.g. ``"nordeste"``,
+            ``"northeast"``, ``"noreste"``. Resolved via regions.json.
+        municipality: Municipality code(s) (IBGE 6-digit).
+        date_start: Earliest event date (inclusive), ISO ``"YYYY-MM-DD"``.
+        date_end: Latest event date (inclusive), ISO ``"YYYY-MM-DD"``.
         education: Education level code(s) to keep, e.g. ``["1", "2"]``.
-            Auto-detects the column among ``education``,
-            ``education_2010``, ``ESC``, ``ESC2010``.
-            Mirrors ``climasus4r::sus_data_filter_demographics`` education=.
-        city: City name(s) to filter by, e.g. ``"São Paulo"`` or
-            ``["São Paulo", "Rio de Janeiro"]``. Resolved to IBGE codes
-            via ``climasus-data/spatial/municipalities.parquet``.
-            Mirrors ``climasus4r::sus_data_filter_demographics`` city=.
-        drop_ignored: When ``True``, removes rows where any detectable
-            demographic column (sex, race, education, age) contains a
-            coded "ignored/unknown" value (9, 99, Ignorado, etc.).
-            Mirrors ``climasus4r::sus_data_filter_demographics``
-            drop_ignored=.  Default: ``False``.
-        match_type: Controls how ICD-10 codes are matched against the
-            cause column.  ``"starts_with"`` (default) uses a 3-character
-            prefix match (e.g. ``"J18"`` matches ``"J189"``).
-            ``"exact"`` requires the full code to match exactly.
-            Mirrors ``climasus4r::sus_data_filter_cid`` match_type=.
-        verbose: If ``True``, prints progress messages. Default: ``False``.
+        city: City name(s) resolved to IBGE codes.
+        drop_ignored: Remove rows where demographic columns contain
+            coded "ignored/unknown" values. Default: ``False``.
+        match_type: ``"starts_with"`` (default) or ``"exact"`` for ICD matching.
+        verbose: Print progress messages. Default: ``False``.
 
     Returns:
         Lazy DuckDB relation with all specified filters applied.
-
-    Raises:
-        ValueError: If ``match_type`` is not ``"starts_with"`` or
-            ``"exact"``.
+        Registers ``stage="filter"`` and timestamped history in sus_meta.
 
     Example:
-        >>> import climasus4py as cs
         >>> filtered = cs.sus_filter(rel, groups="respiratory",
-        ...                          age_min=15, age_max=64)
-        >>> cs.sus_filter(rel, codes=["A90", "A91"], sex="F").count()
-        >>> cs.sus_filter(rel, groups="respiratory",
-        ...               match_type="exact", codes=["J189"])
-        >>> cs.sus_filter(rel, education=["1", "2"], drop_ignored=True)
-        >>> cs.sus_filter(rel, city="São Paulo")
+        ...                          age_min=15, age_max=64, sex="Female")
+        >>> cs.sus_filter(rel, codes=["A90", "A91"], sex="F")
         >>> cs.sus_filter(rel, region="nordeste", groups="dengue")
         >>> cs.sus_filter(rel, icd_column="DIAG_SECUN", codes=["J00-J99"])
+        >>> cs.sus_filter(rel, date_start="2023-01-01", date_end="2023-06-30")
     """
     _valid_match_types = {"starts_with", "exact"}
     if match_type not in _valid_match_types:
@@ -255,6 +228,9 @@ def sus_filter(
             f"Invalid match_type {match_type!r}. "
             f"Choose from: {sorted(_valid_match_types)}."
         )
+
+    # capture original rel for sus_meta inheritance
+    _original_rel = rel
 
     columns = schema_columns(rel)
     conn    = get_connection()
@@ -534,6 +510,34 @@ def sus_filter(
                 f"  Drop ignored — {len(ignorable_present)} "
                 f"colunas: {ignorable_present}"
             )
+
+    # ------------------------------------------------------------------
+    # sus_meta — registra stage e history
+    # ------------------------------------------------------------------
+    filters_applied = []
+    if groups:        filters_applied.append(f"groups={groups!r}")
+    if codes:         filters_applied.append(f"codes={codes!r}")
+    if icd_column:    filters_applied.append(f"icd_column={icd_column!r}")
+    if age_min is not None or age_max is not None:
+                      filters_applied.append(f"age=[{age_min},{age_max}]")
+    if sex is not None:       filters_applied.append(f"sex={sex!r}")
+    if race is not None:      filters_applied.append(f"race={race!r}")
+    if uf is not None:        filters_applied.append(f"uf={uf!r}")
+    if region is not None:    filters_applied.append(f"region={region!r}")
+    if municipality is not None: filters_applied.append(f"municipality={municipality!r}")
+    if date_start or date_end:   filters_applied.append(f"date={date_start}→{date_end}")
+    if education is not None: filters_applied.append(f"education={education!r}")
+    if city is not None:      filters_applied.append(f"city={city!r}")
+    if drop_ignored:          filters_applied.append("drop_ignored=True")
+
+    history_msg = (
+        f"Filtered: {'; '.join(filters_applied)}"
+        if filters_applied else "Filter applied (no criteria)"
+    )
+
+    rel = rel.set_alias("filter")
+    rel = set_stage(rel, "filter", _inherit_from=_original_rel)
+    rel = add_history(rel, history_msg)
 
     if verbose:
         print("✓ sus_filter concluído")
