@@ -40,6 +40,7 @@ from .io.read import sus_data_read
 from .utils import update_climasus_data
 from .utils.chat import sus_chat
 from .utils.disease_groups import get_disease_group_details, list_disease_groups
+from .utils.cid_select import sus_data_cid_select
 from .utils.explore import sus_explore
 from .utils.quality import sus_data_quality_report
 from .viz.climate_plot import sus_climate_plot_fill
@@ -84,4 +85,5 @@ __all__ = [
     "sus_meta",
     "list_disease_groups",
     "get_disease_group_details",
+    "sus_data_cid_select",
 ]
