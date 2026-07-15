@@ -45,6 +45,8 @@ from .utils.explore import sus_explore
 from .utils.quality import sus_data_quality_report
 from .viz.climate_plot import sus_climate_plot_fill
 from .viz.plot_demographics import sus_data_plot_demographics
+from .viz.plot_aggregate_ts import sus_data_plot_aggregate_ts
+from .viz.plot_aggregate_map import sus_data_plot_aggregate_map
 
 
 __all__ = [
@@ -90,4 +92,6 @@ __all__ = [
     "sus_data_cid_select",
     # viz
     "sus_data_plot_demographics",
+    "sus_data_plot_aggregate_ts",
+    "sus_data_plot_aggregate_map",
 ]
