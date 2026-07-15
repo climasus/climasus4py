@@ -44,6 +44,8 @@ from .utils.cid_select import sus_data_cid_select
 from .utils.explore import sus_explore
 from .utils.quality import sus_data_quality_report
 from .viz.climate_plot import sus_climate_plot_fill
+from .viz.plot_demographics import sus_data_plot_demographics
+
 
 __all__ = [
     "__version__",
@@ -86,4 +88,6 @@ __all__ = [
     "list_disease_groups",
     "get_disease_group_details",
     "sus_data_cid_select",
+    # viz
+    "sus_data_plot_demographics",
 ]

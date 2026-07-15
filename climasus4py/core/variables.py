@@ -356,7 +356,8 @@ def sus_data_create_variables(
     # ------------------------------------------------------------------
     if create_age_groups:
         age_col = next(
-            (c for c in ("age_code", "age_years", "IDADE", "NU_IDADE_N") if c in columns),
+            (c for c in ("age_code", "age_years", "IDADE", "NU_IDADE_N",
+                 "codigo_idade", "edad_codigo") if c in columns),
             None
         )
         if age_col is None:
