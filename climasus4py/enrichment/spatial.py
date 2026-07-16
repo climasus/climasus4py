@@ -17,7 +17,7 @@ import duckdb
 
 from ..core._guards import _unwrap_sus_relation
 from ..core._sql import quote_ident, sql_string
-from ..core._stage import set_stage
+from ..core._stage import add_history, set_stage
 from ..core.engine import get_connection
 from ..utils.data import data_path, detect_geo_column
 
@@ -54,7 +54,8 @@ def sus_spatial_join(
 
     Returns:
         ``DuckDBPyRelation`` with ``spatial_name`` and ``geometry_wkt``
-        columns joined to the health data.
+        columns joined to the health data. Registers ``stage="enrichment"``
+        in sus_meta with timestamped history entry.
 
     Raises:
         TypeError: If *rel* is not a DuckDB relation.
@@ -68,6 +69,7 @@ def sus_spatial_join(
         'POINT (-46.63 -23.55)'
     """
     _ = geo_level  # reserved for future state-level joins; preserved for parity
+    _original_rel = rel
     rel = _unwrap_sus_relation(rel, "sus_spatial_join")
 
     if spatial_path is None:
@@ -102,4 +104,11 @@ def sus_spatial_join(
     )
 
     result = rel.query("_spatial_health", sql)
-    return set_stage(result, "enrichment")
+    result = result.set_alias("enrichment")
+    result = set_stage(result, "enrichment", _inherit_from=_original_rel)
+    result = add_history(
+        result,
+        f"Spatial join: municipality names and geometry_wkt added "
+        f"via {resolved_path.name}; geo_col={geo_col}; geo_level={geo_level}"
+    )
+    return result
