@@ -38,6 +38,7 @@ from rich.console import Console
 from ..utils.inmet_parser import parse_inmet_csv  # internal CSV parser
 from ._sql import quote_ident, register_relation, sql_string
 from .engine import get_connection
+from ._stage import add_history, set_stage
 
 console = Console(stderr=True)
 
@@ -115,6 +116,24 @@ _MESSAGES: dict[str, dict[str, str]] = {
 }
 
 
+def _cast_inmet_types(rel: duckdb.DuckDBPyRelation) -> duckdb.DuckDBPyRelation:
+    """Apply compact type casts lazily in DuckDB — avoids pandas round-trip."""
+    conn = get_connection()
+    select_parts: list[str] = []
+    for col in rel.columns:
+        col_sql = quote_ident(col)
+        if col in _INMET_FLOAT32_COLUMNS:
+            select_parts.append(f"CAST({col_sql} AS REAL) AS {col_sql}")
+        elif col == "year":
+            select_parts.append(f"CAST({col_sql} AS SMALLINT) AS {col_sql}")
+        elif col == "founded_date":
+            select_parts.append(f"CAST({col_sql} AS DATE) AS {col_sql}")
+        else:
+            select_parts.append(col_sql)
+    return conn.sql(f"SELECT {', '.join(select_parts)} FROM rel")
+
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -129,7 +148,7 @@ def sus_climate_inmet(
     workers: int = 4,
     lang: Literal["pt", "en", "es"] = "pt",
     verbose: bool = True,
-) -> pd.DataFrame:
+) -> duckdb.DuckDBPyRelation:
     """Import and process INMET meteorological data.
 
     Downloads Brazilian meteorological data from INMET, parses hourly CSVs
@@ -171,9 +190,10 @@ def sus_climate_inmet(
 
     Returns
     -------
-    pd.DataFrame
-        DataFrame with standardized meteorological columns. Metadata accessible
-        via df.attrs["sus_meta"].
+    duckdb.DuckDBPyRelation
+        Lazy DuckDB relation with standardized meteorological columns.
+        Metadata accessible via ``cs.sus_meta(rel)``.
+        Stage registered as ``"climate"`` in sus_meta.
 
     Standardized Columns
     --------------------
@@ -285,95 +305,53 @@ def sus_climate_inmet(
             console.print(
                 f"[cyan]INFO[/]  {msg['filter_code'].format(n=len(sc_list))}"
             )
-        if isinstance(climate_result, duckdb.DuckDBPyRelation):
-            if "wmo_code" not in climate_result.columns:
-                raise ValueError(
-                    "Cannot filter by 'station_code': column 'wmo_code' not found "
-                    "in the downloaded data."
-                )
-            codes_sql = ", ".join(sql_string(code) for code in sc_list)
-            climate_result = climate_result.filter(
-                f"{quote_ident('wmo_code')} IN ({codes_sql})"
-            )
-
-    climate_result_is_relation = isinstance(climate_result, duckdb.DuckDBPyRelation)
-    if climate_result_is_relation:
-        climate_data = _collect_inmet_relation(climate_result)
-        del climate_result
-        gc.collect()
-    else:
-        climate_data = climate_result
-
-    if sc_list is not None and not climate_result_is_relation:
-        code_col = (
-            "wmo_code"
-            if "wmo_code" in climate_data.columns
-            else "station_code"
-            if "station_code" in climate_data.columns
-            else None
-        )
-        if code_col is None:
+        if "wmo_code" not in climate_result.columns:
             raise ValueError(
-                "Cannot filter by 'station_code': column not found in the downloaded data."
+                "Cannot filter by 'station_code': column 'wmo_code' not found "
+                "in the downloaded data."
             )
-        climate_data = climate_data[
-            climate_data[code_col].str.upper().isin(sc_list)
-        ].copy()
+        codes_sql = ", ".join(sql_string(code) for code in sc_list)
+        climate_result = climate_result.filter(
+            f"{quote_ident('wmo_code')} IN ({codes_sql})"
+        )
+        if climate_result.limit(1).fetchone() is None:
+            raise ValueError(msg["no_rows_code"].format(codes=", ".join(sc_list)))
 
-    if sc_list is not None and climate_data.empty:
-        raise ValueError(msg["no_rows_code"].format(codes=", ".join(sc_list)))
-
-    for col in ("region", "UF", "station_name", "wmo_code"):
-        if col in climate_data.columns:
-            climate_data[col] = climate_data[col].astype("category")
+    # --- apply lazy type casts (stays DuckDB — no pandas round-trip) --------
+    rel = _cast_inmet_types(climate_result)
 
     # --- metadata ------------------------------------------------------------
-    station_id_col = (
-        "wmo_code"
-        if "wmo_code" in climate_data.columns
-        else "station_code"
-        if "station_code" in climate_data.columns
-        else "station_name"
-        if "station_name" in climate_data.columns
-        else None
+    station_id_col = next(
+        (c for c in ("wmo_code", "station_code", "station_name") if c in rel.columns),
+        None,
     )
-    n_stations: int | None = (
-        climate_data[station_id_col].nunique()
-        if station_id_col is not None
-        else None
-    )
-    temporal: dict = {}
-    if "date" in climate_data.columns and not climate_data["date"].isna().all():
-        temporal = {
-            "start": climate_data["date"].min(),
-            "end": climate_data["date"].max(),
-        }
+    n_stations: int | None = None
+    if station_id_col:
+        row = rel.aggregate(f"COUNT(DISTINCT {quote_ident(station_id_col)})").fetchone()
+        n_stations = int(row[0]) if row else None
 
-    climate_data.attrs["sus_meta"] = {
-        "system": None,
-        "stage": "climate",
-        "type": "inmet",
-        "source": "INMET",
-        "years": years_list,
-        "ufs": uf_list,
-        "station_codes": sc_list,
-        "cache_used": use_cache,
-        "n_stations": n_stations,
-        "n_observations": len(climate_data),
-        "temporal_coverage": temporal,
-        "timestamp": datetime.now().isoformat(),
-        "history": [
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] INMET data imported"
-        ],
-        "user": {},
-    }
+    temporal: dict = {}
+    if "date" in rel.columns:
+        row = rel.aggregate("MIN(date), MAX(date)").fetchone()
+        if row and row[0] is not None:
+            temporal = {"start": row[0], "end": row[1]}
+
+    history_msg = (
+        f"INMET data imported; years={years_list}; ufs={uf_list}; "
+        f"n_stations={n_stations}"
+    )
+    rel = rel.set_alias("climate")
+    rel = set_stage(rel, "climate")
+    rel = add_history(rel, history_msg)
 
     if verbose:
+        n_obs_row = rel.aggregate("COUNT(*)").fetchone()
+        n_obs = int(n_obs_row[0]) if n_obs_row else 0
         console.print(
-            f"[green]✔[/]  {msg['import_done'].format(n_rows=len(climate_data), n_stations=n_stations)}"  # noqa: E501
+            f"[green]✔[/]  {msg['import_done'].format(n_rows=n_obs, n_stations=n_stations)}"  # noqa: E501
         )
 
-    return climate_data
+    return rel
 
 
 # ---------------------------------------------------------------------------
@@ -651,7 +629,7 @@ def _materialize_relation_temp(
     return conn.sql(f"SELECT * FROM {quote_ident(table_name)}")
 
 
-def _collect_inmet_relation(rel: duckdb.DuckDBPyRelation) -> pd.DataFrame:
+def _collect_inmet_relation(rel: duckdb.DuckDBPyRelation) -> duckdb.DuckDBPyRelation:
     """Collect an INMET relation to pandas with compact metadata columns."""
     select_parts: list[str] = []
     for col in rel.columns:

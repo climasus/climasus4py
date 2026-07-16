@@ -14,6 +14,7 @@ import json
 import uuid
 
 import duckdb
+import pandas as pd
 
 from ._stage import CANONICAL_STAGES, get_meta, _stage_map
 from .engine import collect_arrow, get_connection
@@ -199,6 +200,19 @@ def sus_meta(
         return _read_parquet_with_meta(from_parquet)
     if from_duckdb is not None:
         return _read_duckdb_with_meta(from_duckdb, table=table)
+
+    # --- DataFrame with attrs["sus_meta"] (e.g. sus_climate_inmet output) ---
+    if isinstance(rel, pd.DataFrame):
+        stored = rel.attrs.get("sus_meta")
+        if stored is None:
+            return None
+        result = dict(stored)
+        if add_history is not None:
+            history = list(result.get("history", []))
+            if not history or history[-1] != add_history:
+                history = history + [add_history]
+            result["history"] = history
+        return result if field is None else result.get(field)
 
     # --- relation required from here ---
     if not isinstance(rel, duckdb.DuckDBPyRelation):
