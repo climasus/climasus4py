@@ -29,6 +29,7 @@ from .core.variables import sus_data_create_variables
 from .enrichment.census import sus_census
 from .enrichment.climate import sus_climate
 from .enrichment.climate_aggregate import sus_climate_aggregate
+from .enrichment.climate_aggregate import sus_climate_aggregate, sus_climate_info
 from .enrichment.climate_fill import sus_climate_fill_inmet
 from .enrichment.climate_indicators import sus_climate_compute_indicators
 from .enrichment.fill_gaps import sus_fill_gaps
@@ -80,6 +81,7 @@ __all__ = [
     "sus_spatial_join",
     "sus_census",
     "sus_fill_gaps",
+    "sus_climate_info",
     # Utilities
     "sus_explore",
     "sus_data_quality_report",
