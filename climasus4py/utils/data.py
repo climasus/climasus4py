@@ -94,7 +94,7 @@ def load_json(relative: str) -> dict[str, Any]:
     if not path.is_file():
         raise FileNotFoundError(f"Arquivo não encontrado em climasus-data: {relative}\n"
                                 "Certifique-se de que o diretório clonado está presente e atualizado.")  # noqa: E501
-    with open(path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8-sig") as f:
         return json.load(f)
 
 
