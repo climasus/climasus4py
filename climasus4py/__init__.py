@@ -28,11 +28,13 @@ from .core.sus_sql import sus_sql
 from .core.variables import sus_data_create_variables
 from .enrichment.census import sus_census
 from .enrichment.climate import sus_climate
-from .enrichment.climate_aggregate import sus_climate_aggregate
 from .enrichment.climate_aggregate import sus_climate_aggregate, sus_climate_info
 from .enrichment.climate_fill import sus_climate_fill_inmet
 from .enrichment.climate_indicators import sus_climate_compute_indicators
 from .enrichment.fill_gaps import sus_fill_gaps
+from .enrichment.mod_spatial_moran import sus_mod_spatial_moran
+from .enrichment.mod_spatial_reg import sus_mod_spatial_reg
+from .enrichment.mod_spatial_weights import sus_mod_spatial_weights
 from .enrichment.spatial import sus_spatial_join
 from .io.cache import sus_cache_clear, sus_cache_info
 from .io.export import sus_export
@@ -82,6 +84,10 @@ __all__ = [
     "sus_census",
     "sus_fill_gaps",
     "sus_climate_info",
+    # Spatial modelling (sus_mod_*)
+    "sus_mod_spatial_weights",
+    "sus_mod_spatial_moran",
+    "sus_mod_spatial_reg",
     # Utilities
     "sus_explore",
     "sus_data_quality_report",
