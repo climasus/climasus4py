@@ -47,9 +47,18 @@ from .enrichment.climate_heatwaves import (
 )
 from .enrichment.climate_indicators import sus_climate_compute_indicators
 from .enrichment.fill_gaps import sus_fill_gaps
+from .enrichment.mod_af import sus_mod_af
+from .enrichment.mod_casecrossover import sus_mod_casecrossover
+from .enrichment.mod_dlnm import sus_mod_dlnm
+from .enrichment.mod_excess import sus_mod_excess
+from .enrichment.mod_its import sus_mod_its
+from .enrichment.mod_ml import sus_mod_ml, sus_mod_ml_predict
+from .enrichment.mod_sensitivity import sus_mod_sensitivity
 from .enrichment.mod_spatial_moran import sus_mod_spatial_moran
 from .enrichment.mod_spatial_reg import sus_mod_spatial_reg
 from .enrichment.mod_spatial_weights import sus_mod_spatial_weights
+from .enrichment.mod_swot import sus_mod_swot
+from .enrichment.mod_vulnerability_index import sus_mod_vulnerability_index
 from .enrichment.spatial import sus_spatial_join
 from .io.cache import sus_cache_clear, sus_cache_info
 from .io.export import sus_export
@@ -125,6 +134,17 @@ __all__ = [
     "sus_mod_spatial_weights",
     "sus_mod_spatial_moran",
     "sus_mod_spatial_reg",
+    # Exposure-response modelling — the sus_mod_dlnm() chain
+    "sus_mod_dlnm",
+    "sus_mod_af",
+    "sus_mod_sensitivity",
+    "sus_mod_casecrossover",
+    "sus_mod_its",
+    "sus_mod_excess",
+    "sus_mod_ml",
+    "sus_mod_ml_predict",
+    "sus_mod_vulnerability_index",
+    "sus_mod_swot",
     # Utilities
     "sus_explore",
     "sus_data_quality_report",

@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+### Added — API pública da cadeia de modelagem exposição-resposta
+
+Dez funções que já existiam passaram a ser exportadas: `sus_mod_dlnm()`, `sus_mod_af()`, `sus_mod_sensitivity()`, `sus_mod_casecrossover()`, `sus_mod_its()`, `sus_mod_excess()`, `sus_mod_ml()`, `sus_mod_ml_predict()`, `sus_mod_vulnerability_index()` e `sus_mod_swot()`. O `__all__` foi de 52 para 62 nomes.
+
+### Notes — validação da cadeia de modelagem contra o `climasus4r`
+
+Comparação com a **mesma série diária** nos dois lados (SP 2023, 365 dias, 14,24 óbitos/dia, 15 colunas de lag), para isolar o modelo da preparação de dados.
+
+**A reimplementação do DLNM está numericamente exata.** `sus_mod_dlnm()` reescreve `dlnm::crossbasis`/`crosspred` em numpy/statsmodels, e comparado com o pacote R `dlnm` 2.4.10 original os resultados são idênticos dentro de 1e-6: `exposure_response` 5/5 colunas, `lag_response` 5/5, `models` 12/12. O mesmo vale para `sus_mod_sensitivity()` (`rr_table` 9/9, `comparison` 11/11).
+
+**`sus_mod_af()` diverge sistematicamente — M24, prioridade alta.** Com o modelo abaixo comprovadamente exato, a fração atribuível não bate: `af` total +8%, `heat` −29%, `cold` +85%, e por quantil o desvio chega a +306% (Below P25). Não é ruído de Monte Carlo — a ordem `heat`/`cold` está invertida entre as duas linguagens, o desvio tem direção preferencial e os intervalos de confiança do Python cruzam zero, o que fração atribuível não admite. A divergência propaga para `sus_mod_excess()` (9–13%) e no `sus_mod_swot()` chega a mudar a categoria `O_cat`, virando diferença qualitativa.
+
+**`sus_mod_ml()`** tem paridade estrutural (`predictions` 361×4, `importance` 5×4 nos dois lados); valores não foram comparados porque XGBoost é estocástico.
+
+**Ressalvas de cobertura.** `sus_mod_vulnerability_index()` foi validada com **um único município**, o que torna a normalização minmax degenerada — a `vi_table` saiu idêntica, mas o normalizador não foi exercitado (M27). `sus_mod_its()` e `sus_mod_casecrossover()` rodam nos dois lados, mas o Python devolve classe própria em vez de `dict`, o que impediu a comparação tabela a tabela (M26). `sus_mod_burden()` continua stub no Python.
+
+### Fixed — `scipy` e `statsmodels` não estavam declarados no `pyproject.toml`
+
+Dez módulos do pacote importam `scipy` ou `statsmodels`, mas nenhuma das duas aparecia no `pyproject.toml`. Elas só chegavam ao ambiente **por carona** de outros pacotes — `scipy` via `geopandas`/`esda`/`libpysal`, `statsmodels` via `plotnine`/`spreg` —, então um `pip install climasus4py` limpo não as trazia.
+
+- **`scipy` foi para as dependências core.** Não é opcional: [`enrichment/climate_aggregate.py`](climasus4py/enrichment/climate_aggregate.py) faz `from scipy.spatial import cKDTree` **no nível de módulo**, e o `__init__.py` importa esse módulo. Sem `scipy`, portanto, o próprio `import climasus4py` falhava — a instalação produzia um pacote impossível de importar.
+- **`statsmodels` virou o extra `[model]`**, usado por `sus_mod_dlnm()`, `sus_mod_its()`, `sus_mod_casecrossover()` e `sus_mod_excess()`. Nesses casos o import é feito dentro das funções, que levantam `ImportError` com instrução de instalação — comportamento de dependência opcional, coerente com `[excel]` e `[ml]`. Incluído também em `[all]`.
+
+Nenhuma das duas é dependência nova: o código já as exigia. A correção apenas declara o que era fato.
+
 ### Added — API pública da cadeia de clima
 
 12 funções que já existiam no pacote passaram a ser exportadas em `climasus4py/__init__.py`. Antes elas só eram alcançáveis por import direto do submódulo (`from climasus4py.enrichment.climate_heatwaves import ...`); `cs.<função>` levantava `AttributeError`. O `__all__` foi de 39 para 51 nomes.
