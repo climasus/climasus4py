@@ -12,12 +12,19 @@
 
 ### Notes — validação da Fase 2 contra o `climasus4r`
 
-Resultado dos testes do lado Python (SIM-DO / SP / 2023). O lado R desta etapa ainda não foi comparado.
+Comparação R vs Python com SIM-DO / SP / 2023, parquets gerados pelos dois lados.
 
-- Funcionando: `sus_climate_fill_inmet()`, `sus_climate_compute_indicators()`, `sus_climate_normals()`, `sus_climate_normals_meta()`, `sus_climate_anomaly()`.
-- `sus_climate_fill_inmet()` exige o extra `[ml]`/`[xgboost]` e `sus_climate_normals()` o extra `[excel]` (lê planilhas do portal INMET). Ambos já estavam declarados no `pyproject.toml`; nenhuma dependência nova foi adicionada.
-- **`sus_climate_compute_heatwaves()` e `sus_climate_compute_coldwaves()` não funcionam com a saída de `sus_climate_inmet()`**: falham com `ValueError: Missing required columns: ['station_code']`, porque a saída canônica usa `wmo_code` (decisão registrada em [0.2.0a4]). Renomeando a coluna as duas rodam corretamente, então o nome é o único bloqueio — com os seis auxiliares, são oito funções afetadas. `sus_climate_anomaly()` sofre a versão branda: tem `station_col`, mas o default (`"station_code"`) está errado para a saída do próprio pacote. Registrado como **M10** no `MELHORIAS.csv`; não corrigido aqui porque escolher entre reverter para `station_code` (paridade com o R) ou atualizar os consumidores para `wmo_code` é decisão de paridade.
-- `sus_climate_uniplu()` não pôde ser avaliada: o download do UNIPLU-BR no Zenodo retorna `HTTP 403` (fonte externa, não erro de código).
+**Paridade confirmada.** `sus_climate_normals_meta()` é 100% idêntica (36 × 5, todos os valores). `sus_climate_compute_heatwaves()` e `sus_climate_compute_coldwaves()` produzem resultados idênticos aos do R — 103 e 128 eventos, 14.600 diários, 37 no summary, 309 e 384 dias ativos —, e `hw_active_days`/`hw_count_by_year`/`cw_active_days`/`cw_count_by_year` batem em 100% das colunas. Em `hw_get_events`/`cw_get_events`, 13–14 das 20 colunas são exatamente iguais; as numéricas divergentes são arredondamento float32 vs float64 (|diff| máx. 7,6e-06) e a única divergência real é o contador de `event_id`.
+
+**Divergência de cobertura.** `sus_climate_compute_indicators()` devolve 36 colunas contra 64 do R, com só 15 em comum: faltam 8 índices (`cdd_c`, `gdd_c`, `hdd_c`, `et_c`, `pet_c`, `utci_c`, `wcet_c`, `wct_c`), 30 flags de confiança e 8 classificações — consequência dos parâmetros ausentes na assinatura (`confidence_flags`, `verify_physics`, `region`, `apply_validity_mask`). Em contrapartida calcula 4 que o R não tem (`at_c`, `consecutive_hot_days`, `dpd_c`, `heat_wave`). Registrado como **M12**.
+
+**Bloqueio de nomenclatura (M10).** `sus_climate_compute_heatwaves()` e `sus_climate_compute_coldwaves()` exigem `station_code`, mas a saída canônica usa `wmo_code` (decisão registrada em [0.2.0a4]) — falham com `ValueError: Missing required columns: ['station_code']` e não expõem `station_col` para contornar. Renomear a coluna resolve, então o nome é o único bloqueio; com os seis auxiliares são oito funções afetadas. `sus_climate_anomaly()` sofre a versão branda: tem `station_col`, mas o default está errado para a saída do próprio pacote. Não corrigido aqui — escolher entre reverter para `station_code` (paridade com o R) ou atualizar os consumidores é decisão de paridade.
+
+**Correctness silencioso (M14).** Com `baseline_start="2023"` em vez de `"2023-01-01"`, `sus_climate_compute_heatwaves()` devolve zero eventos sem erro nem aviso; a mesma chamada com data completa devolve 103. O R recusa a entrada malformada com `"No data available in the specified baseline period."`
+
+**Dependências opcionais.** `sus_climate_fill_inmet()` exige o extra `[ml]`/`[xgboost]` e `sus_climate_normals()` o extra `[excel]`. Ambos já estavam declarados no `pyproject.toml` — nenhuma dependência nova foi adicionada. O R depende simetricamente dos pacotes `xgboost` e `readxl`, ausentes no ambiente de teste, então essas duas funções não puderam ser comparadas.
+
+**Fonte externa.** `sus_climate_uniplu()` falha nos dois lados com `HTTP 403` no download do UNIPLU-BR no Zenodo — falhar identicamente confirma problema da fonte, não de código.
 
 ## [0.2.0a4] - 2026-05-26
 
