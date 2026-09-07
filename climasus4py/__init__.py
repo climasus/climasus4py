@@ -25,11 +25,26 @@ from .core.meta import sus_meta
 from .core.pipeline import sus_pipeline
 from .core.standardize import sus_data_standardize
 from .core.sus_sql import sus_sql
+from .core.climate_normals import sus_climate_normals, sus_climate_normals_meta
+from .core.climate_uniplu import sus_climate_uniplu
 from .core.variables import sus_data_create_variables
 from .enrichment.census import sus_census
 from .enrichment.climate import sus_climate
 from .enrichment.climate_aggregate import sus_climate_aggregate, sus_climate_info
+from .enrichment.climate_anomaly import sus_climate_anomaly
+from .enrichment.climate_coldwaves import (
+    cw_active_days,
+    cw_count_by_year,
+    cw_get_events,
+    sus_climate_compute_coldwaves,
+)
 from .enrichment.climate_fill import sus_climate_fill_inmet
+from .enrichment.climate_heatwaves import (
+    hw_active_days,
+    hw_count_by_year,
+    hw_get_events,
+    sus_climate_compute_heatwaves,
+)
 from .enrichment.climate_indicators import sus_climate_compute_indicators
 from .enrichment.fill_gaps import sus_fill_gaps
 from .enrichment.mod_spatial_moran import sus_mod_spatial_moran
@@ -73,11 +88,25 @@ __all__ = [
     "sus_data_read",
     # Climate import
     "sus_climate_inmet",
+    "sus_climate_uniplu",
     # Climate analytics (parity with climasus4r legacy)
     "sus_climate_aggregate",
     "sus_climate_compute_indicators",
     "sus_climate_fill_inmet",
     "sus_climate_plot_fill",
+    # Climate normals & anomalies
+    "sus_climate_normals",
+    "sus_climate_normals_meta",
+    "sus_climate_anomaly",
+    # Heatwaves / coldwaves
+    "sus_climate_compute_heatwaves",
+    "hw_get_events",
+    "hw_active_days",
+    "hw_count_by_year",
+    "sus_climate_compute_coldwaves",
+    "cw_get_events",
+    "cw_active_days",
+    "cw_count_by_year",
     # Enrichment
     "sus_climate",
     "sus_spatial_join",
