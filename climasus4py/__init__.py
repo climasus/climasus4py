@@ -89,6 +89,9 @@ __all__ = [
     "sus_data_read",
     # Climate import
     "sus_climate_inmet",
+    # NOT VERIFIED — could not be run on either R or Python: the UNIPLU-BR
+    # download from Zenodo returns HTTP 403 (external source, not a code
+    # error). Exported so it is reachable, but its behaviour is unknown.
     "sus_climate_uniplu",
     # Climate analytics (parity with climasus4r legacy)
     "sus_climate_aggregate",
@@ -99,7 +102,11 @@ __all__ = [
     "sus_climate_normals",
     "sus_climate_normals_meta",
     "sus_climate_anomaly",
-    # Heatwaves / coldwaves
+    # Heatwaves / coldwaves — results validated against climasus4r (103 and
+    # 128 events, identical). BLOCKED in practice by M10: both require a
+    # ``station_code`` column while ``sus_climate_inmet()`` emits
+    # ``wmo_code``, and neither exposes a ``station_col`` argument. Rename
+    # the column until M10 is resolved.
     "sus_climate_compute_heatwaves",
     "hw_get_events",
     "hw_active_days",

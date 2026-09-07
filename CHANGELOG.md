@@ -26,6 +26,23 @@ Comparação R vs Python com SIM-DO / SP / 2023, parquets gerados pelos dois lad
 
 **Fonte externa.** `sus_climate_uniplu()` falha nos dois lados com `HTTP 403` no download do UNIPLU-BR no Zenodo — falhar identicamente confirma problema da fonte, não de código.
 
+### Status de verificação das 13 funções exportadas
+
+| Função | Verificada contra o R? |
+|---|---|
+| `sus_climate_normals_meta` | Sim — 100% idêntica (36 × 5, todos os valores) |
+| `sus_climate_normals` | Sim — 105.438 × 11 nos dois lados, 99,91% das células (ver M22) |
+| `sus_climate_anomaly` | Sim — 480 × 16 nos dois lados |
+| `sus_climate_compute_heatwaves` | Sim — 103 eventos nos dois lados. **Bloqueada por M10** |
+| `sus_climate_compute_coldwaves` | Sim — 128 eventos nos dois lados. **Bloqueada por M10** |
+| `hw_active_days`, `hw_count_by_year` | Sim — 100% das colunas idênticas |
+| `cw_active_days`, `cw_count_by_year` | Sim — 100% das colunas idênticas |
+| `hw_get_events`, `cw_get_events` | Sim — só o contador de `event_id` difere |
+| `sus_data_ts_quality` | Sim — mesmos 4 componentes, assinatura idêntica |
+| **`sus_climate_uniplu`** | **Não — nunca executada em nenhum dos dois lados** |
+
+`sus_climate_uniplu()` está exportada para ficar alcançável, mas **seu comportamento é desconhecido**: o download do Zenodo retorna `HTTP 403` e não foi possível executá-la nem no R nem no Python. Deve ser revalidada quando a fonte voltar, antes de ser considerada em paridade.
+
 ## [0.2.0a4] - 2026-05-26
 
 ### Fixed - INMET header correctness
