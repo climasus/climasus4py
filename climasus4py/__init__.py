@@ -91,6 +91,16 @@ from .utils.quality import sus_data_quality_report
 from .utils.welcome import sus_welcome
 from .utils.ts_quality import sus_data_ts_quality
 from .viz.climate_plot import sus_climate_plot_fill
+from .viz.climate_plot_aggregate import sus_climate_plot_aggregate
+from .viz.climate_plot_coldwaves import sus_climate_plot_coldwaves
+from .viz.climate_plot_heatwaves import sus_climate_plot_heatwaves
+from .viz.mod_plot_af import sus_mod_plot_af
+from .viz.mod_plot_burden import sus_mod_plot_burden
+from .viz.mod_plot_dlnm import sus_mod_plot_dlnm
+from .viz.mod_plot_ml import sus_mod_plot_ml
+from .viz.mod_plot_sensitivity import sus_mod_plot_sensitivity
+from .viz.mod_plot_spatial_moran import sus_mod_plot_spatial_moran
+from .viz.mod_plot_swot import sus_mod_plot_swot
 from .viz.plot_demographics import sus_data_plot_demographics
 from .viz.plot_aggregate_ts import sus_data_plot_aggregate_ts
 from .viz.plot_aggregate_map import sus_data_plot_aggregate_map
@@ -195,6 +205,18 @@ __all__ = [
     "list_disease_groups",
     "get_disease_group_details",
     "sus_data_cid_select",
+    # viz — clima
+    "sus_climate_plot_aggregate",
+    "sus_climate_plot_coldwaves",
+    "sus_climate_plot_heatwaves",
+    # viz — modelagem
+    "sus_mod_plot_dlnm",
+    "sus_mod_plot_af",
+    "sus_mod_plot_burden",
+    "sus_mod_plot_sensitivity",
+    "sus_mod_plot_ml",
+    "sus_mod_plot_spatial_moran",
+    "sus_mod_plot_swot",
     # viz
     "sus_data_plot_demographics",
     "sus_data_plot_aggregate_ts",

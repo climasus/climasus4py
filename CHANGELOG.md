@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Added — API pública dos gráficos
+
+Dez funções de plotagem passaram a ser exportadas (`__all__` de 79 para 89): `sus_climate_plot_aggregate()`, `sus_climate_plot_coldwaves()`, `sus_climate_plot_heatwaves()`, `sus_mod_plot_dlnm()`, `sus_mod_plot_af()`, `sus_mod_plot_burden()`, `sus_mod_plot_sensitivity()`, `sus_mod_plot_ml()`, `sus_mod_plot_spatial_moran()` e `sus_mod_plot_swot()`.
+
+### Notes — verificação dos gráficos: geração apenas
+
+**Escopo deliberadamente limitado — M47.** Os gráficos foram testados apenas quanto à **geração**: a função roda e escreve um PNG. Nada do conteúdo foi comparado — nem eixos, nem escalas, nem valores plotados. As dez que passam aparecem com marcador de sucesso no controle, mas a evidência é *"gera arquivo"*, não *"produz o gráfico correto"*. O lado R não foi executado nesta rodada.
+
+**Dez das treze geram**: `sus_climate_plot_fill` (68 KB), `sus_climate_plot_aggregate` (71 KB), `sus_climate_plot_heatwaves` (50 KB), `sus_data_plot_aggregate_ts` (41 KB), `sus_mod_plot_dlnm` (48 KB), `sus_mod_plot_af` (20 KB), `sus_mod_plot_ml` (28 KB), `sus_mod_plot_sensitivity` (43 KB), `sus_mod_plot_swot` (36 KB) e `sus_mod_plot_spatial_moran` (três variantes: padrão, `scatter` e `map`).
+
+**`sus_data_plot_aggregate_map()` nunca funciona — M45, prioridade alta.** Falha sempre com `FileNotFoundError: municipio_meta.parquet not found`, mas o arquivo existe em `climasus-data/assets/spatial/municipio_meta.parquet` (197 KB). A causa está em [`viz/plot_aggregate_map.py`](climasus4py/viz/plot_aggregate_map.py) linha 108: o caminho é montado a partir de `climasus_data.__file__`, resolvendo para `climasus-data/src/climasus_data/assets/spatial/`, diretório que não existe — enquanto o resto do pacote usa `data_path()`, que resolve corretamente. O erro é 100% reprodutível, não depende de dado nem de ambiente, e a mensagem sugere dado faltando, mandando o usuário procurar no lugar errado. Correção de uma linha; vale varrer o pacote por outros usos de `climasus_data.__file__`.
+
+**`sus_climate_plot_coldwaves()` quebra na escala — M46.** `TypeError: Continuous value supplied to discrete scale`. A gêmea `sus_climate_plot_heatwaves()`, chamada com a mesma forma e o mesmo tipo de entrada, gera normalmente — o que isola o defeito no código do plot de ondas de frio e dá uma referência direta para o conserto.
+
+**`sus_mod_plot_burden()`** não é testável: depende de `sus_mod_burden()`, que é stub.
+
+**Inconsistências de assinatura encontradas no caminho.** `sus_climate_plot_heatwaves()` e `sus_climate_plot_coldwaves()` **não têm parâmetro `verbose`**, ao contrário do resto da família. `sus_climate_plot_fill()` exige três argumentos obrigatórios (`df_filled`, `df_original` e `target_var`). `sus_mod_plot_spatial_moran()` usa `(x, municipalities, type)` e não aceita `var`.
+
 ### Added — índices de seca padronizados
 
 `sus_climate_compute_spi()` e `sus_climate_compute_spei()` passaram a ser exportadas (`__all__` de 77 para 79).
