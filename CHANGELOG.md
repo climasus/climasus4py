@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased]
+
+### Added — API pública da cadeia de clima
+
+12 funções que já existiam no pacote passaram a ser exportadas em `climasus4py/__init__.py`. Antes elas só eram alcançáveis por import direto do submódulo (`from climasus4py.enrichment.climate_heatwaves import ...`); `cs.<função>` levantava `AttributeError`. O `__all__` foi de 39 para 51 nomes.
+
+- **Normais climatológicas e anomalias** — `sus_climate_normals()`, `sus_climate_normals_meta()`, `sus_climate_anomaly()`.
+- **Ondas de calor e de frio** — `sus_climate_compute_heatwaves()`, `sus_climate_compute_coldwaves()` e os seis auxiliares `hw_get_events()`, `hw_active_days()`, `hw_count_by_year()`, `cw_get_events()`, `cw_active_days()`, `cw_count_by_year()`.
+- **Fonte alternativa de chuva** — `sus_climate_uniplu()`.
+
+### Notes — validação da Fase 2 contra o `climasus4r`
+
+Resultado dos testes do lado Python (SIM-DO / SP / 2023). O lado R desta etapa ainda não foi comparado.
+
+- Funcionando: `sus_climate_fill_inmet()`, `sus_climate_compute_indicators()`, `sus_climate_normals()`, `sus_climate_normals_meta()`, `sus_climate_anomaly()`.
+- `sus_climate_fill_inmet()` exige o extra `[ml]`/`[xgboost]` e `sus_climate_normals()` o extra `[excel]` (lê planilhas do portal INMET). Ambos já estavam declarados no `pyproject.toml`; nenhuma dependência nova foi adicionada.
+- **`sus_climate_compute_heatwaves()` e `sus_climate_compute_coldwaves()` não funcionam com a saída de `sus_climate_inmet()`**: falham com `ValueError: Missing required columns: ['station_code']`, porque a saída canônica usa `wmo_code` (decisão registrada em [0.2.0a4]). Renomeando a coluna as duas rodam corretamente, então o nome é o único bloqueio — com os seis auxiliares, são oito funções afetadas. `sus_climate_anomaly()` sofre a versão branda: tem `station_col`, mas o default (`"station_code"`) está errado para a saída do próprio pacote. Registrado como **M10** no `MELHORIAS.csv`; não corrigido aqui porque escolher entre reverter para `station_code` (paridade com o R) ou atualizar os consumidores para `wmo_code` é decisão de paridade.
+- `sus_climate_uniplu()` não pôde ser avaliada: o download do UNIPLU-BR no Zenodo retorna `HTTP 403` (fonte externa, não erro de código).
+
 ## [0.2.0a4] - 2026-05-26
 
 ### Fixed - INMET header correctness
