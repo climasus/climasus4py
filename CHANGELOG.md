@@ -16,7 +16,15 @@ Dez funções de plotagem passaram a ser exportadas (`__all__` de 79 para 89): `
 
 **`sus_climate_plot_coldwaves()` quebra na escala — M46.** `TypeError: Continuous value supplied to discrete scale`. A gêmea `sus_climate_plot_heatwaves()`, chamada com a mesma forma e o mesmo tipo de entrada, gera normalmente — o que isola o defeito no código do plot de ondas de frio e dá uma referência direta para o conserto.
 
-**`sus_mod_plot_burden()`** não é testável: depende de `sus_mod_burden()`, que é stub.
+**`sus_mod_plot_burden()`** não é testável no Python: depende de `sus_mod_burden()`, que é stub. No R gera normalmente (7 KB) — é o caso inverso do usual, com o R tendo a funcionalidade completa.
+
+**Cruzamento com o lado R** (9 das 13 geram lá): sete geram em **ambos** (`climate_plot_aggregate`, `data_plot_aggregate_ts`, `mod_plot_dlnm`, `mod_plot_af`, `mod_plot_ml`, `mod_plot_sensitivity`, `mod_plot_swot`); três só no Python (`climate_plot_fill`, `climate_plot_heatwaves`, `mod_plot_spatial_moran`); duas só no R (`data_plot_aggregate_map`, `mod_plot_burden`); e uma em nenhum (`climate_plot_coldwaves`, por causas diferentes em cada lado). O R gerar o `aggregate_map` confirma que o dado do M45 existe e está acessível — o `FileNotFoundError` do Python é defeito de código, não de dado.
+
+**`interactive` entrega coisas diferentes com o mesmo valor — M48.** O default é `TRUE`/`True` nos dois lados para o gráfico de ondas de calor, mas o R **aborta** exigindo `plotly` enquanto o Python devolve um ggplot **estático sem avisar** que ignorou o pedido de interatividade. `sus_climate_plot_fill` tem natureza parecida: o R exige `DT` porque seu `output_type` aceita `plot`/`table`/`metrics`/`all`, e o Python aceita apenas `"plot"` — escopo menor, não defeito. Há ainda assimetria interna no Python: `sus_climate_plot_coldwaves` **não tem** o parâmetro `interactive`, enquanto sua gêmea `sus_climate_plot_heatwaves` tem, e o R tem nos dois.
+
+**Correção a uma nota anterior:** a ausência de `verbose` nos gráficos de onda de calor e de frio **não** é inconsistência introduzida no Python — conferido nas `formals` do R, essas duas também não têm `verbose` lá. É comportamento herdado.
+
+**Observação para a comparação futura:** `data_plot_aggregate_ts` e `mod_plot_dlnm` devolvem objetos `patchwork` no R (composição de subpainéis) e `ggplot` simples no Python, e os PNGs do R são consistentemente menores (8–29 KB contra 20–48 KB). Pode indicar densidade de conteúdo diferente, não apenas resolução.
 
 **Inconsistências de assinatura encontradas no caminho.** `sus_climate_plot_heatwaves()` e `sus_climate_plot_coldwaves()` **não têm parâmetro `verbose`**, ao contrário do resto da família. `sus_climate_plot_fill()` exige três argumentos obrigatórios (`df_filled`, `df_original` e `target_var`). `sus_mod_plot_spatial_moran()` usa `(x, municipalities, type)` e não aceita `var`.
 
