@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Added — API pública das grades raster e o extra `[grid]`
+
+As 11 funções `sus_grid_*` passaram a ser exportadas (`__all__` de 66 para 77): `sus_grid_era5()`, `sus_grid_chirps()`, `sus_grid_fires()`, `sus_grid_koppen()`, `sus_grid_pdsi()`, `sus_grid_prodes()`, `sus_grid_smvi()`, `sus_grid_pollution_ghap()`, `sus_grid_pollution_cams()`, `sus_grid_pollution_merra2()` e `sus_grid_join()`. O código já existia no repositório desde `e3538c3`, mas sem import no `__init__.py`.
+
+### Fixed — dependências de raster não declaradas, incluindo o engine NetCDF
+
+Criado o extra **`[grid]`**: `climasus4py[spatial]`, `xarray`, `rioxarray`, `exactextract`, `pyproj` e `netCDF4`. As quatro primeiras eram usadas pelas funções `sus_grid_*` sem estar declaradas — chegavam ao ambiente só por carona. Todos os imports dessas libs são **lazy**, dentro das funções, então a ausência não quebrava `import climasus4py` (diferente do caso do `scipy`).
+
+O caso do **`netCDF4`** é o mais relevante: sem engine, `sus_grid_pdsi()` **baixava o arquivo TerraClimate `.nc` com sucesso e falhava na leitura**, com o `xarray` apontando a própria documentação de instalação — mensagem incompreensível para quem não conhece o ecossistema, e só depois de gastar o download. Com o engine instalado a função devolve os valores esperados. O mesmo vale para `sus_grid_era5()`, que também lê `.nc`.
+
+### Notes — validação das grades raster contra o `climasus4r`
+
+Escopo mínimo (2023, mês 1, cinco municípios da RM de São Paulo) para não baixar raster do país inteiro. **Quatro das onze funções puderam ser executadas.**
+
+**`sus_grid_chirps()` tem paridade.** Os dois lados devolvem 5 × 3 com as mesmas colunas, e a chuva difere no máximo 0,054 mm sobre ~274 mm — diferença relativa de 0,026%, atribuível à precisão da extração raster (`exactextract` no Python, `exactextractr` no R). No R foi preciso instalar `exactextractr` 0.10.1.
+
+**`sus_grid_join()` não duplica linhas** (5.197 → 5.197), em contraste com `sus_census()` (M37). Exige ponte manual: a função pede `code_muni` e `date` onde o pipeline entrega `occurrence_municipality_code` e `death_date`, com o desalinhamento de 6 contra 7 dígitos — cenário do M1.
+
+**Seis funções estão inacessíveis por fonte externa — M41.** Quatro falham com `HTTP 403` no **Zenodo** (`era5`, `pollution_cams`, `pollution_ghap` e, do bloco anterior, `sus_climate_uniplu`): mesmo erro, mesmo provedor, todas buscando dados derivados publicados pelo autor do pacote — o que aponta causa única e não quatro problemas. `sus_grid_fires()` recebe `HTTP 404` de `queimadas.dgi.inpe.br/api/focos/`, e um 404 indica endpoint inexistente nesse caminho, isto é URL provavelmente desatualizada no código — este parece corrigível do nosso lado. `sus_grid_smvi()` baixa 109 MB e não encontra CSV após extração; `sus_grid_pollution_merra2()` exige conta NASA Earthdata. Todas reportaram a falha com mensagem clara e classificaram 403 como permanente.
+
+**`sus_grid_pdsi()` e `sus_grid_koppen()` funcionam no Python e falham no R — M42**, invertendo o padrão usual. No `koppen` a assinatura do R tem `koppen_sf`, que talvez precise ser fornecido explicitamente; vale reteste antes de tratar como defeito.
+
 ### Added — API pública de censo e socioeconômico
 
 Três funções que já existiam passaram a ser exportadas: `sus_census_select()`, `sus_socio_compute_indicators()` e `sus_socio_list_indicators()`. O `__all__` foi de 63 para 66 nomes.

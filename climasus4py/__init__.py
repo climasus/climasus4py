@@ -47,6 +47,17 @@ from .enrichment.climate_heatwaves import (
 )
 from .enrichment.climate_indicators import sus_climate_compute_indicators
 from .enrichment.fill_gaps import sus_fill_gaps
+from .enrichment.grid_chirps import sus_grid_chirps
+from .enrichment.grid_era5 import sus_grid_era5
+from .enrichment.grid_fires import sus_grid_fires
+from .enrichment.grid_join import sus_grid_join
+from .enrichment.grid_koppen import sus_grid_koppen
+from .enrichment.grid_pdsi import sus_grid_pdsi
+from .enrichment.grid_pollution_cams import sus_grid_pollution_cams
+from .enrichment.grid_pollution_ghap import sus_grid_pollution_ghap
+from .enrichment.grid_pollution_merra2 import sus_grid_pollution_merra2
+from .enrichment.grid_prodes import sus_grid_prodes
+from .enrichment.grid_smvi import sus_grid_smvi
 from .enrichment.mod_af import sus_mod_af
 from .enrichment.mod_casecrossover import sus_mod_casecrossover
 from .enrichment.mod_dlnm import sus_mod_dlnm
@@ -140,6 +151,18 @@ __all__ = [
     "sus_socio_list_indicators",
     "sus_fill_gaps",
     "sus_climate_info",
+    # Grades raster (sus_grid_*) — imports das libs sao lazy; exige o extra [grid]
+    "sus_grid_era5",
+    "sus_grid_chirps",
+    "sus_grid_fires",
+    "sus_grid_koppen",
+    "sus_grid_pdsi",
+    "sus_grid_prodes",
+    "sus_grid_smvi",
+    "sus_grid_pollution_ghap",
+    "sus_grid_pollution_cams",
+    "sus_grid_pollution_merra2",
+    "sus_grid_join",
     # Spatial modelling (sus_mod_*)
     "sus_mod_spatial_weights",
     "sus_mod_spatial_moran",
