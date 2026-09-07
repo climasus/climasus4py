@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Added — índices de seca padronizados
+
+`sus_climate_compute_spi()` e `sus_climate_compute_spei()` passaram a ser exportadas (`__all__` de 77 para 79).
+
+### Notes — validação do SPI e do SPEI contra o `climasus4r`
+
+Entrada **idêntica** nos dois lados: série mensal de CHIRPS com 480 linhas (96 meses de 2016-01 a 2023-12 × 5 municípios da RM de São Paulo), escalas 1, 3, 6 e 12 meses.
+
+**`sus_climate_compute_spi()` tem paridade numérica exata.** 100% dos valores idênticos dentro de 1e-6 nas quatro escalas — 480/480, 470/470, 455/455 e 425/425 —, com `|diff|` máxima 0,0000. É a primeira função com paridade exata em **cálculo estatístico**, e não apenas em tabela de metadados.
+
+**`sus_climate_compute_spei()` espelha o extremo úmido — M43.** 99% dos valores batem, e a divergência é assimétrica: no lado seco são **zero** divergências em 240 valores; no lado úmido são exatamente **5**, e essas 5 linhas são o mês mais chuvoso de cada município. Todas recebem o mesmo valor no Python — `2,561682`, que é exatamente `−(mínimo global)` — enquanto o R devolve `2,153875`. O Python dá média exatamente `0,0000` e amplitude perfeitamente simétrica; o R dá `−0,0042` e amplitude assimétrica, que é o que um índice ajustado a dados reais deve ter. Como o SPI compartilha o mesmo mecanismo de padronização e bate 100%, a falha está na camada do SPEI e não no núcleo comum.
+
+**`sus_climate_inmet()` estoura memória com 8 anos — M44, prioridade alta.** Reproduzível por quantidade de anos com `uf="SP"`: 1 ano funciona (350.400 linhas), 3 anos funcionam (1.051.200), 8 anos falham com `OutOfMemoryException`. A mensagem reporta apenas ~91 MiB em uso, quando o `memory_limit` efetivo da conexão é 6,2 GiB — a contabilidade do erro não reflete o limite global. Isso importa porque SPI e SPEI exigem `min_n = 24` meses e o uso típico é com décadas de série: a função de importação de clima limita a análise a ~3 anos numa biblioteca cujo propósito é estudo clima-saúde plurianual. Para testar o bloco foi preciso agregar ano a ano.
+
 ### Added — API pública das grades raster e o extra `[grid]`
 
 As 11 funções `sus_grid_*` passaram a ser exportadas (`__all__` de 66 para 77): `sus_grid_era5()`, `sus_grid_chirps()`, `sus_grid_fires()`, `sus_grid_koppen()`, `sus_grid_pdsi()`, `sus_grid_prodes()`, `sus_grid_smvi()`, `sus_grid_pollution_ghap()`, `sus_grid_pollution_cams()`, `sus_grid_pollution_merra2()` e `sus_grid_join()`. O código já existia no repositório desde `e3538c3`, mas sem import no `__init__.py`.

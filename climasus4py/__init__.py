@@ -39,6 +39,8 @@ from .enrichment.climate_coldwaves import (
     sus_climate_compute_coldwaves,
 )
 from .enrichment.climate_fill import sus_climate_fill_inmet
+from .enrichment.climate_spei import sus_climate_compute_spei
+from .enrichment.climate_spi import sus_climate_compute_spi
 from .enrichment.climate_heatwaves import (
     hw_active_days,
     hw_count_by_year,
@@ -128,6 +130,9 @@ __all__ = [
     "sus_climate_normals",
     "sus_climate_normals_meta",
     "sus_climate_anomaly",
+    # Indices de seca padronizados (exigem serie MENSAL longa, min_n=24)
+    "sus_climate_compute_spi",
+    "sus_climate_compute_spei",
     # Heatwaves / coldwaves — results validated against climasus4r (103 and
     # 128 events, identical). BLOCKED in practice by M10: both require a
     # ``station_code`` column while ``sus_climate_inmet()`` emits
