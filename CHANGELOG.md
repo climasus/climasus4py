@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Notes — fim da fase de testes de paridade
+
+Fechadas as últimas seis funções testáveis. **84 de 115 linhas de controle verificadas (73%)**; as 31 restantes são 13 stubs e 18 funções ausentes no Python, que entram na fase de implementação.
+
+**Quatro funcionam.** `sus_explore()` (43 sistemas, 5 regiões), `sus_sql()` nos dois modos — atenção ao placeholder, que é `{data}` e não `{}` —, `sus_mod_ml_predict()` (média 13,81 contra 13,10 observados) e `sus_fill_gaps()`, que reduziu os NAs de temperatura de 18.092 para 4.938. Esse número é o mesmo que `sus_climate_fill_inmet()` imputa: as duas atacam a mesma lacuna por métodos diferentes — interpolação e XGBoost — e sobram 4.938 que a interpolação não cobre.
+
+**`sus_climate()` amplia o M44.** Estourou no mesmo teto de 91,5 MiB, agora com entrada de apenas 5.197 linhas. Isso muda o diagnóstico: o problema não é volume de anos em `sus_climate_inmet()`, é um orçamento de ~91 MiB em algum ponto do caminho DuckDB, muito abaixo do `memory_limit` de 6,2 GiB da conexão. Descobrir onde esse teto é imposto passou a ser a pergunta central.
+
+**`sus_grid_prodes()` é a única grade consertável do nosso lado — M49.** Diferente das seis bloqueadas por fonte externa (M41), aqui o download do TerraBrasilis funciona; o que falha é a interseção espacial, com `df1 contains mixed geometry types`. A camada do PRODES traz tipos geométricos misturados e o overlay do geopandas recusa. Normalizar com `explode()`/`make_valid()` antes da interseção é tratamento defensivo padrão.
+
+**M50 — parâmetros de lista aceitam string e iteram caractere a caractere.** Passar `biomes="MataAtlantica"` produz `'biomes' inválido: M, a, t, A, l, n, i, c`, listando como inválidas as letras de um nome que está na própria lista de válidos. Mesma classe do `lag_days` de `sus_climate_aggregate()`, que exige lista e quebra com `int`. O R é naturalmente tolerante aqui, porque em R um escalar já é um vetor de tamanho 1.
+
 ### Added — API pública dos gráficos
 
 Dez funções de plotagem passaram a ser exportadas (`__all__` de 79 para 89): `sus_climate_plot_aggregate()`, `sus_climate_plot_coldwaves()`, `sus_climate_plot_heatwaves()`, `sus_mod_plot_dlnm()`, `sus_mod_plot_af()`, `sus_mod_plot_burden()`, `sus_mod_plot_sensitivity()`, `sus_mod_plot_ml()`, `sus_mod_plot_spatial_moran()` e `sus_mod_plot_swot()`.
