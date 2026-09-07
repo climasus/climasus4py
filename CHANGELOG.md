@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Added — API pública de censo e socioeconômico
+
+Três funções que já existiam passaram a ser exportadas: `sus_census_select()`, `sus_socio_compute_indicators()` e `sus_socio_list_indicators()`. O `__all__` foi de 63 para 66 nomes.
+
+### Notes — validação de censo e socioeconômico contra o `climasus4r`
+
+**`sus_socio_list_indicators()` tem paridade exata.** 22 × 9 nos dois lados, mesmos 22 identificadores e todas as 8 colunas de valor idênticas (o `multiplier` difere só em dtype — `int64` no Python, `float64` no R).
+
+**`sus_census()` duplica todas as linhas no caminho default — M37, prioridade alta.** Com `year=None` (o default), uma entrada de 5.197 linhas sai com 10.375, fator exatamente 2,00×: 5.178 registros aparecem duas vezes, cada cópia com valores diferentes de `population_2010`, `gini`, `income_per_capita` e `pct_urban`. A tabela de censo tem duas safras por município (2010 e 2022) e o default não desambigua. Com `year=2010` ou `year=2022` explícito o resultado volta a 5.197 (1,00×). O R não tem o problema: `sus_census_join(year = 2010)` devolveu 5.196 para 5.196 de entrada. Como o default é o caminho que se usa primeiro, qualquer análise socioeconômica sai com o dobro dos eventos e indicadores misturados entre duas safras, sem aviso.
+
+Há também divergência de contrato: o R tem 13 parâmetros e **baixa** o censo via `censobr`; o Python tem 4 e **espera receber** o censo pronto. No R a função é a porta de entrada do censo, no Python é só o join — o que explica a diferença de colunas (146 contra 118).
+
+**`sus_census_select()` está bloqueada no Python — M38.** Procura cinco dicionários que não existem no `climasus-data` (`dictionaries/pt-en/census_{population,households,families,mortality,emigration}.json`) e aborta. O R funciona (304 × 8) porque traz os dicionários embutidos no pacote. Não é defeito de código: é metadado ausente no repositório compartilhado.
+
+**`sus_socio_compute_indicators()` não foi testada com entrada válida — M39.** A chamada usou dado de saúde onde a função espera dado pós-censo. O erro do R foi informativo de um jeito que o do Python não: `"Current stage 'derive' is below required 'spatial'"` contra `"No indicators available with the current columns"`. É evidência direta de que o guard de estágio do R está ativo e o `assert_after()` do Python nunca é chamado — o que reforça M34 e as duas observações de [`IDEIAS.md`](IDEIAS.md).
+
 ### Added — `sus_welcome()` exportada
 
 A função já existia em `utils/welcome.py` com assinatura equivalente à do R (`lang`, `output`, `open`), mas não tinha import no `__init__.py`. O `__all__` foi de 62 para 63 nomes.

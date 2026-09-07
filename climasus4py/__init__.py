@@ -59,6 +59,10 @@ from .enrichment.mod_spatial_reg import sus_mod_spatial_reg
 from .enrichment.mod_spatial_weights import sus_mod_spatial_weights
 from .enrichment.mod_swot import sus_mod_swot
 from .enrichment.mod_vulnerability_index import sus_mod_vulnerability_index
+from .enrichment.socio_indicators import (
+    sus_socio_compute_indicators,
+    sus_socio_list_indicators,
+)
 from .enrichment.spatial import sus_spatial_join
 from .io.cache import sus_cache_clear, sus_cache_info
 from .io.export import sus_export
@@ -67,6 +71,7 @@ from .io.read import sus_data_read
 from .utils import update_climasus_data
 from .utils.chat import sus_chat
 from .utils.disease_groups import get_disease_group_details, list_disease_groups
+from .utils.census_select import sus_census_select
 from .utils.cid_select import sus_data_cid_select
 from .utils.explore import sus_explore
 from .utils.quality import sus_data_quality_report
@@ -129,6 +134,10 @@ __all__ = [
     "sus_climate",
     "sus_spatial_join",
     "sus_census",
+    "sus_census_select",
+    # Socioeconomico
+    "sus_socio_compute_indicators",
+    "sus_socio_list_indicators",
     "sus_fill_gaps",
     "sus_climate_info",
     # Spatial modelling (sus_mod_*)
