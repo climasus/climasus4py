@@ -70,6 +70,7 @@ from .utils.disease_groups import get_disease_group_details, list_disease_groups
 from .utils.cid_select import sus_data_cid_select
 from .utils.explore import sus_explore
 from .utils.quality import sus_data_quality_report
+from .utils.welcome import sus_welcome
 from .utils.ts_quality import sus_data_ts_quality
 from .viz.climate_plot import sus_climate_plot_fill
 from .viz.plot_demographics import sus_data_plot_demographics
@@ -150,6 +151,7 @@ __all__ = [
     "sus_data_quality_report",
     "sus_data_ts_quality",
     "sus_chat",
+    "sus_welcome",
     "update_climasus_data",
     # Metadata & disease groups (parity C)
     "sus_meta",

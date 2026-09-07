@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Added — `sus_welcome()` exportada
+
+A função já existia em `utils/welcome.py` com assinatura equivalente à do R (`lang`, `output`, `open`), mas não tinha import no `__init__.py`. O `__all__` foi de 62 para 63 nomes.
+
+### Notes — validação dos utilitários contra o `climasus4r`
+
+`sus_welcome()` tem paridade limpa: os dois lados imprimem o painel no console e devolvem `None`/`NULL`.
+
+**`sus_meta()` divergente em campos e vocabulário — M34.** O metadado do R tem 13 campos contra 5 do Python, e `sus_meta(valid_values="stage")` lista **10 estágios** no R (`import`, `clean`, `stand`, `filter_cid`, `filter_demo`, `derive`, `aggregate`, `spatial`, `climate`, `census`) contra os 6 de `CANONICAL_STAGES`. Além da contagem, os nomes divergem (`stand`/`standardize`, `derive`/`variables`, e o R separa `filter_cid` de `filter_demo`) — e os três que o R trata como canônicos (`spatial`, `climate`, `census`) são justamente os que o Python grava fora da própria lista, o que conecta às duas observações registradas em [`IDEIAS.md`](IDEIAS.md). O campo `type` também usa vocabulário diferente: `"raw"` no R, `"health"` no Python.
+
+**`sus_chat()` com contratos incompatíveis — M36.** No R depende de `rstudioapi` para abrir um painel dentro do RStudio e falha fora dele; no Python devolve a string da URL, sem efeito colateral. Mesma intenção, nada em comum.
+
+**Bug no lado R nas funções de cache — M35.** `sus_cache_info()` reportou `file_count = 0` para um cache com 97 arquivos e 470 MB, porque a varredura não é recursiva e não há arquivos na raiz do diretório. `sus_cache_clear()` sofre do mesmo problema e não apagou arquivos em subdiretório. Do lado Python ficam duas ressalvas de desenho: o default de `cache_dir` é `dados/cache`, **relativo ao diretório de trabalho** (o R usa `~/.climasus4r_cache`), e a função apaga sem confirmação nem `dry-run`. Os parâmetros de filtro também não têm interseção (`older_than_days` no R contra `system`/`uf`/`before` no Python).
+
 ### Added — API pública da cadeia de modelagem exposição-resposta
 
 Dez funções que já existiam passaram a ser exportadas: `sus_mod_dlnm()`, `sus_mod_af()`, `sus_mod_sensitivity()`, `sus_mod_casecrossover()`, `sus_mod_its()`, `sus_mod_excess()`, `sus_mod_ml()`, `sus_mod_ml_predict()`, `sus_mod_vulnerability_index()` e `sus_mod_swot()`. O `__all__` foi de 52 para 62 nomes.
