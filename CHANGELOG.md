@@ -2,6 +2,57 @@
 
 ## [Unreleased]
 
+### Fixed — o teto de ~91 MiB tinha nome e endereço (M44)
+
+**Não havia orçamento misterioso do DuckDB.** `_process_year()`, em
+[`core/climate_inmet.py`](climasus4py/climasus4py/core/climate_inmet.py), aplicava seis `SET`
+direto na conexão de `get_connection()` — que é uma **singleton do processo** — e nunca desfazia:
+`memory_limit='96MB'` (que o DuckDB reporta como 91,5 MiB, exatamente o número que aparecia nas
+mensagens de erro), `threads=1`, os dois `allocator_*_flush_threshold` em `1MB`,
+`enable_external_file_cache=false` e `preserve_insertion_order=false`.
+
+Medido: antes de `sus_climate_inmet()` a conexão estava em **6,2 GiB / 8 threads**; depois, em
+**91,5 MiB / 1 thread**. Uma única chamada rebaixava a sessão inteira em 68× de memória e 8× de
+paralelismo, e tudo que rodasse depois herdava isso. É por isso que `sus_climate()` estourava com
+5.197 linhas — o defeito nunca esteve nele.
+
+**Havia um segundo ponto de fuga**, em `_match_spatial()` de
+[`enrichment/climate_aggregate.py`](climasus4py/climasus4py/enrichment/climate_aggregate.py), com
+`memory_limit='2GB'`, `threads=2` e `preserve_insertion_order=false`. Com os dois vazando, o
+estado final da sessão passava a depender da **ordem das chamadas**: `inmet` e depois `aggregate`
+deixava 2 GB; na ordem inversa, 96 MB.
+
+A correção é o gerenciador de contexto `duckdb_settings()` novo em
+[`core/engine.py`](climasus4py/climasus4py/core/engine.py), que captura, aplica e restaura —
+inclusive quando o corpo levanta exceção. O orçamento apertado continua valendo para o passo que
+precisa dele: é deliberado, faz o DuckDB derramar em disco em vez de segurar tudo na RAM. Só
+deixou de valer para o resto da sessão.
+
+**A cadeia que falhava agora roda:** `sus_climate_inmet` → `sus_data_standardize` →
+`sus_spatial_join` → `sus_climate` devolve `(5197, 91)`, contra `OutOfMemoryException` antes. A
+relação do INMET materializa suas 350.400 linhas com o orçamento cheio.
+
+**O que ficou sem verificar, e por isso o M44 está marcado como parcial:** a afirmação original
+era que `sus_climate_inmet()` estoura com 8 anos. Reverificar exige baixar 8 anos de INMET — não
+há cache de download na máquina, o teste de 2023 leu do asset empacotado do `climasus-data`. A
+falha dos 8 anos era provavelmente no passo de união/materialização, que agora roda com o
+orçamento cheio em vez dos 96 MB, mas isso é inferência e não medição.
+
+**Armadilha achada no caminho — M54.** A primeira versão do `duckdb_settings()` restaurava com
+`RESET`, o que parecia mais correto. No DuckDB 1.5.3, `RESET memory_limit` muda o valor **relatado
+por `current_setting`** de volta ao default e **não desfaz o limite realmente aplicado**: a
+consulta seguinte ainda falha com `(91.5 MiB/91.5 MiB used)` enquanto o ajuste lê `6.2 GiB`. Isso
+é traiçoeiro porque toda checagem baseada em `current_setting` diz que está tudo bem — foi o que
+me fez acreditar que a correção funcionava, até testar com uma consulta de verdade em vez de ler o
+ajuste. `duckdb_settings()` restaura com `SET` explícito; o custo é uma perda de precisão no
+round-trip de texto (`6.2 GiB` reparseia como `6.1 GiB`) que **converge em dois ciclos** (6,2 →
+6,1 → 6,0 → estável), cerca de 3% do orçamento. Restauração que lê certo e não vale é pior que
+perder 3%.
+
+`tests/test_engine_settings.py` (6 testes) fixa isso, incluindo
+`test_restores_the_enforced_limit_not_just_the_reading`, que falha se alguém trocar de volta para
+`RESET` — coisa que nenhuma leitura de `current_setting` detectaria.
+
 ### Fixed — primeira rodada de correções (M45, M16, M37) e o M51 que apareceu no caminho
 
 **`sus_pipeline()` devolvia tabela vazia na chamada default — M51.** É o pior defeito encontrado

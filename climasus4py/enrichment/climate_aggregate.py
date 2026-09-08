@@ -28,7 +28,7 @@ import pyarrow as pa
 from scipy.spatial import cKDTree
 
 from ..core._stage import add_history, set_stage
-from ..core.engine import get_connection
+from ..core.engine import duckdb_settings, get_connection
 from ..utils.data import detect_date_column, detect_geo_column
 
 # ---------------------------------------------------------------------------
@@ -536,19 +536,25 @@ def _match_spatial(climate_data: pa.Table, health_data: duckdb.DuckDBPyRelation,
     # unique municipalities with geometry
     # Project only the two needed columns before any materialisation —
     # avoids OOM caused by geometry_wkt multipolygons on large datasets.
-    conn_h = get_connection()
-    conn_h.execute("SET memory_limit='2GB'")
-    conn_h.execute("SET preserve_insertion_order=false")
-    conn_h.execute("SET threads=2")
-    slim = health_data.select(
-        f"LEFT(CAST({muni_col} AS VARCHAR), 6) AS code_muni, geometry_wkt"
-    )
-    conn_h.register("_h_slim", slim)
-    munic_df = conn_h.execute("""
-        SELECT DISTINCT code_muni, geometry_wkt
-        FROM _h_slim
-        WHERE code_muni IS NOT NULL AND geometry_wkt IS NOT NULL
-    """).df()
+    # The budget below is scoped to this materialisation only. Applied with
+    # bare SET on the singleton from get_connection(), as it was before, it
+    # left the whole session at 2 GB and two threads after any call that
+    # reached here -- and the final state then depended on call order,
+    # since sus_climate_inmet() sets its own 96 MB budget.
+    with duckdb_settings(
+        memory_limit="2GB",
+        preserve_insertion_order=False,
+        threads=2,
+    ) as conn_h:
+        slim = health_data.select(
+            f"LEFT(CAST({muni_col} AS VARCHAR), 6) AS code_muni, geometry_wkt"
+        )
+        conn_h.register("_h_slim", slim)
+        munic_df = conn_h.execute("""
+            SELECT DISTINCT code_muni, geometry_wkt
+            FROM _h_slim
+            WHERE code_muni IS NOT NULL AND geometry_wkt IS NOT NULL
+        """).df()
 
     munic_df["geometry"] = munic_df["geometry_wkt"].apply(
         lambda x: shapely_wkt.loads(x) if x else None

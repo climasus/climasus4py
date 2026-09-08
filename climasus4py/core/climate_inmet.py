@@ -37,7 +37,7 @@ from rich.console import Console
 
 from ..utils.inmet_parser import parse_inmet_csv  # internal CSV parser
 from ._sql import quote_ident, register_relation, sql_string
-from .engine import get_connection
+from .engine import duckdb_settings, get_connection
 from ._stage import add_history, set_stage
 
 console = Console(stderr=True)
@@ -670,19 +670,48 @@ def _process_year(
     workers: int,
     verbose: bool,
 ) -> duckdb.DuckDBPyRelation | None:
-    """Download, unzip, parse and cache INMET data for a single year."""
+    """Download, unzip, parse and cache INMET data for a single year.
+
+    The tight DuckDB budget below is deliberate for *this* step: the INMET
+    bundles are large, and a small limit with a single thread makes DuckDB
+    spill to disk instead of trying to hold everything in memory.
+
+    It used to be applied with bare ``SET`` statements on the connection from
+    :func:`get_connection`, which is a process-wide singleton, and was never
+    undone. One call to ``sus_climate_inmet()`` therefore left the entire
+    session at 96 MB (91.5 MiB) and one thread, and unrelated functions then
+    failed to allocate on a few thousand rows. Scoping it to this call is the
+    whole fix.
+    """
+    with duckdb_settings(
+        memory_limit="96MB",
+        allocator_flush_threshold="1MB",
+        allocator_bulk_deallocation_flush_threshold="1MB",
+        enable_external_file_cache=False,
+        preserve_insertion_order=False,
+        threads=1,
+    ):
+        return _process_year_budgeted(
+            year, uf, cache_dir, use_cache, parallel, workers, verbose
+        )
+
+
+def _process_year_budgeted(
+    year: int,
+    uf: list[str] | None,
+    cache_dir: Path,
+    use_cache: bool,
+    parallel: bool,
+    workers: int,
+    verbose: bool,
+) -> duckdb.DuckDBPyRelation | None:
+    """Body of :func:`_process_year`, run under its DuckDB budget."""
     import re
 
     dataset_dir = cache_dir / "inmet_parquet"
     zip_file = cache_dir / f"inmet_{year}.zip"
     year_cache_path = dataset_dir / f"year={year}"
     conn = get_connection()
-    conn.execute("SET memory_limit='96MB'")
-    conn.execute("SET allocator_flush_threshold='1MB'")
-    conn.execute("SET allocator_bulk_deallocation_flush_threshold='1MB'")
-    conn.execute("SET enable_external_file_cache=false")
-    conn.execute("SET preserve_insertion_order=false")
-    conn.execute("SET threads=1")
 
     # 1. Parquet disk cache ---------------------------------------------------
     cache_hit = (
