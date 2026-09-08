@@ -2,6 +2,89 @@
 
 ## [Unreleased]
 
+### Fixed — primeira rodada de correções (M45, M16, M37) e o M51 que apareceu no caminho
+
+**`sus_pipeline()` devolvia tabela vazia na chamada default — M51.** É o pior defeito encontrado
+até agora, e foi achado por acidente, ao conferir a correção do M16. `sus_pipeline("SIM-DO",
+uf="SP", year=2023)` — só defaults — retornava `(0, 3)`: zero linha, sem erro e sem aviso.
+
+A causa está em [`core/pipeline.py`](climasus4py/core/pipeline.py) `_date_parse_sql()`. O cache
+de `sus_data_import()` grava `DTOBITO` como `TIMESTAMP_NS`; o `CAST(col AS VARCHAR)` produz
+`"2023-01-01 00:00:00"`, que cai no ramo `STRPOS(v,'-') = 5` e era passado a
+`TRY_STRPTIME(v, '%Y-%m-%d')` — formato que **rejeita** a hora no fim. Toda data virava `NULL` e
+o `WHERE __date IS NOT NULL` a jusante descartava a tabela inteira. O ramo `ELSE TRY_CAST(v AS
+DATE)` teria resolvido, mas o `CASE` nunca chegava nele.
+
+A correção troca aquele ramo por `TRY_CAST(v AS TIMESTAMP)`. A ordem ISO não é ambígua, então
+castear é seguro; os ramos de `DDMMYYYY` e `dd/mm/yyyy` ficaram intactos de propósito, porque a
+ordem brasileira **precisa** ser explícita — `01/02/2023` tem de ser 1º de fevereiro, não 2 de
+janeiro. SP 2023 passou de 0 para **334.303 óbitos em 12 meses**.
+
+Vale registrar por que passou batido: o fixture `_make_sim_do_parquet` grava `DTOBITO` como
+string no formato cru do DATASUS (`"15012022"`), nunca exercitando o caminho tipado — e
+`test_includes_iso_format` afirmava apenas que a substring `%Y-%m-%d` aparecia no SQL, isto é,
+garantia a presença exata do trecho defeituoso. Nenhum teste executava o SQL gerado.
+
+**Caminho staged do `sus_pipeline()` levantava `TypeError` — M16.** Duas das cinco chamadas
+usavam argumentos inexistentes. `sus_data_create_variables()` recebe `age_breaks` (lista), não
+`age_group` — o preset vindo do pipeline agora é traduzido por `_age_breaks_for_preset()` — e não
+recebe mais `epi_week`, porque a semana epidemiológica é emitida por `create_calendar_vars`,
+ligado por padrão. `sus_data_aggregate()` recebe `time_unit`, não `time`.
+
+O argumento `geo` **não tem como ser honrado** no caminho staged: `sus_data_aggregate()` não tem
+esse parâmetro, ele detecta a coluna geográfica a partir dos dados. Em vez de devolver um recorte
+diferente em silêncio, o pipeline agora confere o nível obtido e **avisa** quando não consegue
+entregar o pedido. Resolver de vez exige um parâmetro `geo` em `sus_data_aggregate()`, que é
+mudança de API pública — ver M52.
+
+**`sus_census()` duplicava todas as linhas no default — M37.** Com `year=None`, ler todas as
+safras com `union_by_name` dava ao `LEFT JOIN` uma linha de censo por ano para o mesmo município,
+multiplicando cada registro de saúde pelo número de safras instaladas. Unir as safras nunca fez
+sentido: os parquets não têm coluna de ano para distingui-las. Agora `year=None` resolve para a
+safra mais recente e diz qual escolheu. Fator de linhas voltou a **1,00×** (era 2,00×).
+
+De brinde, o aviso de que `census_2010.parquet` contém dados **sintéticos** existia apenas no
+caminho legacy; passou a valer também para o lazy, que é o recomendado. Antes era possível
+publicar número sintético sem nenhum sinal.
+
+**`sus_data_plot_aggregate_map()` nunca funcionava — M45.** `_map_load_meta()` e `_map_load_geo()`
+montavam o caminho a partir de `climasus_data.__file__` em vez de usar o helper `data_path()`, que
+o resto do pacote já usava. Os dois assets agora carregam: `municipio_meta` (5570, 20) e
+`municipalities` (5570, 7) em EPSG:4326.
+
+### Notes — o estado da suíte de testes (M52, M53)
+
+**O `pytest` não estava instalado** no ambiente do projeto, e as 35 suítes nunca haviam sido
+executadas aqui. Instalado (9.1.1) para validar as correções.
+
+**A base é vermelha: 66 falhas, 421 passes, 12 skipped** — antes de qualquer mudança desta
+rodada, medido com `git stash`. Além disso `tests/test_metadata_external.py` **não coleta**:
+importa `_season_case_sql` de `core.variables`, que não existe mais, e o `ImportError` interrompe
+a coleta da suíte inteira. As falhas se concentram em testes escritos contra uma API que o pacote
+já mudou (`test_variables.py`, `test_meta.py`, `test_quality.py`, `test_conversions.py`).
+
+Isso importa mais do que parece: com a suíte vermelha, não se distingue regressão nova de falha
+velha — e foi exatamente por isso que M16 e M51 sobreviveram. Havia teste cobrindo os dois
+trechos, **afirmando o contrato errado**. Teste que fixa o defeito é pior que teste ausente,
+porque dá sensação de cobertura. Depois desta rodada: **66 falhas e 429 passes** — nenhuma
+regressão, 8 testes novos.
+
+Os três testes que fixavam o defeito foram reescritos para conferir os kwargs capturados contra a
+**assinatura real** via `inspect.signature().bind()`, em vez de confiar num mock que aceita
+`**kwargs` sem validar. `TestDateParseSql` passou a **executar** o SQL nos seis formatos
+(`DDMMYYYY`, ISO, ISO+hora, coluna `DATE`, coluna `TIMESTAMP`, `dd/mm/yyyy`) e conferir a data
+resultante; e `TestFastSqlRunsOnTypedDates` roda `_build_fast_sql()` sobre os dois fixtures —
+string e timestamp — exigindo `COUNT` total 3.
+
+**Os dois caminhos do `sus_pipeline()` não são equivalentes — M52.** O aviso de fallback promete
+textualmente *"Results should be equivalent but slower"*. Só foi possível comparar depois que os
+dois passaram a devolver dados, e divergem em três dimensões: o esquema de saída
+(`time_group`/`state`/`count` contra `date`/`<geo detectada>`/`n_deaths`), a dimensão geográfica
+(o fast deriva o estado de `CODMUNRES`, residência; o staged agrega por
+`occurrence_municipality_code`, ocorrência — recortes epidemiológicos diferentes) e o total
+(334.303 contra 333.968 óbitos, 0,1%). Definir um esquema canônico pede mudança de API pública e
+precisa do coordenador. Enquanto não houver decisão, o aviso não deveria prometer equivalência.
+
 ### Notes — fim da fase de testes de paridade
 
 Fechadas as últimas seis funções testáveis. **84 de 115 linhas de controle verificadas (73%)**; as 31 restantes são 13 stubs e 18 funções ausentes no Python, que entram na fase de implementação.

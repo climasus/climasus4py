@@ -7,12 +7,11 @@ Uses matplotlib + geopandas (not plotnine).
 from __future__ import annotations
 
 import warnings
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from ..utils.data import load_json
+from ..utils.data import data_path, load_json
 
 # ---------------------------------------------------------------------------
 # Column candidates
@@ -104,8 +103,7 @@ def _map_detect_muni_col(columns: list) -> str:
 
 
 def _map_load_meta() -> pd.DataFrame:
-    import climasus_data
-    path = Path(climasus_data.__file__).parent / "assets" / "spatial" / "municipio_meta.parquet"
+    path = data_path("assets/spatial/municipio_meta.parquet")
     if not path.exists():
         raise FileNotFoundError(f"municipio_meta.parquet not found: {path}")
     meta = pd.read_parquet(path)
@@ -114,11 +112,10 @@ def _map_load_meta() -> pd.DataFrame:
 
 
 def _map_load_geo():
-    import climasus_data
     import geopandas as gpd
     from shapely import wkt
 
-    path = Path(climasus_data.__file__).parent / "assets" / "spatial" / "municipalities.parquet"
+    path = data_path("assets/spatial/municipalities.parquet")
     if not path.exists():
         raise FileNotFoundError(f"municipalities.parquet not found: {path}")
 

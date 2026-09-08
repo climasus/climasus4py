@@ -13,6 +13,7 @@ import duckdb
 import pandas as pd
 
 from ..io.export import sus_export
+from ..utils.data import detect_geo_column
 from ._sql import sql_string
 from .aggregate import sus_data_aggregate
 from .clean import sus_data_clean_encoding
@@ -20,7 +21,7 @@ from .engine import get_connection
 from .filter import sus_filter
 from .importer import sus_data_import
 from .standardize import sus_data_standardize
-from .variables import sus_data_create_variables
+from .variables import _age_breaks_for_preset, sus_data_create_variables
 
 # ---------------------------------------------------------------------------
 # Fast path helpers (mirrors R pipeline-fast.R)
@@ -56,8 +57,12 @@ def _date_parse_sql(col: str) -> str:
         f"CASE"
         f"  WHEN LENGTH({v}) = 8 AND STRPOS({v}, '-') = 0 AND STRPOS({v}, '/') = 0"
         f"    THEN TRY_STRPTIME({v}, '%d%m%Y')"
+        # ISO order is unambiguous, so cast instead of matching a fixed
+        # pattern: DATE and TIMESTAMP columns stringify with a trailing
+        # time ("2023-01-01 00:00:00") that '%Y-%m-%d' rejects, which
+        # turned every already-typed date column into NULL.
         f"  WHEN STRPOS({v}, '-') = 5"
-        f"    THEN TRY_STRPTIME({v}, '%Y-%m-%d')"
+        f"    THEN TRY_CAST({v} AS TIMESTAMP)"
         f"  WHEN STRPOS({v}, '/') = 3"
         f"    THEN TRY_STRPTIME({v}, '%d/%m/%Y')"
         f"  ELSE TRY_CAST({v} AS DATE)"
@@ -284,8 +289,40 @@ def sus_pipeline(
     rel = sus_data_clean_encoding(rel)
     rel = sus_data_standardize(rel, lang=lang, system=system)
     rel = sus_filter(rel, groups=group_list, age_min=age_min, age_max=age_max)
-    rel = sus_data_create_variables(rel, age_group=age_group, epi_week=epi_week)
-    rel = sus_data_aggregate(rel, time=time, geo=geo)
+    # The staged stages take different argument names than the fast path.
+    # ``sus_data_create_variables`` expects ``age_breaks`` (a list of cut
+    # points) or a preset name resolved to one — there is no ``age_group``
+    # argument — and the epidemiological week is emitted by
+    # ``create_calendar_vars`` (on by default), so ``epi_week`` needs no flag.
+    var_kwargs: dict[str, Any] = {"lang": lang, "verbose": verbose}
+    if age_group is not None:
+        var_kwargs["age_breaks"] = (
+            _age_breaks_for_preset(age_group)
+            if isinstance(age_group, str)
+            else list(age_group)
+        )
+    rel = sus_data_create_variables(rel, **var_kwargs)
+
+    # ``sus_data_aggregate`` takes ``time_unit``, not ``time``, and has no
+    # ``geo`` argument at all: it detects the geographic column itself from the
+    # data (helped by ``system``). The staged path therefore cannot force the
+    # aggregation level the way the fast path does, so check afterwards and say
+    # so instead of returning a differently-grouped table in silence.
+    rel = sus_data_aggregate(
+        rel, time_unit=time, system=system, lang=lang, verbose=verbose
+    )
+    if not detect_geo_column(list(rel.columns), level=geo):
+        warnings.warn(
+            f"sus_pipeline: the staged pipeline could not honour geo={geo!r}. "
+            f"It aggregated by the geographic column detected in the data, and "
+            f"the result carries no column at the requested level "
+            f"(columns: {list(rel.columns)}). The fast path derives the state "
+            f"code from the municipality code, but the staged path has no such "
+            f"step. Aggregate the requested level yourself with "
+            f"sus_data_aggregate(group_by=[...]) if it matters.",
+            UserWarning,
+            stacklevel=2,
+        )
 
     if output:
         sus_export(rel, output)

@@ -50,9 +50,9 @@ def sus_census(
             census variable columns.
         variables: Census variable columns to include. All columns when
             ``None``.
-        year: Census year. When ``None``, all available census parquets
-            are unioned. Legacy only: emits a ``UserWarning`` for
-            ``year=2010`` (synthetic data).
+        year: Census year. When ``None``, the most recent installed vintage
+            is used, warning when more than one is available. Emits a
+            ``UserWarning`` for ``year=2010`` (synthetic data).
 
     Returns:
         **Lazy mode**: ``DuckDBPyRelation`` with census columns added.
@@ -131,11 +131,44 @@ def sus_census(
 
     # Resolve which census file(s) to read
     census_dir: Path = data_path("assets/census")
-    if year is not None:
-        census_read = f"read_parquet({_sql_path(census_dir / f'census_{year}.parquet')})"
-    else:
-        glob_path = _sql_path(census_dir / "census_*.parquet")
-        census_read = f"read_parquet({glob_path}, union_by_name=true)"
+    if year is None:
+        # Reading every vintage with union_by_name gave the LEFT JOIN one
+        # census row per year for the same municipality, so each health record
+        # came back duplicated and every downstream count was multiplied by the
+        # number of vintages installed. The vintages carry no year column to
+        # tell them apart, so unioning them is not a meaningful dataset —
+        # resolve to the most recent one and say which.
+        available = sorted(
+            int(p.stem.removeprefix("census_"))
+            for p in census_dir.glob("census_*.parquet")
+            if p.stem.removeprefix("census_").isdigit()
+        )
+        if not available:
+            raise FileNotFoundError(
+                f"No census_<year>.parquet found in {census_dir}. Check the "
+                "climasus-data installation, or pass a census DataFrame "
+                "explicitly to use the legacy path."
+            )
+        year = available[-1]
+        if len(available) > 1:
+            warnings.warn(
+                f"sus_census: census vintages available: "
+                f"{', '.join(map(str, available))}; using year={year}. "
+                f"Pass year=... to pick another.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+    if year == 2010:
+        warnings.warn(
+            "census_2010.parquet contém dados SINTÉTICOS (seed=2010). "
+            "Não use em análises ou publicações. Substitua por dados reais "
+            "do IBGE antes de qualquer uso científico.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    census_read = f"read_parquet({_sql_path(census_dir / f'census_{year}.parquet')})"
 
     # Build SELECT clause for requested variables
     if variables is not None:
