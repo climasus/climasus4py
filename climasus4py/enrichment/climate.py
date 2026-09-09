@@ -99,7 +99,12 @@ def sus_climate(
     JOINs them via DuckDB SQL. The relation remains lazy until the user
     materialises with ``.df()`` or ``cs.materialize(...)``.
 
-    Mirrors ``climasus4r::sus_climate`` (legacy reference).
+    **Python-only**: ``climasus4r`` exports no ``sus_climate``. This
+    docstring used to claim it mirrored one, which sent anyone comparing
+    the two packages looking for a function that is not there — the same
+    slip that was in ``sus_pipeline``. Checked against the NAMESPACE of
+    climasus4r 1.0.0; of 23 ``Mirrors`` claims in the package, these two
+    were the only ones naming something absent from the R.
 
     Args:
         rel: Lazy DuckDB relation with health data containing a

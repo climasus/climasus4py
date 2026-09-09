@@ -857,3 +857,55 @@ class TestPipelineStagedOutput:
 
         assert len(export_calls) == 1
         assert str(output_path) in export_calls[0]
+
+    @pytest.mark.parametrize("pedido", [False, True])
+    def test_output_forwards_overwrite(self, monkeypatch, tmp_path, pedido):
+        """O overwrite chega ao sus_export (M17, 09/09/2026).
+
+        O pipeline chamava sus_export sem passar nada, herdando o default
+        antigo de sobrescrever em silencio -- e como nao tinha parametro
+        proprio, o usuario nao tinha como pedir outra coisa. Depois de o
+        default virar protetivo, sem o repasse o re-run falharia com uma
+        mensagem que manda passar overwrite=True numa funcao que nao aceita.
+        """
+        from climasus4py.core import pipeline as mod
+
+        recebidos: list[dict] = []
+
+        def mock_export(rel, path, **kwargs):
+            recebidos.append(kwargs)
+
+        calls: list[str] = []
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
+        _patch_all_stages(monkeypatch, mod, calls)
+        monkeypatch.setattr(mod, "sus_export", mock_export)
+
+        mod.sus_pipeline(
+            "SIM-DO", "SP", 2022,
+            epi_week=True,
+            output=tmp_path / "r.parquet",
+            overwrite=pedido,
+            cache_dir=tmp_path,
+            verbose=False,
+        )
+
+        assert recebidos and recebidos[0].get("overwrite") is pedido
+
+    def test_output_defaults_to_protecting(self, monkeypatch, tmp_path):
+        """Sem dizer nada, o pipeline nao sobrescreve."""
+        from climasus4py.core import pipeline as mod
+
+        recebidos: list[dict] = []
+        calls: list[str] = []
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
+        _patch_all_stages(monkeypatch, mod, calls)
+        monkeypatch.setattr(mod, "sus_export", lambda rel, path, **kw: recebidos.append(kw))
+
+        mod.sus_pipeline(
+            "SIM-DO", "SP", 2022,
+            epi_week=True,
+            output=tmp_path / "r.parquet",
+            cache_dir=tmp_path,
+            verbose=False,
+        )
+        assert recebidos[0].get("overwrite") is False

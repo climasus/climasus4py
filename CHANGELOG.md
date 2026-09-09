@@ -2,6 +2,52 @@
 
 ## [Unreleased]
 
+### Changed — `sus_export()` não sobrescreve mais por default (M17) · **quebra compatibilidade**
+
+O default de `overwrite` estava **invertido** entre as duas linguagens: no R
+`sus_data_export(overwrite = FALSE)`, aqui `overwrite=True`. A mesma chamada que o R **recusa** para
+proteger um arquivo existente, o Python executava sobrescrevendo — sem erro e sem aviso, dado
+anterior perdido.
+
+`overwrite` agora é `False`. Isso é **aplicar** a regra de paridade, não excetuá-la: conferido nas
+`formals` do R, aqui o R é que está certo. O que seria exceção é replicar o comportamento do R
+quando *ele* erra — não é o caso.
+
+A mensagem virou acionável: nomeia o arquivo e diz para passar `overwrite=True` de propósito.
+
+**`sus_pipeline()` ganhou um parâmetro `overwrite`**, também `False`, repassado ao `sus_export`. Sem
+ele, o re-run com o mesmo `output` falharia com uma mensagem mandando passar um argumento que a
+função não aceitava — erro sem saída. Vale notar que `sus_pipeline` é **só-Python**, então aqui não
+havia referência a seguir: escolhi o comportamento protetivo, igual ao do export, para os dois não
+divergirem entre si.
+
+Quem depende de sobrescrever — re-rodar um pipeline no mesmo caminho, por exemplo — precisa passar
+`overwrite=True` explicitamente a partir daqui.
+
+**Segue em aberto**, e é implementação e não correção: o Python não tem `include_metadata` (default
+`TRUE` no R, grava um arquivo de metadados ao lado para reprodutibilidade), `metadata`,
+`compression_level`, `lang` nem `verbose`. O `include_metadata` **é o mesmo assunto do M19**: hoje o
+`sus_export` descarta a metadata e avisa, enquanto `sus_meta(to_parquet=)` a embute no schema do
+Arrow. O R usa arquivo ao lado; nós embutimos. Implementar sem decidir qual dos dois mecanismos vale
+criaria um **terceiro** caminho de metadata no pacote.
+
+### Fixed — duas docstrings alegavam espelhar função do R que não existe (M62)
+
+A do `sus_pipeline` dizia *"Mirrors `sus_pipeline()` from the R package"*. Não existe `sus_pipeline`
+no `climasus4r` — conferido em `getNamespaceExports` e no NAMESPACE da 1.0.0 — e o controle de
+paridade já registra a função como só-Python. A do `sus_climate` dizia o mesmo.
+
+Alegação falsa de paridade é pior que ausência de nota: manda quem for comparar os dois pacotes
+procurar no R uma função que não está lá, e no pior caso concluir que ela existe e foi mal portada.
+
+**Auditei todas**, para não corrigir só onde tropecei: das 23 alegações `Mirrors` que nomeiam algo
+`sus_*` no pacote, comparadas com os 108 `export()` mais os 72 `S3method()` do NAMESPACE,
+**exatamente estas duas** apontam para função ausente do R. As outras 21 conferem.
+
+Limite declarado: a varredura cobre alegações que nomeiam **função**. As de nível de módulo que
+nomeiam **arquivo** do R (`Mirrors R: climate.R`) não pude verificar, porque só temos o pacote R
+instalado em binário, sem a árvore de fontes.
+
 ### Fixed — o CNES volta a ter os zeros à esquerda (M5)
 
 O código CNES tem sete dígitos com zero à esquerda **significativo**, e vinha como número: `0000057`

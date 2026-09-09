@@ -19,7 +19,7 @@ def sus_export(
     path: str | Path,
     *,
     fmt: str | None = None,
-    overwrite: bool = True,
+    overwrite: bool = False,
     compress: str = "snappy",
 ) -> Path:
     """Export data to Parquet, CSV, or Excel.
@@ -37,8 +37,13 @@ def sus_export(
         fmt: Output format override — ``"parquet"``, ``"csv"``, or
             ``"xlsx"`` / ``"excel"``. If ``None``, inferred from
             *path*.
-        overwrite: If ``False``, raise ``FileExistsError`` when *path*
-            already exists. Defaults to ``True``.
+        overwrite: Whether to replace *path* if it already exists.
+            Defaults to ``False`` — an existing file raises
+            ``FileExistsError`` instead of being destroyed, matching
+            ``climasus4r::sus_data_export(overwrite = FALSE)``. The
+            default used to be ``True``, so the same call that the R
+            refuses silently replaced the file here. Pass ``True`` to
+            replace on purpose.
         compress: Parquet compression codec — ``"snappy"`` (default),
             ``"zstd"``, ``"gzip"``, or ``"none"``.
 
@@ -71,7 +76,10 @@ def sus_export(
         fmt = path.suffix.lstrip(".").lower()
 
     if not overwrite and path.exists():
-        raise FileExistsError(f"File already exists: {path}")
+        raise FileExistsError(
+            f"File already exists and would be replaced: {path}. "
+            f"Pass overwrite=True to replace it on purpose."
+        )
 
     # ``COPY TO`` is what makes this fast — no Python-side materialisation —
     # but it writes only the data, so any pipeline history the relation

@@ -191,17 +191,21 @@ def sus_pipeline(
     geo: str = "state",
     epi_week: bool = False,
     output: str | Path | None = None,
+    overwrite: bool = False,
     cache_dir: str | Path = Path("dados/cache"),
     verbose: bool = True,
     **kwargs: Any,
 ) -> duckdb.DuckDBPyRelation | pd.DataFrame:
     """Run the full SUS ETL pipeline: import → clean → standardise → filter → variables → aggregate.
 
-    Main entry point for most users. Mirrors ``sus_pipeline()`` from the
-    R package and uses a single-CTE SQL fast path when the requested
-    operations allow it (same optimisation as R ``rc_a``). Falls back to
-    the staged pipeline for complex operations such as custom age groups
-    or epidemiological-week breakdowns.
+    Main entry point for most users. **Python-only**: there is no
+    ``sus_pipeline()`` in ``climasus4r`` — the R user chains the stage
+    functions by hand. (This docstring used to claim it mirrored an R
+    function of the same name; it does not exist there, and saying so sent
+    anyone comparing the two packages looking for it.) It uses a
+    single-CTE SQL fast path when the requested operations allow it, and
+    falls back to the staged pipeline for complex operations such as
+    custom age groups or epidemiological-week breakdowns.
 
     Args:
         system: SUS system identifier, e.g. ``"SIM-DO"`` or
@@ -225,6 +229,11 @@ def sus_pipeline(
             path).
         output: Optional file path to export results
             (parquet / csv / xlsx).
+        overwrite: Whether *output* may replace an existing file.
+            Defaults to ``False``, so re-running with the same *output*
+            raises ``FileExistsError`` rather than destroying the
+            previous result. Forwarded to :func:`sus_export`, which used
+            to default to replacing silently — see M17.
         cache_dir: Root directory for the Parquet cache.
         verbose: Print progress messages via Rich.
         **kwargs: Additional keyword arguments forwarded to
@@ -283,7 +292,7 @@ def sus_pipeline(
                 try:
                     result = conn.sql(sql)
                     if output:
-                        sus_export(result, output)
+                        sus_export(result, output, overwrite=overwrite)
                     return result
                 except Exception as exc:
                     # Fast path failed — warn the user before falling back so
@@ -337,6 +346,6 @@ def sus_pipeline(
         )
 
     if output:
-        sus_export(rel, output)
+        sus_export(rel, output, overwrite=overwrite)
 
     return rel
