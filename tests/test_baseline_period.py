@@ -90,6 +90,29 @@ def clima():
     return _serie_sintetica()
 
 
+@pytest.fixture(scope="module")
+def clima_com_lacunas():
+    """Lacuna que realmente esvazia uma fatia do baseline. Custou duas tentativas.
+
+    O gatilho e especifico: UMA coluna de temperatura ausente por um bloco
+    CONTIGUO maior que a janela do baseline (31 dias, +/-15 em torno do
+    dia-do-ano), com as OUTRAS colunas presentes. As outras presentes e que
+    fazem a linha sobreviver ate o baseline; se faltasse toda temperatura, a
+    linha seria descartada antes e a fatia sairia vazia (``size == 0``), caso
+    que o codigo antigo ja tratava.
+
+    Duas versoes anteriores deste fixture passavam com e sem a correcao, e
+    portanto nao provavam nada: lacuna ALEATORIA de 35% (a chance de 31 dias
+    seguidos serem todos NA e 0,35^31, ou seja nenhuma) e lacuna em TODAS as
+    colunas (linha descartada antes). Medido: com o padrao abaixo sao 91
+    RuntimeWarning sem a correcao e 0 com ela.
+    """
+    df = _serie_sintetica()
+    sem_maxima = (df["station_code"] == "A002") & df["date"].dt.month.isin([3, 4, 5, 6])
+    df.loc[sem_maxima, "tair_max_c"] = np.nan
+    return df
+
+
 def _eventos(df, inicio, fim, funcao=cs.sus_climate_compute_heatwaves):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -122,6 +145,71 @@ class TestBaselineParcialEquivaleAoPeriodoInteiro:
         completa = _eventos(clima, "2020-01-01", "2022-12-31",
                             cs.sus_climate_compute_coldwaves)
         assert parcial.equals(completa)
+
+
+class TestHigieneDeAvisos:
+    """Os avisos uteis nao podem ficar soterrados em ruido do numpy (M61).
+
+    Uma chamada sobre o INMET SP 2023 emitia 618 avisos, dos quais 608 eram
+    ``RuntimeWarning: Mean of empty slice``. Os 10 restantes eram os que o
+    usuario precisa ler. Isso importa mais do que parece: as correcoes de
+    M21, M52, M58 e M14 tornaram defeitos silenciosos visiveis ACRESCENTANDO
+    UserWarning -- e aviso util enterrado em 608 linhas de aviso inutil e
+    aviso que ninguem le.
+    """
+
+    def test_no_runtime_warnings_from_numpy(self, clima_com_lacunas):
+        with warnings.catch_warnings(record=True) as capturados:
+            warnings.simplefilter("always")
+            cs.sus_climate_compute_heatwaves(
+                clima_com_lacunas, method=["WHO", "WMO", "INMET", "EHF"], verbose=False
+            )
+        ruido = [w for w in capturados if issubclass(w.category, RuntimeWarning)]
+        assert not ruido, (
+            f"{len(ruido)} RuntimeWarning; a primeira: {ruido[0].message}"
+        )
+
+    def test_no_pandas_deprecation_warnings(self, clima_com_lacunas):
+        """As mascaras booleanas usavam fillna sobre object dtype, que o pandas
+        deprecou -- o infer_objects() logo apos nao evitava o aviso porque ele
+        nasce no proprio fillna. Trocado por .eq(True).
+
+        SEM passar ``method``: e a lista default de sete que dispara isso,
+        porque UTCI/WBGT/HI sao pedidos e suas colunas nao existem aqui, e sao
+        essas colunas ausentes que produzem o dtype object. Com um subconjunto
+        de metodos o aviso nao aparece nem antes da correcao, e o teste
+        passaria sem provar nada.
+        """
+        with warnings.catch_warnings(record=True) as capturados:
+            warnings.simplefilter("always")
+            cs.sus_climate_compute_heatwaves(clima_com_lacunas, verbose=False)
+        futuros = [w for w in capturados if issubclass(w.category, FutureWarning)]
+        assert not futuros, [str(w.message)[:70] for w in futuros]
+
+    def test_the_useful_warnings_survive(self, clima_com_lacunas):
+        """Contrapartida: silenciar o ruido nao pode ter silenciado o sinal.
+
+        Sem esta, a correcao passaria por um catch_warnings global que
+        engolisse tudo -- que e exatamente o remedio errado.
+        """
+        with warnings.catch_warnings(record=True) as capturados:
+            warnings.simplefilter("always")
+            cs.sus_climate_compute_heatwaves(
+                clima_com_lacunas, method=["WHO", "UTCI"], verbose=False
+            )
+        uteis = [str(w.message) for w in capturados
+                 if issubclass(w.category, UserWarning)]
+        assert any("NA" in m for m in uteis), uteis
+        assert any("UTCI" in m for m in uteis), uteis
+
+    def test_results_unchanged_by_the_silencing(self, clima):
+        """O conserto e de ruido, nao de calculo: a contagem nao pode mudar.
+
+        _nanmean passou a checar all-NaN antes de chamar nanmean -- que
+        devolvia NaN de todo jeito, so avisando. Mesmo resultado.
+        """
+        eventos = _eventos(clima, "2020", "2022")
+        assert eventos.shape[0] == 6, eventos.shape
 
 
 class TestAvisoDeBaselineCurto:

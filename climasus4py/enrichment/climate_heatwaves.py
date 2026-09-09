@@ -608,10 +608,21 @@ def _pct_min_n(arr: np.ndarray | None, mask: np.ndarray, q: float, min_n: int = 
 
 
 def _nanmean(arr: np.ndarray | None, mask: np.ndarray) -> float:
+    """Mean of ``arr[mask]`` ignoring NaN, or NaN when there is nothing to average.
+
+    The all-NaN case has to be checked, not just the empty one: ``np.nanmean``
+    on a slice that has elements but no valid value returns NaN *and* emits
+    ``RuntimeWarning: Mean of empty slice``. This runs once per day-of-year
+    per station, so on real INMET data — which has gaps — it produced 608 of
+    those in a single call, burying the handful of warnings the caller
+    actually needs to read (M61). Same result, without the noise.
+
+    The sibling coldwaves module already guards every aggregation this way.
+    """
     if arr is None:
         return np.nan
     sub = arr[mask]
-    if sub.size == 0:
+    if sub.size == 0 or not np.any(~np.isnan(sub)):
         return np.nan
     return float(np.nanmean(sub))
 
@@ -643,7 +654,11 @@ def _hw_apply_all_methods(
 
     hw_cols_present = [f"hw_{m.lower()}" for m in method_list if f"hw_{m.lower()}" in daily.columns]
     if hw_cols_present:
-        flags = daily[hw_cols_present].fillna(False).infer_objects(copy=False).astype(bool)
+        # .eq(True) da o mesmo resultado que fillna(False).astype(bool) sem
+        # passar pelo downcast silencioso de object dtype, que o pandas
+        # deprecou -- o infer_objects() logo apos nao evitava o aviso,
+        # porque ele nasce no proprio fillna. Ver M61.
+        flags = daily[hw_cols_present].eq(True)
         daily["hw_any"] = flags.sum(axis=1) > 0
     return daily
 
@@ -836,9 +851,9 @@ def _hw_extract_events(daily: pd.DataFrame, method_list: list[str]) -> pd.DataFr
         for station_code, st_data in daily.groupby("station_code", sort=False):
             st_data = st_data.sort_values("date_day")
             flag = st_data[col]
-            if flag.isna().all() or not bool(flag.fillna(False).any()):
+            if flag.isna().all() or not bool(flag.eq(True).any()):
                 continue
-            flag_arr = flag.fillna(False).to_numpy(dtype=bool)
+            flag_arr = flag.eq(True).to_numpy(dtype=bool)
 
             n = len(flag_arr)
             change = np.empty(n, dtype=bool)

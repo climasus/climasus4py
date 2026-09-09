@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+### Fixed — 618 avisos numa chamada viram 7, e os que sobram são os que importam (M61)
+
+`sus_climate_compute_heatwaves()` sobre o INMET SP 2023 emitia **618 avisos**, dos quais **608 eram
+`RuntimeWarning: Mean of empty slice`** do numpy. Agora são **7**, todos `UserWarning` úteis, com o
+resultado intacto: 245 eventos e 83 linhas de resumo, os mesmos de antes.
+
+Isso não era ruído inofensivo. As correções de M21, M52, M58 e M14 tornaram defeitos silenciosos
+visíveis **acrescentando `UserWarning`** — e aviso útil enterrado em 608 linhas de aviso inútil é
+aviso que ninguém lê. Sintoma disso: o próprio M14 registrou o comportamento antigo como tendo
+rodado "sem erro e sem aviso" quando **havia** aviso de baseline curto.
+
+O helper `_nanmean` checava se a fatia estava **vazia** (`sub.size == 0`) mas não se estava **toda
+NaN**. No segundo caso `np.nanmean` devolve NaN de todo jeito, só avisando — e ele roda uma vez por
+dia-do-ano por estação. Passou a checar `np.any(~np.isnan(sub))`. O módulo irmão `coldwaves` já
+guardava todas as agregações assim; só o `heatwaves` estava sem.
+
+Não silenciei avisos globalmente com `catch_warnings`, que seria o remédio errado: engoliria também
+os que queremos que apareçam.
+
+**O gatilho custou três tentativas de fixture para reproduzir**, e vale registrar: é **uma** coluna
+de temperatura ausente por um bloco **contíguo** maior que a janela do baseline (31 dias), com as
+**outras** colunas presentes. São as outras que fazem a linha sobreviver até o baseline; se faltasse
+toda temperatura, a linha seria descartada antes e a fatia sairia vazia — caso que o código antigo já
+tratava. Lacuna *aleatória* não serve: com 35% de ausência, a chance de 31 dias seguidos serem todos
+NA é 0,35³¹. As duas primeiras versões do fixture passavam **com e sem** a correção, e portanto não
+provavam nada. Com o padrão certo são 91 `RuntimeWarning` sem a correção e 0 com ela.
+
+**De quebra, os 3 `FutureWarning` do pandas.** As máscaras booleanas usavam
+`fillna(False).infer_objects(copy=False).astype(bool)` sobre colunas de dtype object — e o
+`infer_objects` **não** evitava o aviso, porque ele nasce no próprio `fillna`. Trocado por
+`.eq(True)`, que dá o mesmo resultado (`NaN == True` é `False`) sem passar pelo downcast deprecado.
+São três sítios, e só aparecem com a lista **default** de sete métodos, porque UTCI/WBGT/HI pedidos
+sem as colunas é que produzem o dtype object.
+
+4 testes novos, incluindo a contrapartida de que os avisos **úteis sobrevivem** — sem ela a correção
+passaria por um `catch_warnings` global que engolisse tudo — e a de que a contagem de eventos não
+muda, porque o conserto é de ruído e não de cálculo.
+
 ### Fixed — `baseline_start="2023"` deixa de significar um único dia (M14)
 
 `pd.Timestamp` lê data **parcial** como o primeiro instante do período: `"2023"` vira
