@@ -351,5 +351,104 @@ class TestPipelineRoundTrip:
             assert valid > 0, f"Column '{col}' is all NaT after standardization"
 
 
+# ---------------------------------------------------------------------------
+# M5 — codigos de largura fixa e o zero a esquerda
+# ---------------------------------------------------------------------------
+
+class TestCodigosDeLarguraFixa:
+    """O CNES precisa sair como string de 7 digitos com zero a esquerda (M5).
+
+    ``_coerce_datasus_types`` no importador aplica ``pd.to_numeric`` em tudo o
+    que o metadado lista em ``all_numeric_columns``, e essa lista MISTURA
+    quantidades reais (PESO, IDADEMAE, os QTD*) com CODIGOS. Para um codigo,
+    numerico e perda: 0000057 virava 57, valor que nao casa com estabelecimento
+    nenhum em base externa. No SIM-DO SP 2023 foram 13.294 de 262.909 (5,1%).
+
+    Os codigos de municipio nao sofrem -- comecam em 11 -- e os de um digito
+    nao tem como encurtar. Verificado no mesmo dado: zero valores curtos em
+    CODMUNRES, CODMUNOCOR, CODMUNNATU, LOCOCOR, ESCMAE, GESTACAO e OBITOGRAV.
+    """
+
+    def _rel(self, dados: dict):
+        return get_connection().from_df(pd.DataFrame(dados))
+
+    def test_short_cnes_is_padded_to_seven(self):
+        rel = self._rel({
+            "CODESTAB": [57.0, 9601.0, 958433.0],
+            "DTOBITO": ["01012023"] * 3,
+        })
+        df = sus_data_standardize(rel, lang="en", system="SIM-DO").df()
+        assert df["health_facility_code"].tolist() == ["0000057", "0009601", "0958433"]
+
+    def test_full_width_cnes_is_unchanged(self):
+        """Contrapartida: quem ja tem 7 digitos nao pode ser mexido."""
+        rel = self._rel({"CODESTAB": [2078066.0], "DTOBITO": ["01012023"]})
+        df = sus_data_standardize(rel, lang="en", system="SIM-DO").df()
+        assert df["health_facility_code"].tolist() == ["2078066"]
+
+    def test_null_stays_null_and_is_not_invented(self):
+        """NULL nao pode virar '0000000' -- seria um CNES inventado.
+
+        No SIM-DO SP 2023 sao 71.394 registros sem estabelecimento; se o
+        padding os preenchesse, apareceriam como um estabelecimento real.
+        """
+        rel = self._rel({"CODESTAB": [57.0, None], "DTOBITO": ["01012023"] * 2})
+        df = sus_data_standardize(rel, lang="en", system="SIM-DO").df()
+        assert df["health_facility_code"].tolist()[0] == "0000057"
+        assert df["health_facility_code"].isna().tolist() == [False, True]
+
+    def test_quantities_are_not_padded(self):
+        """A regra e sobre CODIGO, nao sobre estar na lista de numericos.
+
+        PESO, QTDFILMORT e QTDFILVIVO estao no mesmo all_numeric_columns e
+        continuam numericos -- peso ao nascer em gramas e contagem de filhos
+        sao quantidades, e '0520' nao e mais correto que 520. O R padroniza
+        esses tambem, preservando a largura fixa do DATASUS, e ali e o R que
+        divergе do significado.
+        """
+        rel = self._rel({
+            "CODESTAB": [57.0],
+            "PESO": [520.0],
+            "QTDFILMORT": [1.0],
+            "QTDFILVIVO": [0.0],
+            "DTOBITO": ["01012023"],
+        })
+        std = sus_data_standardize(rel, lang="en", system="SIM-DO")
+        tipos = dict(zip(std.columns, (str(t) for t in std.types)))
+        assert tipos["health_facility_code"] == "VARCHAR"
+        for quantidade in ("birth_weight", "number_of_dead_children",
+                           "number_of_living_children"):
+            assert tipos[quantidade] != "VARCHAR", (quantidade, tipos[quantidade])
+
+    @pytest.mark.parametrize(
+        ("lang", "coluna"),
+        [("en", "health_facility_code"),
+         ("pt", "codigo_estabelecimento"),
+         ("es", "codigo_establecimiento_salud")],
+    )
+    def test_padding_works_in_every_language(self, lang, coluna):
+        """Vale nas tres linguas porque o padding roda ANTES do rename.
+
+        Foi por isso que a lista e keyed pelo nome CRU do DATASUS. Keyed
+        pelos traduzidos precisaria de uma entrada por lingua E por sistema:
+        CODESTAB e health_facility_code / codigo_estabelecimento /
+        codigo_establecimiento_salud, e CODOCUPMAE e mother_occupation_code
+        no SIM-DO mas mother_occupation_cbo no SINASC, sem traducao PT em um
+        dos dois. A primeira versao desta correcao cravava os traduzidos e
+        errava o nome em espanhol -- este teste pegou.
+        """
+        rel = self._rel({"CODESTAB": [57.0], "DTOBITO": ["01012023"]})
+        df = sus_data_standardize(rel, lang=lang, system="SIM-DO").df()
+        assert coluna in df.columns, list(df.columns)
+        assert df[coluna].tolist() == ["0000057"]
+
+    def test_cbo_occupation_padded_to_six_in_sinasc(self):
+        """A outra coluna da lista, com largura diferente e nome diferente."""
+        rel = self._rel({"CODOCUPMAE": [2231.0], "DTNASC": ["01012023"]})
+        df = sus_data_standardize(rel, lang="en", system="SINASC").df()
+        coluna = next(c for c in df.columns if "occupation" in c)
+        assert df[coluna].tolist() == ["002231"]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

@@ -13,6 +13,24 @@ from ._guards import _assert_lazy
 from ._stage import add_history, set_stage
 from .engine import get_connection, schema_columns
 
+# ---------------------------------------------------------------------------
+# Fixed-width DATASUS codes and their official widths
+# ---------------------------------------------------------------------------
+# Keyed by the RAW DATASUS name, and applied before the rename on purpose.
+# Keying by the translated names would need one entry per language *and* per
+# system: CODESTAB is health_facility_code / codigo_estabelecimento /
+# codigo_establecimiento_salud, and CODOCUPMAE is mother_occupation_code in
+# SIM-DO but mother_occupation_cbo in SINASC — with no PT translation at all
+# in one of them. One entry per raw column covers every language and system.
+#
+# This declaration belongs in the climasus-data metadata, which today has
+# ``all_numeric_columns`` mixing codes and quantities with no widths. Changing
+# shared metadata needs the coordinator, so this is a stopgap. See M5.
+_CODE_COLUMN_WIDTHS: dict[str, int] = {
+    "CODESTAB": 7,    # CNES establishment — the one actually damaged
+    "CODOCUPMAE": 6,  # CBO occupation (SINASC)
+}
+
 
 # ---------------------------------------------------------------------------
 # Dictionary loaders
@@ -148,6 +166,41 @@ def sus_data_standardize(
             alias = getattr(rel, 'alias', None)
             if alias and alias != 'unknown':
                 system = alias
+
+    # ------------------------------------------------------------------
+    # 0. Fixed-width codes back to zero-padded strings
+    # ------------------------------------------------------------------
+    # Runs before the rename so the raw DATASUS names are still in place —
+    # see the note on _CODE_COLUMN_WIDTHS.
+    #
+    # ``_coerce_datasus_types`` in the importer casts everything the metadata
+    # lists in ``all_numeric_columns`` with ``pd.to_numeric``, and that list
+    # mixes real quantities (PESO, IDADEMAE, the QTD* counts) with CODES. For
+    # a code, numeric is lossy: the CNES is seven digits with significant
+    # leading zeros, so 0000057 came back as 57 — a value that matches no
+    # establishment in any external registry. On SIM-DO SP 2023 that hit
+    # 13.294 of 262.909 records (5,1%). The R keeps the padded string.
+    #
+    # Only CODESTAB is actually damaged in practice: municipality codes start
+    # at 11 and the single-digit codes cannot shorten, verified on the same
+    # dataset (zero short values for CODMUNRES, CODMUNOCOR, CODMUNNATU,
+    # LOCOCOR, ESCMAE, GESTACAO, OBITOGRAV). CODOCUPMAE is padded too because
+    # the rule is about the kind of column, not about one dataset. Ver M5.
+    for code_col, width in _CODE_COLUMN_WIDTHS.items():
+        if code_col not in columns:
+            continue
+        rel = rel.project(
+            ", ".join(
+                (
+                    f'LPAD(CAST(TRY_CAST("{c}" AS BIGINT) AS VARCHAR), {width}, \'0\') '
+                    f'AS "{c}"'
+                )
+                if c == code_col
+                else f'"{c}"'
+                for c in columns
+            )
+        )
+        columns = schema_columns(rel)
 
     # ------------------------------------------------------------------
     # 1. Column rename — system-specific to avoid cross-system conflicts

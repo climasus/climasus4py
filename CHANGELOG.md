@@ -2,6 +2,46 @@
 
 ## [Unreleased]
 
+### Fixed — o CNES volta a ter os zeros à esquerda (M5)
+
+O código CNES tem sete dígitos com zero à esquerda **significativo**, e vinha como número: `0000057`
+saía como `57`, valor que não casa com estabelecimento nenhum em base externa. No SIM-DO SP 2023
+foram **13.294 de 262.909** registros (5,1%), com casos extremos de dois dígitos.
+
+**O achado precisava ser dividido antes de virar correção — dos quatro campos citados, só um é
+código.** `birth_weight` (peso ao nascer em gramas), `number_of_dead_children` e
+`number_of_living_children` são **quantidades**: `0520` não é mais correto que `520`, nem `01` que
+`1`. Nesses três é o R que preserva a largura fixa do DATASUS e diverge do significado. Padear todos,
+como a proposta original sugeria, teria trocado um erro por outro.
+
+**E o problema não estava onde o achado registrava.** As colunas já saem `DOUBLE` do parquet: a perda
+acontece em `_coerce_datasus_types`, no importador, que aplica `pd.to_numeric` em tudo o que o
+metadado lista em `all_numeric_columns` — e essa lista de 23 colunas mistura códigos (`CODESTAB`,
+`CODMUNRES`, `CODOCUPMAE`, `LOCOCOR`) com quantidades (`PESO`, `IDADEMAE`, os `QTD*`). O
+`sus_data_standardize` não convertia nada; só herdava.
+
+Medido: das colunas de código, **só o `CODESTAB` perde zeros de fato**. Os de município começam em 11
+e os de um dígito não têm como encurtar — zero valores curtos em `CODMUNRES`, `CODMUNOCOR`,
+`CODMUNNATU`, `LOCOCOR`, `ESCMAE`, `GESTACAO` e `OBITOGRAV`.
+
+Novo passo 0 no `sus_data_standardize` devolve os códigos de largura fixa a string com `LPAD`,
+**antes do rename** — de propósito, porque os nomes traduzidos variam por língua *e* por sistema:
+`CODESTAB` é `health_facility_code` / `codigo_estabelecimento` / `codigo_establecimiento_salud`, e
+`CODOCUPMAE` é `mother_occupation_code` no SIM-DO mas `mother_occupation_cbo` no SINASC, sem tradução
+PT em um dos dois. Keyed pelo nome cru, uma entrada por coluna cobre tudo. (A primeira versão cravava
+os traduzidos e errava o nome em espanhol; o teste pegou.)
+
+**Não mexi no parquet nem no metadado, de propósito.** Mudar o tipo gravado no cache quebraria a
+leitura de caches existentes com `union_by_name` — `DOUBLE` de um ano contra `VARCHAR` de outro — e
+exigiria redownload. E corrigir o `all_numeric_columns`, separando códigos de quantidades com suas
+larguras, é onde isso deveria morar: mas é metadado compartilhado e precisa do coordenador. **Mesma
+dependência do M4** — convém levar as duas juntas.
+
+Verificado: `57` → `0000057`; os 262.909 não-nulos ficam todos com exatamente 7 caracteres; e os
+71.394 `NULL` seguem `NULL`, com **zero** valores `0000000` inventados, que apareceriam como um
+estabelecimento real. 8 testes novos, todos falham sem a correção, incluindo a contrapartida de que
+`birth_weight`, `number_of_dead_children` e `number_of_living_children` continuam numéricos.
+
 ### Fixed — 618 avisos numa chamada viram 7, e os que sobram são os que importam (M61)
 
 `sus_climate_compute_heatwaves()` sobre o INMET SP 2023 emitia **618 avisos**, dos quais **608 eram
