@@ -2,6 +2,58 @@
 
 ## [Unreleased]
 
+### Fixed — a agregação para de trocar residência por ocorrência (M21, M29, M52)
+
+**O `sus_data_aggregate()` escolhia a coluna geográfica pela ordem default** quando `system=` não
+era passado. Para o SIM, `geo_candidates["SIM"]` põe **ocorrência** primeiro e a lista `"common"`
+põe **residência** — então o usuário recebia uma série de mortalidade por local de residência
+pensando estar vendo por local de ocorrência. São recortes epidemiológicos diferentes: onde a
+pessoa morava contra onde morreu.
+
+A correção tem duas metades, porque ler o metadado não bastava — **ele não estava sendo gravado**:
+
+1. `sus_data_aggregate()` passou a **ler** o `system` do `sus_meta` quando o argumento não vem.
+   Argumento explícito continua tendo precedência: o metadado é o padrão, não uma imposição.
+2. Descoberto no caminho: **só o `sus_data_import()` gravava o `system`.** O
+   `sus_data_standardize()` *recebe* o system (ou o detecta com `detect_system`) e não gravava —
+   apenas herdava do estágio anterior. Uma cadeia que começasse de um parquet cru perdia o system
+   mesmo com o usuário informando, e a correção (1) não teria efeito nela. Agora grava o que
+   resolveu, por argumento ou por detecção.
+
+Verificado no SIM-DO SP 2023: a agregação sem `system=` devolve **12.639** linhas por
+`occurrence_municipality_code` com a contagem `n_deaths` — **igual ao R**. Antes devolvia 14.129 por
+`residence_municipality_code` com a contagem `n`.
+
+**O aviso tem critério.** Quando não há system em lugar nenhum, a ordem default decide — e isso só
+é uma escolha de verdade quando a relação tem **mais de uma** coluna candidata, que é exatamente
+quando importa e quando é invisível. Avisa nesse caso e fica quieto quando há uma só: aviso em toda
+agregação viraria ruído, e ruído se aprende a ignorar.
+
+De quebra, as candidatas de coluna geográfica saíram de dentro do `_agg_detect_geo_col()` para o
+helper `_agg_geo_candidates()`, usado pela detecção **e** pelo aviso — duas cópias de uma ordem de
+prioridade acabariam discordando sobre qual coluna foi escolhida.
+
+**M29 explicado, e não era defeito.** O resíduo de 19 linhas que sobrava mesmo depois de igualar o
+`system` vem do `sus_data_clean_encoding()`, que deduplica: a mesma cadeia sem ele dá 12.639, com
+ele dá 12.620. O dedup remove 335 linhas cruas (334.303 → 333.968), e essas 335 colapsam 19 grupos
+(mês, município, sexo) inteiros. Nenhuma das hipóteses registradas antes — datas inválidas,
+município nulo, grupos com contagem zero. **O lado Python daquela comparação tinha deduplicação e o
+do R não: a diferença era a cadeia, não a função.**
+
+A lição de método é o que sobra: comparar função a função exige que a **cadeia inteira** seja a
+mesma dos dois lados, não só a chamada final. É a mesma classe de erro do `astype(str)` que fez 22
+linhas parecerem divergentes quando a diferença era só dtype.
+
+**E isso isolou a terceira dimensão do M52.** A diferença de 335 óbitos entre os dois caminhos do
+`sus_pipeline` (334.303 no fast contra 333.968 no staged), registrada como não isolada, é
+exatamente esse dedup: `334.303 − 333.968 = 335`, e o `clean_encoding` medido isolado remove
+precisamente 335 linhas. A causa é estrutural — o staged roda `clean_encoding` e o fast path, sendo
+um CTE único sobre o parquet, não tem etapa de dedup. Não era tratamento de nulo nem residência
+contra ocorrência, como eu havia suposto. O M52 fica com as três diferenças explicadas; **qual
+comportamento é o certo continua sendo decisão de API.**
+
+7 testes novos; 5 falham sem a correção, medido com `git stash`.
+
 ### Fixed — `sus_filter(uf=...)` deixa de devolver o país inteiro (M58)
 
 Pedir `uf="SP"` a uma relação sem coluna de UF — o caso do SIM e do SINASC, que carregam apenas

@@ -256,7 +256,14 @@ def sus_data_standardize(
     )
 
     rel = rel.set_alias(system or "unknown")
-    rel = set_stage(rel, "standardize", _inherit_from=_original_rel)
+    # Record the system, resolved above from the argument or from
+    # detect_system(). Only sus_data_import used to write it, so a chain that
+    # started from a raw parquet lost it even when the caller had said which
+    # system it was — and then sus_data_aggregate had nothing to read and
+    # picked the geographic column by default order (M21). set_stage keeps the
+    # inherited value when this is None, so nothing is overwritten with a
+    # blank.
+    rel = set_stage(rel, "standardize", system=system, _inherit_from=_original_rel)
     rel = add_history(rel, history_msg)
 
     return rel

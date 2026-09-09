@@ -6,11 +6,13 @@ Pipeline stage: "aggregate" (registered in sus_meta after processing).
 
 from __future__ import annotations
 
+import warnings
+
 import duckdb
 import pandas as pd
 
 from ..utils.data import load_json
-from ._stage import add_history, set_stage
+from ._stage import add_history, get_meta, set_stage
 from .engine import get_connection, schema_columns
 
 
@@ -95,13 +97,24 @@ def _agg_detect_date_col(columns: list[str], system: str | None = None) -> str |
     return next((c for c in candidates if c in columns), None)
 
 
-def _agg_detect_geo_col(columns: list[str], system: str | None = None) -> str | None:
+def _agg_geo_candidates(system: str | None = None) -> list[str]:
+    """Geographic column candidates, in priority order, for *system*.
+
+    Split out of :func:`_agg_detect_geo_col` so the detection and the
+    ambiguity warning read the same list — two copies of a priority order
+    would eventually disagree about which column was chosen.
+    """
     base = (system or "").split("-")[0].upper()
     cfg  = _agg_config().get("geo_candidates", {})
     candidates = cfg.get(base, []) + cfg.get("common", [])
     if not candidates:
         candidates = ["residence_municipality_code", "municipality_code", "CODMUNRES"]
-    return next((c for c in candidates if c in columns), None)
+    # dedupe keeping order: the system list and "common" overlap
+    return list(dict.fromkeys(candidates))
+
+
+def _agg_detect_geo_col(columns: list[str], system: str | None = None) -> str | None:
+    return next((c for c in _agg_geo_candidates(system) if c in columns), None)
 
 
 def _agg_smart_name(system: str | None, fun: str, lang: str) -> str:
@@ -279,6 +292,19 @@ def sus_data_aggregate(
     conn    = get_connection()
     columns = schema_columns(rel)
 
+    # ``system`` decides three things below: which date column, which
+    # geographic column, and the name of the count. The relation already
+    # carries it in sus_meta and this used to ignore it, so an unqualified
+    # call fell through to geo_candidates["common"], which lists residence
+    # before occurrence — while SIM's own list puts occurrence first. Deaths
+    # by place of residence and by place of occurrence are different series,
+    # and the swap happened with no sign at all. Read the metadata when the
+    # caller did not say; an explicit argument still wins.
+    if system is None:
+        system = (get_meta(rel) or {}).get("system")
+        if verbose and system:
+            print(f"System (from sus_meta): {system}")
+
     # ------------------------------------------------------------------
     # 1. Date column
     # ------------------------------------------------------------------
@@ -300,6 +326,23 @@ def sus_data_aggregate(
     geo_col = _agg_detect_geo_col(columns, system)
     if verbose and geo_col:
         print(f"Geographic column: {geo_col}")
+
+    # With no system to go by, the order in geo_candidates["common"] decides,
+    # and that is only a real choice when the data carries more than one
+    # candidate — which is exactly when it matters and exactly when it is
+    # invisible. Say so then, and stay quiet when there is nothing to choose.
+    if geo_col and not system:
+        ambiguas = [c for c in _agg_geo_candidates(None) if c in columns]
+        if len(ambiguas) > 1:
+            warnings.warn(
+                f"sus_data_aggregate: no system given and none recorded in "
+                f"sus_meta, so the geographic column was picked by default "
+                f"order: {geo_col!r}, out of {ambiguas}. For SIM these are "
+                f"different series — occurrence vs residence. Pass "
+                f"system=... (e.g. 'SIM-DO') or geo-qualify with group_by.",
+                UserWarning,
+                stacklevel=2,
+            )
 
     # ------------------------------------------------------------------
     # 3. Build GROUP BY
