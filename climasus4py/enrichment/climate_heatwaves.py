@@ -49,6 +49,8 @@ import numpy as np
 import pandas as pd
 from rich.console import Console
 
+from ..utils.data import period_bound
+
 console = Console(stderr=True)
 
 ALL_METHODS: tuple[str, ...] = ("WHO", "WMO", "INMET", "EHF", "UTCI", "WBGT", "HI")
@@ -127,7 +129,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Serie temporal curta ({n_days} dias). Resultados podem ser pouco robustos."
         ),
         "warn_short_baseline": (
-            "Periodo baseline curto ({n_years} anos). Recomenda-se ao menos 20 anos."
+            "Periodo baseline curto: {n_years} ano(s), {n_days} dia(s). "
+            "Recomenda-se ao menos 20 anos."
         ),
         "warn_na_temp": (
             "{n_na} valor(es) NA em colunas de temperatura. Use sus_climate_fill_gap() antes."
@@ -162,7 +165,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "warn_short_series": "Short time series ({n_days} days). Results may not be robust.",
         "warn_short_baseline": (
-            "Short baseline period ({n_years} years). At least 20 years recommended."
+            "Short baseline period: {n_years} year(s), {n_days} day(s). "
+            "At least 20 years recommended."
         ),
         "warn_na_temp": (
             "{n_na} NA value(s) in temperature columns. Use sus_climate_fill_gap() first."
@@ -199,7 +203,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Serie temporal corta ({n_days} dias). Los resultados pueden no ser robustos."
         ),
         "warn_short_baseline": (
-            "Periodo baseline corto ({n_years} anos). Se recomiendan al menos 20 anos."
+            "Periodo baseline corto: {n_years} ano(s), {n_days} dia(s). "
+            "Se recomiendan al menos 20 anos."
         ),
         "warn_na_temp": (
             "{n_na} valor(es) NA en columnas de temperatura. Use sus_climate_fill_gap() primero."
@@ -343,8 +348,17 @@ def sus_climate_compute_heatwaves(
 
     if verbose:
         console.print("[cyan]INFO[/]  " + msg["step_baseline"])
-    baseline_start_ts = pd.Timestamp(baseline_start) if baseline_start is not None else None
-    baseline_end_ts = pd.Timestamp(baseline_end) if baseline_end is not None else None
+    # period_bound expande data parcial para a BORDA do periodo que ela nomeia:
+    # baseline_start="2023" vira 2023-01-01 e baseline_end="2023" vira
+    # 2023-12-31. Com pd.Timestamp os dois viravam 2023-01-01, e a janela
+    # colapsava para UM DIA -- dado suficiente para passar na checagem de
+    # "baseline vazio" e longe do necessario para um percentil. Ver M14.
+    baseline_start_ts = (
+        period_bound(baseline_start) if baseline_start is not None else None
+    )
+    baseline_end_ts = (
+        period_bound(baseline_end, end=True) if baseline_end is not None else None
+    )
     baseline = _hw_compute_baseline(
         daily, baseline_start_ts, baseline_end_ts, percentile, msg, verbose
     )
@@ -543,7 +557,15 @@ def _hw_compute_baseline(
             )
         )
     if n_years < 10:
-        warnings.warn(msg["warn_short_baseline"].format(n_years=n_years), UserWarning, stacklevel=4)
+        # Reportar tambem os DIAS: n_years conta anos distintos, entao uma
+        # janela de 2 dias aparecia como "1 ano" -- erro de severidade por
+        # um fator de ~365, justamente no caso em que o baseline nao serve.
+        n_days = int((ref["date_day"].max() - ref["date_day"].min()).days) + 1
+        warnings.warn(
+            msg["warn_short_baseline"].format(n_years=n_years, n_days=n_days),
+            UserWarning,
+            stacklevel=4,
+        )
 
     q = percentile / 100.0
     rows: list[dict] = []

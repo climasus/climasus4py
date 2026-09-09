@@ -2,6 +2,48 @@
 
 ## [Unreleased]
 
+### Fixed — `baseline_start="2023"` deixa de significar um único dia (M14)
+
+`pd.Timestamp` lê data **parcial** como o primeiro instante do período: `"2023"` vira
+`2023-01-01`, e `"2023-06"` vira `2023-06-01`. Então `baseline_start="2023"` com
+`baseline_end="2023"` — que qualquer pessoa escreve querendo dizer *o ano de 2023* — virava a
+janela `[2023-01-01, 2023-01-01]`, de **um dia**. Não ficava vazia, então o guard que já existe
+(`"Nenhum dado disponível no período baseline especificado"`) não disparava, e o percentil saía de
+um único dia por estação.
+
+O novo helper `period_bound()` expande data parcial para a **borda** do período que ela nomeia —
+início para `baseline_start`, fim para `baseline_end` — usando semântica de `pd.Period`, com
+fallback para `pd.Timestamp` nos formatos que `Period` recusa. Data completa é um período de um dia
+e resolve para si mesma. Confere no bissexto: `"2024-02"` termina em `2024-02-29`.
+
+Verificado no INMET SP 2023: o baseline de ano solto dava **135** eventos e agora dá **245**,
+idêntico ao de datas completas.
+
+**A causa registrada no achado estava errada, e vale dizer por quê.** O diagnóstico original supunha
+baseline que não intersecta os dados e propunha validar o formato — mas esse caminho já estava
+protegido. E o `(0, 0)` que o achado registrou **não reproduziu**: em dado sintético de um ano só a
+contagem é `(0, 0)` nas *duas* formas, porque o percentil vem de uma janela circular de dia-do-ano
+sobre o próprio baseline, e uma onda dentro dele eleva o próprio limiar. Provavelmente foi isso na
+medição original, não a janela colapsada.
+
+**Segunda metade — o aviso mentia.** O `warn_short_baseline` reportava **anos distintos**, então uma
+janela de 2 dias aparecia como `"1 ano"`, errando a severidade por um fator de ~365 justamente no
+caso em que o baseline não serve. Passou a reportar também os dias, nas três línguas:
+`"Período baseline curto: 1 ano(s), 2 dia(s)"`.
+
+13 testes novos, incluindo a contrapartida de que a janela **truncada** que o bug produzia
+(`2020-01-01` a `2022-01-01`) dá resultado diferente — sem ela o teste passaria com o defeito
+intacto — e o `coldwaves`, corrigido junto porque parseia do mesmo jeito.
+
+**Achado no caminho — M61, e ele mina o que estamos fazendo.** Uma chamada de
+`sus_climate_compute_heatwaves()` sobre o INMET SP 2023 emite **618 avisos, dos quais 608 são
+`RuntimeWarning: Mean of empty slice`** do numpy. Os 10 restantes são os que o usuário precisa ler.
+Viemos corrigindo defeitos silenciosos acrescentando `UserWarning` — M21, M52, M58 e o próprio
+M14 — e aviso útil enterrado em 608 linhas de aviso inútil é aviso que ninguém lê. Sintoma disso: o
+M14 registrou o comportamento antigo como tendo rodado "sem erro e sem aviso" quando **havia** aviso
+de baseline curto, provavelmente perdido nessa enxurrada. Registrado, não corrigido, para não
+misturar com esta correção.
+
 ### Fixed — idade desconhecida deixa de virar 999 anos e inflar as faixas de idosos (M6)
 
 `IDADE='999'` é o sentinela do DATASUS para **idade desconhecida**. A codificação do SIM é de três

@@ -304,6 +304,49 @@ def detect_sex_column(columns: list[str]) -> str | None:
     return _detect_column(columns, _load_datasus_columns_json()["role_priority"]["sex"])
 
 
+def period_bound(value: str, *, end: bool = False):
+    """Parse a date string, expanding a partial one to its period boundary.
+
+    ``pd.Timestamp`` reads a partial date as the *first instant* of the
+    period: ``"2023"`` and ``"2023-06"`` both become a single day. So a
+    caller writing ``baseline_start="2023", baseline_end="2023"``, meaning
+    the year 2023, silently got a **one-day** window — enough data to pass
+    an "is it empty?" check and nowhere near enough to compute a
+    percentile. On INMET SP 2023 that produced 135 heatwave events against
+    245 for the full year, a 45% difference with nothing to show it.
+
+    Here a partial date resolves to the start or the end of the period it
+    names, whichever the caller is asking for, so ``("2023", "2023")``
+    means the whole year. A complete date is a one-day period and
+    resolves to itself, unchanged.
+
+    Args:
+        value: Date string — ``"2023"``, ``"2023-06"``, ``"2023-06-15"``.
+        end: When ``True``, return the last day of the period rather than
+            the first.
+
+    Returns:
+        ``pandas.Timestamp`` at day resolution.
+
+    Example:
+        >>> period_bound("2023")
+        Timestamp('2023-01-01 00:00:00')
+        >>> period_bound("2023", end=True)
+        Timestamp('2023-12-31 00:00:00')
+        >>> period_bound("2023-06-15", end=True)
+        Timestamp('2023-06-15 00:00:00')
+    """
+    import pandas as pd
+
+    try:
+        period = pd.Period(value)
+    except (ValueError, TypeError):
+        # Formats Period rejects but Timestamp accepts (e.g. one carrying a
+        # time). Nothing to expand in those — they name an instant.
+        return pd.Timestamp(value).normalize()
+    return (period.end_time if end else period.start_time).normalize()
+
+
 def decode_age_sql(age_col: str) -> str:
     """Return a DuckDB SQL expression that decodes SIM-DO coded age to years.
 
