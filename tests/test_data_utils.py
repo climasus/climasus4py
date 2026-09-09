@@ -37,10 +37,54 @@ class TestDecodeAgeSql:
     def test_code_0_minutes_is_zero(self):
         assert self._decode("030") == 0
 
+    # ---------------------------------------------------------------
+    # M6 — sentinela de idade desconhecida
+    # ---------------------------------------------------------------
+
+    def test_sentinel_999_is_null(self):
+        """999 e "idade desconhecida", nao 999 anos (M6, corrigido 09/09/2026).
+
+        Caia no TRY_CAST final e voltava como 999, e as colunas derivadas
+        arquivavam esses registros como age_group='60+',
+        ibge_age_group='80+' e climate_risk_group='High Risk (65+)' --
+        inflando as faixas de idosos com gente de idade desconhecida. No
+        SIM-DO SP 2023 eram 335 registros. O R devolve NA.
+        """
+        assert self._decode("999") is None
+
+    @pytest.mark.parametrize("codigo", ["600", "700", "812", "998"])
+    def test_any_out_of_range_unit_digit_is_null(self, codigo):
+        """A regra e estrutural: unidade valida e 0-5, o resto nao e idade.
+
+        Cobre o 999 e qualquer outro codigo indecodificavel, em vez de
+        tratar so o valor conhecido -- que deixaria 6xx/7xx/8xx virando
+        idades absurdas se aparecerem.
+        """
+        assert self._decode(codigo) is None
+
+    def test_valid_unit_digits_still_decode(self):
+        """Contrapartida: a recusa nao pode ter comido codigo legitimo.
+
+        Sem esta, a correcao passaria mesmo se tivesse anulado tudo.
+        """
+        assert self._decode("400") == 0     # 0 anos completos
+        assert self._decode("465") == 65
+        assert self._decode("599") == 199   # unidade 5 soma 100
+        assert self._decode("099") == 0     # minutos
+
     def test_plain_integer_fallback(self):
         """Non-coded values should be cast as integer."""
         assert self._decode("25") == 25
         assert self._decode("0") == 0
+
+    def test_three_digit_rule_does_not_touch_shorter_values(self):
+        """A regra vale para 3 digitos: idade ja decodificada nao e afetada.
+
+        SINAN e dado ja padronizado chegam com idade simples, e o fallback
+        de TRY_CAST tem de continuar valendo para eles.
+        """
+        assert self._decode("99") == 99
+        assert self._decode("9") == 9
 
     def test_empty_string_returns_null(self):
         assert self._decode("") is None

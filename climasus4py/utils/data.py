@@ -305,10 +305,34 @@ def detect_sex_column(columns: list[str]) -> str | None:
 
 
 def decode_age_sql(age_col: str) -> str:
-    """Return a DuckDB SQL expression that decodes SIM-DO coded age to years."""
+    """Return a DuckDB SQL expression that decodes SIM-DO coded age to years.
+
+    The DATASUS encoding is three digits: the first is the unit (0 minutes,
+    1 hours, 2 days, 3 months — all under a year; 4 years; 5 years past
+    100) and the rest is the amount.
+
+    A three-digit code whose unit digit is not one of those is not an age.
+    ``999`` is the sentinel for *unknown*, and it used to fall through to
+    ``TRY_CAST`` and come back as **999 years** — then the derived columns
+    happily filed those records under ``age_group='60+'``,
+    ``ibge_age_group='80+'`` and ``climate_risk_group='High Risk (65+)'``,
+    inflating the elderly bands with people of unknown age. On SIM-DO SP
+    2023 that was 335 records. The R returns NA.
+
+    Note this is a *structural* rule rather than a lookup in
+    :data:`_IGNORED_VALUES`, which does list ``"999"``. That list also
+    holds ``"0"``, ``"9"`` and ``"99"``, which are sentinels for
+    categorical fields such as sex and race — applying it wholesale here
+    would discard a legitimately coded age. Rejecting an out-of-range unit
+    digit covers ``999`` and any other undecodable code without guessing
+    at short numeric values.
+    """
     v = f'TRIM(CAST("{age_col}" AS VARCHAR))'
     return (
         f"CASE"
+        f"  WHEN LENGTH({v}) = 3 AND SUBSTR({v}, 1, 1) NOT IN"
+        f"       ('0', '1', '2', '3', '4', '5')"
+        f"    THEN NULL"
         f"  WHEN LENGTH({v}) = 3 AND SUBSTR({v}, 1, 1) = '5'"
         f"    THEN 100 + TRY_CAST(SUBSTR({v}, 2) AS INTEGER)"
         f"  WHEN LENGTH({v}) = 3 AND SUBSTR({v}, 1, 1) = '4'"

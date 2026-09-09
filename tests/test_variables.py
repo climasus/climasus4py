@@ -109,6 +109,38 @@ class TestAgeGroup:
         sus_data_create_variables(rel_with_idade, age_breaks=[0, 30], verbose=False)
         assert AGE_BREAKS_DEFAULT == antes
 
+    def test_unknown_age_does_not_land_in_the_elderly_bands(self):
+        """O sentinela 999 nao pode virar faixa nenhuma (M6, 09/09/2026).
+
+        E o efeito que importava: age_years=999 nao ficava so errado na
+        propria coluna, ele ARQUIVAVA o registro como age_group='60+',
+        ibge_age_group='80+' e climate_risk_group='High Risk (65+)',
+        inflando as faixas de idosos com gente de idade desconhecida. No
+        SIM-DO SP 2023, cada uma das tres perdeu exatamente 335 registros
+        depois da correcao.
+        """
+        rel = _make_rel({
+            "IDADE": ["999", "465", "999"],
+            "DTOBITO": ["01012023"] * 3,
+        })
+        df = sus_data_create_variables(
+            rel, create_calendar_vars=False, create_climate_vars=False, verbose=False
+        ).df()
+
+        desconhecidos = df[df["IDADE"] == "999"]
+        assert desconhecidos["age_years"].isna().all()
+        for coluna in ("age_group", "ibge_age_group", "climate_risk_group"):
+            assert desconhecidos[coluna].isna().all(), (
+                f"{coluna} classificou idade desconhecida: "
+                f"{desconhecidos[coluna].tolist()}"
+            )
+
+        # E o registro valido do meio segue classificado, senao o teste
+        # passaria com uma implementacao que anula tudo.
+        valido = df[df["IDADE"] == "465"].iloc[0]
+        assert valido["age_years"] == 65
+        assert valido["age_group"] == "60+"
+
     def test_no_age_group(self, rel_with_idade):
         """Sem faixas quando create_age_groups=False.
 

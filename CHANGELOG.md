@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+### Fixed — idade desconhecida deixa de virar 999 anos e inflar as faixas de idosos (M6)
+
+`IDADE='999'` é o sentinela do DATASUS para **idade desconhecida**. A codificação do SIM é de três
+dígitos: o primeiro é a unidade (0 minutos, 1 horas, 2 dias, 3 meses — todos abaixo de um ano;
+4 anos; 5 anos acima de 100) e o resto é a quantidade. O `'9'` não é unidade nenhuma, então o
+valor caía no `TRY_CAST` final e voltava como **999 anos** — e as colunas derivadas então
+arquivavam esses registros como `age_group='60+'`, `ibge_age_group='80+'` e
+`climate_risk_group='High Risk (65+)'`.
+
+O efeito, medido no SIM-DO SP 2023: cada faixa de idosos perdeu **exatamente 335 registros** depois
+da correção.
+
+| | Antes | Agora |
+|---|---:|---:|
+| `age_group='60+'` | 248.787 | 248.452 |
+| `ibge_age_group='80+'` | 109.758 | 109.423 |
+| `climate_risk_group` High Risk | 227.791 | 227.456 |
+
+A regra é **estrutural** — recusa código de três dígitos cuja unidade não esteja em 0–5 — e não uma
+consulta a `_IGNORED_VALUES`, que lista `"999"` mas também `"0"`, `"9"` e `"99"`, sentinelas de
+campos *categóricos* como sexo e raça. Aplicar a lista inteira aqui descartaria idade
+legitimamente codificada. Recusar unidade fora de faixa cobre o `999` e qualquer `6xx`/`7xx`/`8xx`
+que apareça, sem chutar sobre valores numéricos curtos.
+
+**A conta das 471 divergências fechou em duas direções opostas:** 335 nesta, onde o Python errava,
+mais **136** na oposta, onde o **R** erra — `DTNASC` nulo com `IDADE` válida codificada, que o
+Python decodifica certo e o R devolve `NA`. `335 + 136 = 471`, exatamente o número registrado. A
+divergência residual esperada contra o R passa a ser de 136 linhas, **todas a favor do Python**; o
+lado R foi para o `IDEIAS.md`, porque bug do R é apontado e não corrigido daqui.
+
+8 testes novos; 6 falham sem a correção, incluindo a contrapartida de que código válido (`400`,
+`465`, `599`, `099`) continua decodificando e que a regra de três dígitos não toca idade curta já
+decodificada.
+
 ### Fixed — a agregação para de trocar residência por ocorrência (M21, M29, M52)
 
 **O `sus_data_aggregate()` escolhia a coluna geográfica pela ordem default** quando `system=` não
