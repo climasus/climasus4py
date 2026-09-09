@@ -441,23 +441,45 @@ class TestSusImportModes:
         with pytest.raises(ValueError, match="Unsupported file format"):
             sus_data_import("SIM-DO", "SP", 2022, path=str(fake_xlsx), cache_dir=tmp_path, verbose=False)  # noqa: E501
 
-    def test_no_data_raises_runtime_error(self, tmp_path, monkeypatch):
-        """Quando download falha e cache está vazio, deve levantar RuntimeError."""
+    def _sem_download(self, tmp_path, monkeypatch):
+        """Deixa o importador sem nenhuma fonte: download falha, sem DBC."""
         from climasus4py.core import importer as _imp
 
         monkeypatch.setattr(_imp, "resolve_uf", lambda uf: ["SP"])
         monkeypatch.setattr(_imp, "_geographic_scope", lambda s: "state")
         monkeypatch.setattr(_imp, "_cache_partition_id", lambda s, u: u)
         monkeypatch.setattr(_imp, "_state_filter_expression", lambda s, u: None)
-        # Simular falha em todos os downloads
         monkeypatch.setattr(urllib.request, "urlopen", _make_urlopen_failure())
-        # Sem DBC reader disponível
         monkeypatch.setattr(_imp, "_resolve_dbc_path", lambda *a, **kw: None)
+        return _imp
+
+    def test_no_data_returns_none(self, tmp_path, monkeypatch):
+        """Sem dado, o importador devolve None -- e o que a docstring promete.
+
+        Atualizado em 09/09/2026 (M53). O teste exigia RuntimeError, que nao e
+        mais o contrato desta funcao: ela documenta "``None`` when no data is
+        available for the requested parameters".
+        """
+        _imp = self._sem_download(tmp_path, monkeypatch)
+        resultado = _imp.sus_data_import(
+            "SIM-DO", "SP", 2022, cache_dir=tmp_path, cache=False, verbose=False
+        )
+        assert resultado is None
+
+    def test_pipeline_turns_that_none_into_a_clear_error(self, tmp_path, monkeypatch):
+        """A intencao do teste antigo vale -- no nivel em que o usuario esta.
+
+        O ``None`` documentado nao era checado por ninguem: o sus_pipeline
+        seguia com rel=None e quebrava fundo no fast path ou no
+        clean_encoding, com um erro que nao dizia nada sobre o problema real.
+        Agora o pipeline recusa nomeando system/uf/year.
+        """
+        from climasus4py.core import pipeline as _pipe
+
+        self._sem_download(tmp_path, monkeypatch)
+        monkeypatch.setattr(_pipe, "sus_data_import", lambda *a, **kw: None)
 
         with pytest.raises(RuntimeError, match="No data imported"):
-            _imp.sus_data_import(
-                "SIM-DO", "SP", 2022,
-                cache_dir=tmp_path,
-                cache=False,
-                verbose=False,
+            _pipe.sus_pipeline(
+                "SIM-DO", "SP", 2022, cache_dir=tmp_path, verbose=False
             )

@@ -93,6 +93,18 @@ def set_stage(
     return rel
 
 
+def format_history_entry(message: str) -> str:
+    """Stamp *message* with the current time, as the history log expects.
+
+    One place decides the format so every writer produces the same shape.
+    ``sus_meta(add_history=...)`` used to append the raw string while this
+    module's :func:`add_history` stamped it, which left the audit trail
+    holding two different formats in one list — half the entries parseable
+    by timestamp and half not.
+    """
+    return f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}"
+
+
 def add_history(
     rel: duckdb.DuckDBPyRelation,
     message: str,
@@ -114,8 +126,7 @@ def add_history(
     """
     existing = _stage_map.get(rel, {})
     history: list[str] = list(existing.get("history", []))
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    history.append(f"[{ts}] {message}")
+    history.append(format_history_entry(message))
     _stage_map[rel] = {**existing, "history": history}
     return rel
 

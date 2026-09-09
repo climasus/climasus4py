@@ -19,9 +19,19 @@ def test_datasus_sources_catalog_contains_sinan_dengue():
 
     sinan = catalog["systems"]["SINAN-DENGUE"]
 
-    assert sinan["disease_code"] == "DENG"
+    # A chave "disease_code" == "DENG" saiu do catalogo (M53, 09/09/2026). O
+    # metadado vem do climasus-data e nao e nosso para alterar (principio 2 do
+    # CLAUDE.md), entao o teste passa a afirmar o que o catalogo de fato
+    # publica -- e o que o importador de fato consome: familia, escopo e a
+    # coluna de particao por UF. O nome do arquivo DENGBR ficou nos
+    # url_templates, que e onde a informacao vive agora.
+    assert sinan["family"] == "SINAN"
     assert sinan["geographic_scope"] == "national"
+    assert sinan["is_national"] is True
     assert sinan["partition_filter"]["state_column"] == "SG_UF_NOT"
+    assert any(
+        "DENGBR" in t["path_template"] for t in sinan["url_templates"]
+    ), sinan["url_templates"]
 
 
 def test_build_urls_for_sinan_dengue_from_catalog():

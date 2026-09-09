@@ -2,6 +2,85 @@
 
 ## [Unreleased]
 
+### Fixed — a suíte volta a ser instrumento: 66 → 36 falhas (M53)
+
+**Primeiro o erro de coleta.** `tests/test_metadata_external.py` importava `_season_case_sql` e
+`_seasonal_patterns_config`, renomeados para `_astronomical_season_sql` e `_seasonal_config`, e o
+`ImportError` interrompia a coleta da **suíte inteira** — não só daquele arquivo. Ele agora roda e
+dá 29 passes.
+
+**O achado central da triagem:** as 66 falhas não eram 66 problemas, eram ~6 causas, e a maior de
+longe era teste afirmando assinatura que não existe mais. Conferi a produção com uma varredura
+estática sobre **588 assinaturas** do pacote, comparando cada chamada com os parâmetros aceitos:
+**zero chamadas de produção com argumento inexistente**. Depois do M16 o código está limpo nesse
+eixo, e as falhas eram arqueologia — testes escritos contra uma API *anterior à paridade*.
+Conferido nas `formals` do R, o Python de hoje é que está certo: `time_unit` (contra `time` e
+`time_resolution`), ausência de flag por variável (o R também tem só `create_calendar_vars`) e
+ausência de `stats`.
+
+**Quatro bugs reais saíram da triagem** — e é o que justifica ter feito isso antes das outras
+correções:
+
+**1. `age_breaks` sem sentinela descartava os idosos — M59, o mais grave.** Com
+`age_breaks=[0, 18, 65]`, uma lista que qualquer pessoa escreveria, as idades 68, 90 e 100 saíam
+com `age_group` **NULL**: `['0-17', '18-64', '18-64', None, None, None, '0-17', '0-17']`. Três de
+oito perdidos, todos do mesmo lado da distribuição — os idosos, que são a população de interesse
+em estudo de clima e saúde. E o `NULL` resultante é indistinguível de idade faltante no dado, então
+a análise a jusante trata perda sistemática como ausência aleatória.
+
+`_age_group_sql` só abre a última faixa quando o próximo break é o sentinela 999; sem ele fecha o
+intervalo e todo mundo acima cai no `ELSE NULL`. Os cinco presets do catálogo terminam no
+sentinela, então nenhum deles cai nisso — só uma lista escrita à mão. E
+`sus_pipeline(age_group=[0, 18, 65])` passa lista, ou seja o caminho que liguei em 07/09 ao
+corrigir o M16 entregava direto no defeito. A faixa de topo passou a ser sempre aberta.
+
+O conserto exigiu um cuidado: `age_breaks` tem `AGE_BREAKS_DEFAULT` como default **mutável**
+compartilhado, e anexar o sentinela na própria lista contaminaria a constante do módulo para todas
+as chamadas seguintes do processo. Copia antes de anexar, com teste fixando isso.
+
+**2. Preset de faixa etária inexistente caía no default em silêncio.**
+`_age_breaks_for_preset("whoo")` devolvia `AGE_BREAKS_DEFAULT` — faixas epidemiológicas em vez das
+da OMS, sem nenhum sinal. O único chamador é `sus_pipeline(age_group="who")`, então um typo
+trocava o agrupamento pedido. Agora recusa nomeando os cinco válidos, como o `hemisphere` já fazia.
+
+**3. `sus_climate_plot_fill()` quebrava com DataFrame vazio.** `available_stations[0]` sem checar
+se havia estação — um frame vazio tem a coluna mas nenhuma estação nela. O `IndexError` não dizia
+nada sobre o dado estar vazio. Agora trata como `"all"` e devolve o gráfico vazio.
+
+**4. `sus_pipeline()` não checava o `None` documentado do `sus_data_import()`.** O importador
+documenta devolver `None` quando não há dado; ninguém checava, e o `None` seguia adiante para
+quebrar fundo no fast path ou no `clean_encoding`, com erro que não dizia nada sobre o problema
+real. Agora recusa com `RuntimeError` nomeando `system`, `uf` e `year`.
+
+**Unificação do log de auditoria.** O `sus_meta(add_history=...)` público anexava a string **crua**
+enquanto o `_stage.add_history()` interno punha timestamp, então a trilha acabava com dois formatos
+na mesma lista — metade parseável por hora e metade não. Os dois passaram por
+`format_history_entry()`. A deduplicação de repetição consecutiva teve de passar a comparar a
+**mensagem** e não a entrada final: duas mensagens iguais gravadas com um segundo de diferença são
+strings diferentes.
+
+**Dois achados novos registrados.** **M58** — `sus_filter(uf=...)` sem coluna de UF apenas *avisa e
+segue*, enquanto os filtros irmãos (`sex`, `race`, `municipality`) recusam; quem pede `uf="SP"`
+recebe o Brasil inteiro acreditando ter filtrado, e um `UserWarning` em notebook passa batido. Há
+solução melhor que escolher entre avisar e recusar: derivar a UF dos dois primeiros dígitos do
+código de município, exatamente como o fast path já faz. **M57** — o R tem `date_col` e `age_col`
+em `sus_data_create_variables` e o Python não; é a mesma família do M10 e do M21, três funções que
+detectam coluna automaticamente sem oferecer override, e vale decidir como política.
+
+**A causa de origem do M52 apareceu de graça.** O `tests/test_aggregate.py` defasado chama
+`sus_data_aggregate(rel, time=..., geo="state", extra_groups=..., week_format=...)` e espera coluna
+`time_group`. Ou seja o `sus_data_aggregate` **já teve** um `geo` e **já emitiu** `time_group` — que
+é exatamente o esquema que o fast path produz hoje. A divergência não foi acidente de dois autores:
+o `sus_data_aggregate` foi reescrito para casar com o R, que não tem `geo`, e o fast path ficou com
+o esquema antigo que ninguém migrou. Isso também explica por que o `geo` do `sus_pipeline` não tem
+para onde ir no caminho staged.
+
+**O que falta — 36 falhas em três arquivos**, e não são renomeações: `test_climate_aggregate.py`
+(14), `test_climate_inmet.py` (13) e `test_aggregate.py` (9) testam APIs **supersedidas** e
+precisam de reescrita. O primeiro chama `sus_climate_aggregate(rel_de_clima, time_resolution=,
+stats=)` com **um** argumento, quando a função atual, como a do R, exige saúde e clima. É trabalho
+de escrever teste novo, não de portar.
+
 ### Added — `sus_as_arrow()` e `sus_as_duckdb()`: a travessia da metadata
 
 Duas funções novas em [`io/convert.py`](climasus4py/climasus4py/io/convert.py). Existem por um

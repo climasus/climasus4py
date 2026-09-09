@@ -223,18 +223,24 @@ class TestStandardizeDates:
         conn = get_connection()
         return conn.from_df(pd.DataFrame(data))
 
+    # Atualizado em 09/09/2026 (M53). Com lang="pt" o standardize RENOMEIA as
+    # colunas -- DTOBITO vira data_obito e CAUSABAS vira causa_basica --, que e
+    # a funcao dele. Os testes afirmavam sobre o nome cru do DATASUS e por isso
+    # falhavam; a substancia verificada (DDMMYYYY -> DATE, e datetime que ja
+    # chega datetime nao ser estragado) continua a mesma.
+    _COL_DATA = "data_obito"
+
     def test_string_dates_converted(self):
         """String dates in DDMMYYYY format should be converted to DATE."""
         rel = self._make_rel({
             "DTOBITO": ["01012023", "15062023"],
             "CAUSABAS": ["J189", "I219"],
         })
-        std = sus_data_standardize(rel, lang="pt", system="SIM-DO")
-        df = std.df()
-        # DTOBITO should still exist and be a date type
-        assert "DTOBITO" in df.columns
-        assert pd.api.types.is_datetime64_any_dtype(df["DTOBITO"])
-        assert df["DTOBITO"].iloc[0] == pd.Timestamp("2023-01-01")
+        df = sus_data_standardize(rel, lang="pt", system="SIM-DO").df()
+        assert self._COL_DATA in df.columns, list(df.columns)
+        assert pd.api.types.is_datetime64_any_dtype(df[self._COL_DATA])
+        assert df[self._COL_DATA].iloc[0] == pd.Timestamp("2023-01-01")
+        assert df[self._COL_DATA].iloc[1] == pd.Timestamp("2023-06-15")
 
     def test_datetime_columns_preserved(self):
         """Already-datetime columns should not be broken by re-conversion."""
@@ -242,10 +248,24 @@ class TestStandardizeDates:
             "DTOBITO": pd.to_datetime(["2023-01-01", "2023-06-15"]),
             "CAUSABAS": ["J189", "I219"],
         })
-        std = sus_data_standardize(rel, lang="pt", system="SIM-DO")
-        df = std.df()
-        assert pd.api.types.is_datetime64_any_dtype(df["DTOBITO"])
-        assert df["DTOBITO"].iloc[0] == pd.Timestamp("2023-01-01")
+        df = sus_data_standardize(rel, lang="pt", system="SIM-DO").df()
+        assert pd.api.types.is_datetime64_any_dtype(df[self._COL_DATA])
+        assert df[self._COL_DATA].iloc[0] == pd.Timestamp("2023-01-01")
+
+    def test_original_name_kept_when_lang_is_en(self):
+        """Contrapartida: o rename e do idioma, nao da conversao de data.
+
+        Sem isto, os dois testes acima passariam mesmo se o standardize
+        renomeasse tudo por engano em qualquer idioma.
+        """
+        rel = self._make_rel({
+            "DTOBITO": ["01012023", "15062023"],
+            "CAUSABAS": ["J189", "I219"],
+        })
+        df = sus_data_standardize(rel, lang="en", system="SIM-DO").df()
+        assert self._COL_DATA not in df.columns
+        coluna = next(c for c in df.columns if "date" in c or "obito" in c.lower())
+        assert pd.api.types.is_datetime64_any_dtype(df[coluna])
 
     def test_english_renamed_dates_converted(self):
         """After rename to English, dates should still convert."""

@@ -255,10 +255,23 @@ class TestMissingColumnErrors:
         with pytest.raises(ValueError, match="race"):
             sus_filter(rel, race="1")
 
-    def test_uf_filter_no_uf_column_raises(self):
+    def test_uf_filter_no_uf_column_warns_and_skips(self):
+        """O uf AVISA e pula, diferente dos irmaos, que recusam (M53, 09/09/2026).
+
+        Nao e descuido: o SIM-DO nao traz coluna de UF, so CODMUNRES, entao
+        exigir a coluna quebraria o caso mais comum -- e o aviso ate sugere o
+        remedio (``sus_spatial_join()`` antes). O teste esperava ValueError e
+        por isso falhava.
+
+        Mas o efeito e desconfortavel e esta registrado no M58: quem pede
+        ``uf="SP"`` recebe o pais inteiro, e um aviso em notebook passa batido.
+        Este teste fixa as DUAS metades -- que avisa, e que de fato nao
+        filtrou -- para que a segunda nao mude sem alguem notar.
+        """
         rel = _make_rel({"value": [1, 2]})
-        with pytest.raises(ValueError, match="UF|uf"):
-            sus_filter(rel, uf="SP")
+        with pytest.warns(UserWarning, match="No UF/state column"):
+            resultado = sus_filter(rel, uf="SP")
+        assert len(resultado.df()) == 2, "nao filtrou nada, como o aviso diz"
 
     def test_municipality_filter_no_muni_column_raises(self):
         rel = _make_rel({"value": [1, 2]})

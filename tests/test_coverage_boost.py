@@ -343,12 +343,20 @@ class TestVariablesConfigFallback:
         assert "presets" in result
         assert isinstance(result["presets"], dict)
 
-    def test_seasonal_patterns_config_fallback(self):
-        """When load_json raises FileNotFoundError, returns defaults — covers 57-59."""
+    def test_seasonal_config_fallback(self):
+        """Sem o JSON do climasus-data, cai no default embutido.
+
+        Renomeado em 09/09/2026 (M53): ``_seasonal_patterns_config`` virou
+        ``_seasonal_config``. Aproveito para afirmar que o fallback e
+        UTILIZAVEL, e nao so um dict qualquer -- o teste antigo aceitaria
+        ``{}``, que passaria e deixaria a funcao quebrar no primeiro acesso.
+        """
         from climasus4py.core import variables as vars_mod
         with patch.object(vars_mod, "load_json", side_effect=FileNotFoundError):
-            result = vars_mod._seasonal_patterns_config()
+            result = vars_mod._seasonal_config()
         assert isinstance(result, dict)
+        assert set(result["astronomical"]["patterns"]) == {"south", "north"}
+        assert set(result["astronomical"]["patterns"]["south"]["summer"]) == {12, 1, 2}
 
 
 # ---------------------------------------------------------------------------
@@ -462,31 +470,30 @@ class TestClimateAggregatePaths:
     def _make_rel(self, data: dict):
         return get_connection().from_df(pd.DataFrame(data))
 
-    def test_detect_date_column_raises_when_no_date(self):
-        """Relation without date/time column → ValueError — covers line 104."""
-        from climasus4py.enrichment.climate_aggregate import _detect_date_column
-        rel = self._make_rel({"station": ["A"], "temp": [25.0]})
-        with pytest.raises(ValueError, match="date"):
-            _detect_date_column(rel)
+    # Atualizado em 09/09/2026 (M53). ``_detect_date_column`` nao existe mais
+    # neste modulo -- a validacao de entrada foi reorganizada em
+    # ``_validate_climate_data`` / ``_validate_date_overlap``. O teste que
+    # exercitava ``stats=[...]`` foi REMOVIDO: esse parametro nao existe na
+    # assinatura atual, que e a do R (health_data, climate_data, climate_var,
+    # time_unit, ...). Ele testava uma API anterior, sem equivalente para
+    # portar aqui; a cobertura de sus_climate_aggregate entra na reescrita de
+    # tests/test_climate_aggregate.py, registrada no M53.
 
-    def test_days_above_threshold_skipped_when_no_threshold(self):
-        """stat='days_above_threshold' with threshold=None skips — covers line 217."""
-        from climasus4py.enrichment.climate_aggregate import sus_climate_aggregate
-        rel = self._make_rel({
-            "date": pd.date_range("2023-01-01", periods=10, freq="D"),
-            "tair_dry_bulb_c": [20.0 + i for i in range(10)],
-        })
-        # Include days_above_threshold in stats but don't pass threshold=
-        result = sus_climate_aggregate(
-            rel,
-            stats=["mean", "days_above_threshold"],
-            # threshold intentionally omitted → None
-        )
-        assert result is not None
-        df = result.df()
-        assert "tair_dry_bulb_c_mean" in df.columns
-        # days_above_threshold should be absent since threshold=None
-        assert not any("days_above" in c for c in df.columns)
+    def test_climate_data_without_date_is_rejected(self):
+        """Clima sem coluna de data recusa com mensagem propria."""
+        from climasus4py.enrichment.climate_aggregate import _validate_climate_data
+
+        rel = self._make_rel({"station_code": ["A"], "temp": [25.0]})
+        with pytest.raises(ValueError, match="date"):
+            _validate_climate_data(rel)
+
+    def test_climate_data_without_station_is_rejected(self):
+        """E sem coluna de estacao tambem, nomeando as aceitas."""
+        from climasus4py.enrichment.climate_aggregate import _validate_climate_data
+
+        rel = self._make_rel({"station": ["A"], "temp": [25.0]})
+        with pytest.raises(ValueError, match="station"):
+            _validate_climate_data(rel)
 
 
 # ---------------------------------------------------------------------------

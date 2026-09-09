@@ -66,8 +66,32 @@ class TestGetDiseaseGroupDetails:
         assert isinstance(result, dict)
 
     def test_dengue_codes(self):
-        result = get_disease_group_details("dengue")
-        assert "A90" in result["codes"]
+        """A90 tem de ser coberto -- verificado pelo COMPORTAMENTO (M53, 09/09).
+
+        Os codigos passaram a ser guardados como FAIXA: ``["A90-A91"]`` em vez
+        de ``["A90", "A91"]``, entao ``"A90" in result["codes"]`` falhava. Mas
+        afirmar sobre o formato de armazenamento e o teste fraco: o que
+        importa e o filtro capturar A90. Conferido: sus_filter(groups="dengue")
+        sobre A90, A91, A92, A899 e J189 devolve exatamente A90 e A91.
+        """
+        import pandas as pd
+
+        import climasus4py as cs
+        from climasus4py.core.engine import get_connection
+
+        codigos = get_disease_group_details("dengue")["codes"]
+        assert any("A90" in c for c in codigos), codigos
+
+        conn = get_connection()
+        conn.register(
+            "_dg", pd.DataFrame({"CAUSABAS": ["A90", "A91", "A92", "A899", "J189"]})
+        )
+        capturados = (
+            cs.sus_filter(conn.sql("SELECT * FROM _dg"), groups="dengue")
+            .df()["CAUSABAS"]
+            .tolist()
+        )
+        assert capturados == ["A90", "A91"], capturados
 
     def test_dengue_climate_sensitive(self):
         result = get_disease_group_details("dengue")

@@ -181,13 +181,21 @@ def sus_climate_plot_fill(
 
     # Filter to a single station
     plot_df = df_filled.copy()
-    if _station_col and _station_col in plot_df.columns:
-        available_stations = plot_df[_station_col].unique().tolist()
+    available_stations = (
+        plot_df[_station_col].unique().tolist()
+        if _station_col and _station_col in plot_df.columns
+        else []
+    )
+    if available_stations:
         _station = station if station else available_stations[0]
         plot_df = plot_df[plot_df[_station_col] == _station].copy()
         if verbose:
             print(f"[sus_climate_plot_fill] station={_station}")
     else:
+        # An empty frame has a station column but no stations in it, and
+        # ``available_stations[0]`` then raised IndexError — a message that
+        # says nothing about the data being empty. Nothing to pick, so plot
+        # what there is (nothing) instead of crashing.
         _station = "all"
 
     # Ensure datetime

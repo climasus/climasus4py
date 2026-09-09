@@ -163,10 +163,23 @@ def _seasonal_config() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def _age_breaks_for_preset(preset: str) -> list[int]:
+    """Resolve a named age-band preset to its break points.
+
+    An unknown name used to fall back to :data:`AGE_BREAKS_DEFAULT`
+    silently. That is the wrong default for the one caller this has:
+    ``sus_pipeline(age_group="who")`` asks for WHO bands, and a typo
+    would have returned the epidemiological ones instead — different
+    age groups than requested, with no sign anything went wrong. Refuse
+    and name the options, the way ``hemisphere`` is handled below.
+    """
     cfg = _age_groups_config()
     presets = cast(dict[str, Any], cfg["presets"])
     if preset not in presets:
-        return AGE_BREAKS_DEFAULT
+        raise ValueError(
+            f"Unknown age_group preset {preset!r}. "
+            f"Choose from: {sorted(presets)}, or pass an explicit list of "
+            f"break points instead."
+        )
     raw = presets[preset]["breaks"]
     return [999 if v is None else int(v) for v in raw]
 
@@ -366,6 +379,17 @@ def sus_data_create_variables(
             )
         if verbose:
             print(f"Age column: {age_col}")
+
+        # The top band is always open-ended. Without the 999 sentinel,
+        # _age_group_sql closes the last interval and everyone above the last
+        # break falls to ELSE NULL: age_breaks=[0, 18, 65] gave "0-17",
+        # "18-64" and NULL for ages 68, 90 and 100 — the elderly, silently
+        # dropped, and indistinguishable afterwards from a missing age. Every
+        # preset in the catalog already ends in the sentinel; a hand-written
+        # list is the only way to hit this. Copy before appending: age_breaks
+        # defaults to the shared AGE_BREAKS_DEFAULT list, and mutating it
+        # would corrupt the module constant for every later call.
+        age_breaks = [*age_breaks, 999] if age_breaks[-1] != 999 else list(age_breaks)
 
         # generate labels automatically
         labels = age_labels if age_labels is not None else [

@@ -8,9 +8,10 @@ These tests must pass with both:
 from climasus4py.core.variables import (
     _age_breaks_for_preset,
     _age_groups_config,
-    _season_case_sql,
-    _seasonal_patterns_config,
+    _astronomical_season_sql,
+    _seasonal_config,
 )
+from climasus4py.core.variables import sus_data_create_variables as cs_vars
 from climasus4py.utils.data import (
     detect_age_column,
     detect_cause_column,
@@ -108,38 +109,96 @@ class TestAgeGroupsConfig:
         breaks = _age_breaks_for_preset("epidemiological_default")
         assert breaks == [0, 5, 15, 60, 999]
 
-    def test_unknown_preset_fallback(self):
-        breaks = _age_breaks_for_preset("nonexistent")
-        assert breaks == [0, 18, 65, 999]
+    def test_unknown_preset_is_refused(self):
+        """Preset desconhecido recusa em vez de cair no default (M53, 09/09).
+
+        A assercao antiga era ``breaks == [0, 18, 65, 999]`` -- um valor que
+        nao corresponde a nenhum dos cinco presets do config, resto de um
+        AGE_BREAKS_DEFAULT anterior. Mas o defeito nao era o numero: era o
+        fallback existir. O unico chamador e ``sus_pipeline(age_group=...)``,
+        entao um typo em "who" devolvia as faixas epidemiologicas em silencio
+        -- faixas diferentes das pedidas, sem nenhum sinal.
+        """
+        import pytest
+
+        with pytest.raises(ValueError, match="Unknown age_group preset"):
+            _age_breaks_for_preset("nonexistent")
+
+    def test_every_preset_in_the_config_resolves(self):
+        """Contrapartida: os nomes validos continuam todos resolvendo."""
+        presets = _age_groups_config()["presets"]
+        for nome in presets:
+            breaks = _age_breaks_for_preset(nome)
+            assert breaks, f"preset {nome} devolveu vazio"
+            assert breaks == sorted(breaks), f"preset {nome} fora de ordem"
+            assert all(isinstance(b, int) for b in breaks)
 
 
 class TestSeasonalPatternsConfig:
+    """O config de estacoes e o SQL que sai dele.
+
+    Atualizado em 09/09/2026 (M53). Estes testes fixavam nomes e um formato que
+    o pacote mudou, e o ImportError de ``_season_case_sql`` derrubava a COLETA
+    da suite inteira. Tres coisas mudaram de verdade:
+
+    - ``_seasonal_patterns_config`` virou ``_seasonal_config``, e ``patterns``
+      deixou de ser chave de topo: agora vive sob ``astronomical``, ao lado de
+      ``climatic``, que e a outra familia de estacoes.
+    - ``_season_case_sql`` virou ``_astronomical_season_sql`` e passou a
+      receber uma expressao de MES, nao de data -- quem monta o
+      ``EXTRACT(MONTH FROM ...)`` agora e o chamador.
+    - o hemisferio invalido nao cai mais num default silencioso. Ver
+      ``test_public_function_validates_hemisphere``.
+    """
+
     def test_config_loads(self):
-        data = _seasonal_patterns_config()
-        assert "patterns" in data
-        assert "south" in data["patterns"]
-        assert "north" in data["patterns"]
+        data = _seasonal_config()
+        assert "patterns" in data["astronomical"]
+        assert "south" in data["astronomical"]["patterns"]
+        assert "north" in data["astronomical"]["patterns"]
 
     def test_south_summer_months(self):
-        data = _seasonal_patterns_config()
-        assert 12 in data["patterns"]["south"]["summer"]
-        assert 1 in data["patterns"]["south"]["summer"]
-        assert 2 in data["patterns"]["south"]["summer"]
+        padroes = _seasonal_config()["astronomical"]["patterns"]
+        assert set(padroes["south"]["summer"]) == {12, 1, 2}
 
     def test_north_winter_months(self):
-        data = _seasonal_patterns_config()
-        assert 12 in data["patterns"]["north"]["winter"]
+        padroes = _seasonal_config()["astronomical"]["patterns"]
+        assert set(padroes["north"]["winter"]) == {12, 1, 2}
 
     def test_season_sql_south_contains_summer(self):
-        sql = _season_case_sql("TRY_CAST(date AS DATE)", hemisphere="south")
+        sql = _astronomical_season_sql("EXTRACT(MONTH FROM d)", hemisphere="south")
         assert "Summer" in sql
-        assert "12, 1, 2" in sql
+        # Afirmar sobre os meses, nao sobre o espacamento do SQL gerado: a
+        # assercao antiga era "12, 1, 2" e quebrou quando a formatacao passou
+        # a ser "12,1,2", sem que nada de substantivo tivesse mudado.
+        assert "12,1,2" in sql.replace(" ", "")
 
     def test_season_sql_north_summer_different(self):
-        sql_south = _season_case_sql("d", hemisphere="south")
-        sql_north = _season_case_sql("d", hemisphere="north")
-        assert sql_south != sql_north
+        sul = _astronomical_season_sql("m", hemisphere="south")
+        norte = _astronomical_season_sql("m", hemisphere="north")
+        assert sul != norte
+        # E a diferenca tem de ser a certa: no sul dezembro e verao, no norte
+        # e inverno. Sem isso, o teste passaria com qualquer divergencia.
+        assert sul.split("THEN")[1].strip().startswith("'Summer'")
+        assert norte.split("THEN")[1].strip().startswith("'Winter'")
 
-    def test_season_sql_fallback_to_default(self):
-        sql = _season_case_sql("d", hemisphere="unknown_hemisphere")
-        assert "Summer" in sql
+    def test_public_function_validates_hemisphere(self):
+        """O helper privado assume hemisferio valido; quem valida e a publica.
+
+        Substitui o antigo ``test_season_sql_fallback_to_default``, que exigia
+        que um hemisferio desconhecido caisse em 'south' em silencio. Cair num
+        default e pior que recusar: um erro de digitacao viraria uma serie de
+        estacoes invertidas sem nenhum sinal. A funcao exportada recusa com
+        mensagem clara, e e esse o contrato que vale fixar.
+        """
+        import pandas as pd
+        import pytest
+
+        from climasus4py.core.engine import get_connection
+
+        conn = get_connection()
+        conn.register("_season_fix", pd.DataFrame({"date": ["2023-01-15"]}))
+        rel = conn.sql("SELECT * FROM _season_fix")
+
+        with pytest.raises(ValueError, match="hemisphere"):
+            cs_vars(rel, hemisphere="hemisferio_inexistente", verbose=False)

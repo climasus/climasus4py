@@ -16,7 +16,21 @@ import uuid
 import duckdb
 import pandas as pd
 
-from ._stage import CANONICAL_STAGES, get_meta, _stage_map
+from ._stage import CANONICAL_STAGES, format_history_entry, get_meta, _stage_map
+
+
+def _append_history(history: list[str], message: str) -> list[str]:
+    """Append a timestamped *message*, skipping a consecutive repeat.
+
+    The entry is stamped by :func:`format_history_entry` so the public
+    ``sus_meta(add_history=...)`` writes the same shape as the internal
+    writer. The de-duplication has to compare the *message*, not the
+    finished entry: two identical messages stamped a second apart are
+    different strings, and comparing those would never match.
+    """
+    if history and history[-1].endswith(message):
+        return list(history)
+    return [*history, format_history_entry(message)]
 from .engine import collect_arrow, get_connection
 
 # ---------------------------------------------------------------------------
@@ -208,10 +222,9 @@ def sus_meta(
             return None
         result = dict(stored)
         if add_history is not None:
-            history = list(result.get("history", []))
-            if not history or history[-1] != add_history:
-                history = history + [add_history]
-            result["history"] = history
+            result["history"] = _append_history(
+                list(result.get("history", [])), add_history
+            )
         return result if field is None else result.get(field)
 
     # --- relation required from here ---
@@ -242,9 +255,8 @@ def sus_meta(
     result = dict(stored)
 
     if add_history is not None:
-        history = list(result.get("history", []))
-        if not history or history[-1] != add_history:
-            history = history + [add_history]
-        result["history"] = history
+        result["history"] = _append_history(
+            list(result.get("history", [])), add_history
+        )
 
     return result if field is None else result.get(field)

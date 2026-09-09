@@ -247,6 +247,18 @@ def sus_pipeline(
     # Step 1: Import (always needed — resolves UFs, discovers/downloads parquets)
     rel = sus_data_import(system, uf, year, cache_dir=cache_dir, verbose=verbose, **kwargs)
 
+    # ``sus_data_import`` documents returning None when nothing is available.
+    # Nothing here used to check, so the None travelled on and failed deep in
+    # the fast path or in sus_data_clean_encoding — an error that says nothing
+    # about the actual problem, which is that this system/UF/year has no data.
+    if rel is None:
+        raise RuntimeError(
+            f"No data imported for system={system!r}, uf={uf!r}, year={year!r}. "
+            f"Check that the year is published for this system and that the "
+            f"UF code is valid, or inspect the download with "
+            f"sus_data_import(...) directly."
+        )
+
     # --- Try fast path: single CTE query like R rc_a ---
     if _can_fast_path(age_group, epi_week, time, geo):
         # Resolve parquet paths from cache
