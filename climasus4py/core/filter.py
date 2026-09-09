@@ -19,6 +19,7 @@ from ..utils.data import (
     detect_sex_column,
     expand_city_to_codes,
     load_json,
+    load_uf_codes,
 )
 from ._stage import add_history, set_stage
 from ._sql import sql_string
@@ -123,10 +124,50 @@ _UF_COLUMN_CANDIDATES = (
     "notification_uf", "UF_ZI", "uf_gestor",
 )
 
+# Shared with the municipality filter below so both it and the UF derivation
+# resolve to the same column. Order matters: residence first, which is the
+# usual epidemiological denominator.
+_MUNI_COLUMN_CANDIDATES = (
+    "CODMUNRES", "municipality_code", "ID_MUNICIP",
+    "residence_municipality_code", "occurrence_municipality_code",
+)
+
 
 def _detect_uf_column(columns: list[str]) -> str | None:
     """Auto-detect UF/state column from schema."""
     return next((c for c in _UF_COLUMN_CANDIDATES if c in columns), None)
+
+
+def _detect_muni_column(columns: list[str]) -> str | None:
+    """Auto-detect municipality-code column from schema."""
+    return next((c for c in _MUNI_COLUMN_CANDIDATES if c in columns), None)
+
+
+def _uf_prefix_sql(muni_col: str, uf_list: list[str]) -> str:
+    """SQL matching rows whose municipality code belongs to *uf_list*.
+
+    The first two digits of an IBGE municipality code are the state code
+    (35 for São Paulo, 33 for Rio de Janeiro), which is how the fast path
+    in ``sus_pipeline`` already derives state from ``CODMUNRES``. Doing
+    the same here lets ``uf=`` work on SIM/SINASC data, which carry no UF
+    column of their own — previously the filter warned and returned the
+    whole country.
+
+    Raises:
+        ValueError: If a requested UF has no IBGE code, rather than
+            filtering by the ones it recognised and silently dropping
+            the rest.
+    """
+    states = load_uf_codes()
+    desconhecidas = [u for u in uf_list if u.upper() not in states]
+    if desconhecidas:
+        raise ValueError(
+            f"Unknown UF(s): {desconhecidas}. "
+            f"Expected two-letter abbreviations such as 'SP' or 'RJ'."
+        )
+    codigos = sorted({str(states[u.upper()]["code"]) for u in uf_list})
+    vals = ", ".join(sql_string(c) for c in codigos)
+    return f'SUBSTR(CAST("{muni_col}" AS VARCHAR), 1, 2) IN ({vals})'
 
 
 # ---------------------------------------------------------------------------
@@ -388,22 +429,39 @@ def sus_filter(
     # ------------------------------------------------------------------
     # UF filtering
     # ------------------------------------------------------------------
+    uf_derived_from: str | None = None
     if uf is not None:
         uf_list = [uf] if isinstance(uf, str) else uf
         uf_col  = _detect_uf_column(columns)
-        if uf_col is None:
-            warnings.warn(
-                "No UF/state column found — uf filter skipped. "
-                "Run sus_spatial_join() first, or use SINAN/SIH data "
-                "which already contain a UF column.",
-                UserWarning,
-                stacklevel=2,
-            )
-        else:
+        if uf_col is not None:
             vals = ", ".join(sql_string(u.upper()) for u in uf_list)
             rel  = rel.filter(f'"{uf_col}" IN ({vals})')
             if verbose:
                 print(f"  UF — coluna: {uf_col} | estados: {uf_list}")
+        else:
+            # No UF column: derive the state from the municipality code
+            # instead of skipping. Skipping meant asking for uf="SP" and
+            # getting the whole country back with only a UserWarning to say
+            # so — easy to miss in a notebook, and the number that comes out
+            # is wrong by a factor of ~5.
+            muni_col = _detect_muni_column(columns)
+            if muni_col is not None:
+                rel = rel.filter(_uf_prefix_sql(muni_col, uf_list))
+                uf_derived_from = muni_col
+                if verbose:
+                    print(
+                        f"  UF — derivada de {muni_col} (2 primeiros digitos) "
+                        f"| estados: {uf_list}"
+                    )
+            else:
+                warnings.warn(
+                    "No UF/state column and no municipality column found — "
+                    "uf filter skipped, so the result is NOT restricted to "
+                    f"{uf_list}. Run sus_spatial_join() first, or use "
+                    "SINAN/SIH data which already carry a UF column.",
+                    UserWarning,
+                    stacklevel=2,
+                )
 
     # ------------------------------------------------------------------
     # Region filtering
@@ -430,13 +488,7 @@ def sus_filter(
     # ------------------------------------------------------------------
     if municipality is not None:
         muni_list = [municipality] if isinstance(municipality, str) else municipality
-        muni_col  = next(
-            (c for c in (
-                "CODMUNRES", "municipality_code", "ID_MUNICIP",
-                "residence_municipality_code", "occurrence_municipality_code",
-            ) if c in columns),
-            None,
-        )
+        muni_col = _detect_muni_column(columns)
         if not muni_col:
             raise ValueError(
                 "No municipality column found in the relation. "
@@ -542,7 +594,15 @@ def sus_filter(
                          filters_applied.append(f"age=[{age_min},{age_max}]")
     if sex is not None:        filters_applied.append(f"sex={sex!r}")
     if race is not None:       filters_applied.append(f"race={race!r}")
-    if uf is not None:         filters_applied.append(f"uf={uf!r}")
+    if uf is not None:
+        # Say WHERE the state came from when it was derived: residence and
+        # occurrence municipality are different epidemiological cuts, and the
+        # audit trail should show which one the filter used.
+        filters_applied.append(
+            f"uf={uf!r} (derived from {uf_derived_from})"
+            if uf_derived_from
+            else f"uf={uf!r}"
+        )
     if region is not None:     filters_applied.append(f"region={region!r}")
     if municipality is not None: filters_applied.append(f"municipality={municipality!r}")
     if date_start or date_end: filters_applied.append(f"date={date_start}→{date_end}")

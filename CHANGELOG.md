@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Fixed — `sus_filter(uf=...)` deixa de devolver o país inteiro (M58)
+
+Pedir `uf="SP"` a uma relação sem coluna de UF — o caso do SIM e do SINASC, que carregam apenas
+`CODMUNRES` — devolvia o **Brasil inteiro** com um `UserWarning`. Aviso em notebook passa batido,
+e o número que sai dali é publicável e errado por um fator de ~5.
+
+O tamanho do problema, medido no dado real: sobre o SIM-DO SP 2023 (334.303 linhas), `uf="RJ"`
+devolvia as **334.303** — uma análise de mortalidade do Rio usaria em silêncio os dados de São
+Paulo. Agora devolve **0**, e `uf="MG"` também.
+
+Os dois primeiros dígitos do código IBGE de município **são** o código do estado, e o fast path do
+`sus_pipeline` já usava isso; a correção só trouxe a mesma técnica para o `sus_filter`. A ordem de
+precedência é: coluna de UF se existir, senão derivar do município, e só avisar quando **não há
+nenhuma das duas** — aí o aviso passou a dizer explicitamente que o resultado não está restrito ao
+que foi pedido. Os códigos vêm de `load_uf_codes()`, não de lista embutida.
+
+**A trilha de auditoria diz de onde veio o estado:** o histórico grava `uf='SP' (derived from
+CODMUNRES)`. Isso importa porque residência e ocorrência são recortes epidemiológicos diferentes, e
+quem lê o resultado depois precisa saber qual foi — a mesma preocupação do M21 e do M52.
+
+De quebra, as candidatas de coluna de município, que estavam inline dentro do bloco de filtro de
+município, viraram `_MUNI_COLUMN_CANDIDATES` com o helper `_detect_muni_column`, usado agora pelos
+dois — filtro e derivação — para não poderem divergir. E UF desconhecida passou a ser recusada
+nomeando (`Unknown UF(s): ['XX']`) em vez de filtrar pelas que reconheceu e descartar o resto.
+
+7 testes novos; 6 falham sem a correção, medido com `git stash`. O caminho com coluna de UF
+presente continua igual, com teste fixando isso.
+
 ### Fixed — a suíte volta a ser instrumento: 66 → 36 falhas (M53)
 
 **Primeiro o erro de coleta.** `tests/test_metadata_external.py` importava `_season_case_sql` e

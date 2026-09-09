@@ -255,21 +255,17 @@ class TestMissingColumnErrors:
         with pytest.raises(ValueError, match="race"):
             sus_filter(rel, race="1")
 
-    def test_uf_filter_no_uf_column_warns_and_skips(self):
-        """O uf AVISA e pula, diferente dos irmaos, que recusam (M53, 09/09/2026).
+    def test_uf_filter_without_uf_or_muni_column_warns_and_skips(self):
+        """Sem UF E sem municipio nao ha de onde tirar o estado: avisa e pula.
 
-        Nao e descuido: o SIM-DO nao traz coluna de UF, so CODMUNRES, entao
-        exigir a coluna quebraria o caso mais comum -- e o aviso ate sugere o
-        remedio (``sus_spatial_join()`` antes). O teste esperava ValueError e
-        por isso falhava.
-
-        Mas o efeito e desconfortavel e esta registrado no M58: quem pede
-        ``uf="SP"`` recebe o pais inteiro, e um aviso em notebook passa batido.
-        Este teste fixa as DUAS metades -- que avisa, e que de fato nao
-        filtrou -- para que a segunda nao mude sem alguem notar.
+        Ultimo recurso, depois do M58 (09/09/2026). Quando existe coluna de
+        municipio o filtro passa a DERIVAR o estado -- ver
+        TestUfDerivedFromMunicipality. So quando nao existe nenhuma das duas
+        ele desiste, e ai o aviso precisa dizer explicitamente que o
+        resultado NAO esta restrito ao que foi pedido.
         """
         rel = _make_rel({"value": [1, 2]})
-        with pytest.warns(UserWarning, match="No UF/state column"):
+        with pytest.warns(UserWarning, match="uf filter skipped"):
             resultado = sus_filter(rel, uf="SP")
         assert len(resultado.df()) == 2, "nao filtrou nada, como o aviso diz"
 
@@ -497,6 +493,71 @@ class TestCityFilter:
         })
         result = sus_filter(rel, city="São Paulo")
         assert _count(result) == 2
+
+
+# ---------------------------------------------------------------------------
+# M58 — uf= derivado do codigo de municipio
+# ---------------------------------------------------------------------------
+
+class TestUfDerivedFromMunicipality:
+    """O uf= funciona em dado que nao tem coluna de UF (M58, 09/09/2026).
+
+    Antes, pedir uf="SP" a uma relacao sem coluna de UF -- o caso do SIM e do
+    SINASC, que carregam so CODMUNRES -- devolvia o BRASIL INTEIRO com um
+    UserWarning. Aviso em notebook passa batido, e o numero que sai dali e
+    publicavel e errado por um fator de ~5.
+
+    Os dois primeiros digitos do codigo IBGE de municipio SAO o codigo do
+    estado, e o fast path do sus_pipeline ja usava isso. Agora o filtro usa
+    tambem.
+    """
+
+    # SP=35, RJ=33, MG=31, RO=11
+    @pytest.fixture
+    def rel_municipios(self):
+        return _make_rel({
+            "CODMUNRES": [355030, 350010, 330455, 330020, 310620, 110001],
+            "id": [1, 2, 3, 4, 5, 6],
+        })
+
+    def test_single_uf(self, rel_municipios):
+        got = sus_filter(rel_municipios, uf="SP").df()["id"].tolist()
+        assert got == [1, 2]
+
+    def test_several_ufs(self, rel_municipios):
+        got = sus_filter(rel_municipios, uf=["SP", "RJ"]).df()["id"].tolist()
+        assert got == [1, 2, 3, 4]
+
+    def test_two_digit_uf_code_is_not_confused(self, rel_municipios):
+        """RO e 11: prefixo de um digito nao pode casar com o de dois."""
+        got = sus_filter(rel_municipios, uf="RO").df()["id"].tolist()
+        assert got == [6]
+
+    def test_no_warning_when_it_can_derive(self, rel_municipios):
+        """O aviso era o sintoma; derivando, nao ha o que avisar."""
+        import warnings
+
+        with warnings.catch_warnings(record=True) as capturados:
+            warnings.simplefilter("always")
+            sus_filter(rel_municipios, uf="SP")
+        assert not [w for w in capturados if "uf filter" in str(w.message)]
+
+    def test_history_records_where_the_state_came_from(self, rel_municipios):
+        """Residencia e ocorrencia sao recortes diferentes: a trilha diz qual foi."""
+        import climasus4py as cs
+
+        out = sus_filter(rel_municipios, uf="SP")
+        assert "derived from CODMUNRES" in cs.sus_meta(out, "history")[-1]
+
+    def test_unknown_uf_is_refused(self, rel_municipios):
+        """Recusa nomeando, em vez de filtrar pelas que reconheceu."""
+        with pytest.raises(ValueError, match="Unknown UF"):
+            sus_filter(rel_municipios, uf="XX")
+
+    def test_uf_column_still_wins_when_present(self):
+        """Havendo coluna de UF, ela e usada -- a derivacao e o plano B."""
+        rel = _make_rel({"state": ["SP", "RJ", "SP", "MG"], "id": [1, 2, 3, 4]})
+        assert sus_filter(rel, uf="SP").df()["id"].tolist() == [1, 3]
 
 
 if __name__ == "__main__":
