@@ -2,6 +2,60 @@
 
 ## [Unreleased]
 
+### Notes — M24 investigado: o defeito é do R, o Python está correto
+
+**Veredito invertido, e nenhuma mudança foi feita no Python.** O M24 estava registrado como
+divergência do Python na fração atribuível — af total +8%, heat −29%, cold +85%, com a ordem
+heat/cold invertida e desvios de até +306% por faixa de percentil, prioridade Alta contra nós.
+
+`dlnm::crosspred(cb, model, at = x)` devolve `allRRfit` na ordem **crescente de `x`**, não na ordem
+em que `x` foi passado. O `.saf_component` do `climasus4r` pareia esse vetor **posicionalmente** com
+`cases` e `in_range`, que estão em ordem de **data**. Como os valores de `x` são contínuos e todos
+distintos, os comprimentos coincidem (1812 = 1812) e **o R não emite aviso nenhum**: cada dia
+recebe silenciosamente o RR de outro dia.
+
+**A prova não deixa margem.** Com a mesma série sintética de 5 anos nos dois lados:
+
+| | total | heat | cold |
+|---|---:|---:|---:|
+| Python (pareamento correto) | 0,056669 | −0,007568 | 0,064237 |
+| Python com o RR embaralhado — `rr[argsort(x)]` | **0,054892** | **0,032898** | **0,021994** |
+| R (medido) | **0,054892** | **0,032898** | **0,021994** |
+
+Reproduzir o embaralhamento reproduz o R **até a sexta casa decimal**. Isso identifica a causa, não
+a aproxima.
+
+**O que foi descartado no caminho, cada um por medição** — e vale registrar porque as três primeiras
+hipóteses eram plausíveis e erradas: a **fórmula** (o `.saf_component` do R e o `_component_af` do
+Python são estruturalmente idênticos, linha a linha); a **centragem** (`cen` idêntico, 21,98056); a
+**base spline** (curvas de RR comparadas num grid de 10 a 34 °C, cobrindo *as duas caudas* —
+idênticas até a 7ª casa, diferença máxima **zero**); a **entrada** (`nrow` 1812, `n_cases` 26328,
+min/max/média de `x` e a contagem de 906 dias de cada lado do `cen`, todos idênticos); e a **seleção
+de coeficientes** (o Python usa fatia posicional e o R usa nome, mas a matriz de desenho põe a
+crossbasis logo após o intercepto, então a fatia está certa).
+
+Isso também explica os três sintomas do achado: o **total** sai próximo (~3%) porque os óbitos
+diários são homogêneos e a soma embaralhada fica perto da certa; a **decomposição** fica arbitrária;
+e o **IC cruzando zero** no Python não é defeito — é o comportamento correto quando o `cen` cai
+dentro de uma zona ampla de risco mínimo, situação em que dias pouco acima dele têm RR abaixo de 1.
+Como observação de método, válida para os dois lados: centrar no `ref_value` por percentil, em vez
+da temperatura de mortalidade mínima, é o que permite componente negativo.
+
+O lado R está no `IDEIAS.md` com a correção sugerida. Pelo princípio de paridade, bug do R é
+apontado e não corrigido daqui — mas **este precisa ir ao coordenador com prioridade**: afeta o
+`climasus4r` publicado, no número que vai para publicação, e propaga para `sus_mod_excess` e
+`sus_mod_swot` (as divergências de 9–13% e a mudança de classe do `O_cat` que o achado registrou são
+consequência disso, e também são o R).
+
+`tests/test_af_pairing.py` existe para **impedir que alguém alinhe o Python ao R aqui** numa rodada
+futura de comparação: um dos quatro testes falha de propósito se os dois passarem a coincidir.
+
+### Added — `sus_mod_burden()` exportado, destravado pelo M24
+
+Estava implementado e sem exportar justamente por consumir `climasus_af`, que o M24 dava como
+errado. Com o `sus_mod_af` provado correto, o bloqueio caiu. Verificado pela API pública: heat 2242
++ cold 1320 = 3562 = total. `__all__` de 92 para 93.
+
 ### Changed — `sus_export()` não sobrescreve mais por default (M17) · **quebra compatibilidade**
 
 O default de `overwrite` estava **invertido** entre as duas linguagens: no R

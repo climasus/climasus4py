@@ -61,6 +61,7 @@ from .enrichment.grid_pollution_merra2 import sus_grid_pollution_merra2
 from .enrichment.grid_prodes import sus_grid_prodes
 from .enrichment.grid_smvi import sus_grid_smvi
 from .enrichment.mod_af import sus_mod_af
+from .enrichment.mod_burden import sus_mod_burden
 from .enrichment.mod_casecrossover import sus_mod_casecrossover
 from .enrichment.mod_dlnm import sus_mod_dlnm
 from .enrichment.mod_excess import sus_mod_excess
@@ -193,6 +194,11 @@ __all__ = [
     # Exposure-response modelling — the sus_mod_dlnm() chain
     "sus_mod_dlnm",
     "sus_mod_af",
+    # Destravado em 09/09/2026: eu o havia segurado por consumir
+    # climasus_af, que o M24 dava como divergente -- investigado, o
+    # defeito e do R (ver IDEIAS.md e tests/test_af_pairing.py) e o
+    # sus_mod_af do Python esta correto.
+    "sus_mod_burden",
     "sus_mod_sensitivity",
     "sus_mod_casecrossover",
     "sus_mod_its",
