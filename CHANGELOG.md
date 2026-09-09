@@ -2,6 +2,106 @@
 
 ## [Unreleased]
 
+### Added — `sus_as_arrow()` e `sus_as_duckdb()`: a travessia da metadata
+
+Duas funções novas em [`io/convert.py`](climasus4py/climasus4py/io/convert.py). Existem por um
+motivo só: fazer o `sus_meta` sobreviver à troca de formato. `collect_arrow()` entrega o dado e
+descarta a procedência; estas entregam as duas coisas — a mesma divisão que o R faz.
+
+`sus_as_arrow()` embute o `sus_meta` como JSON na metadata do schema, sob a chave
+`climasus_meta`, que é exatamente onde `sus_meta(from_parquet=...)` procura. Uma relação **sem**
+metadata devolve tabela sem a chave, de propósito: estampar payload vazio faria um leitor tomá-lo
+por procedência real. O `collect_arrow()` **não** mudou, e há teste fixando isso — não se altera
+o contrato de uma função pública existente de carona.
+
+`sus_as_duckdb()` fixa a relação como tabela real sob um nome conhecido e cria a companheira
+`<nome>__meta`. Diferente do R, **não move dado entre engines**: em Python o dado já está no
+DuckDB. Quando a conexão alvo é a compartilhada o trabalho fica dentro do banco; para conexão
+diferente há fallback por Arrow, porque uma relação pertence à conexão que a criou.
+
+Verificado com round-trip pelos leitores que já existiam, incluindo o caminho de conexão de
+arquivo, que é o que exercita o fallback. 16 testes em `tests/test_convert.py`.
+
+### Changed — duas funções do R que já existiam aqui sob outro nome
+
+`write_parquet_climasus()` e `write_duckdb_climasus()` **não** são funções separadas em Python:
+são `sus_meta(rel, to_parquet=...)` e `sus_meta(rel, to_duckdb=...)`. Estavam registradas como
+ausentes; o round-trip foi verificado e a metadata volta idêntica, com a mesma estratégia do R —
+JSON no schema do Arrow para Parquet, tabela companheira para DuckDB.
+
+Uma diferença deliberada: o R nomeia a tabela de metadata `.__sus_meta__` e aqui é
+`<tabela>__meta`. Preferi a consistência interna — o sufixo que o leitor do próprio pacote
+espera — a copiar um nome que não faz parte de contrato entre as duas linguagens.
+
+### Fixed — `sus_export()` avisa quando descarta a metadata (M19)
+
+O registro anterior do M19 dizia "Python não grava metadados". Está errado como descrição do
+pacote: `sus_meta(rel, to_parquet=...)` grava. O problema real é pior — há **dois caminhos de
+gravação de Parquet com resultados diferentes, e o nome óbvio é o que perde informação**.
+`sus_export()` usa `COPY TO`, que é o que o torna rápido por não materializar em Python, e
+`COPY TO` carrega só o dado.
+
+Agora `sus_export()` avisa quando a relação carrega `sus_meta` e o formato é Parquet, apontando a
+alternativa. Não avisa quando não há nada a perder, nem em CSV, que não tem onde guardar.
+
+Não mexi na assinatura: qual dos dois deve ser o default é decisão de API — gravar metadata por
+default custaria a materialização via Arrow, perdendo a vantagem que é a razão de o `sus_export()`
+existir. M19 fica aberto por isso.
+
+### Fixed — `sus_mod_burden()` resumia o componente errado
+
+O bloco de `total_burden` filtrava pelo literal `"total"` em vez do `component` pedido. Com
+`component="heat"` ou `"cold"` a seleção ficava vazia. O sintoma visível era `IndexError` no
+`top_an`, mas o dano silencioso vinha antes: `an_total` somava um frame vazio e dava **0**, e
+`af_pct_avg` dava **NaN**. Sem aquelas duas últimas linhas do bloco, a função devolveria zeros sem
+reclamar.
+
+Passou a usar o componente pedido; `"all"` segue resumindo totais, que é o documentado e o que o
+`_burden_rank()` usa para ranquear. Verificado na cadeia real — `dlnm` → `af` → `burden`, 3
+cidades, 5 anos de série diária: os quatro valores de `component` rodam, e **heat (1942) + cold
+(1479) = 3421 = total**, uma checagem de consistência independente do resultado. 10 testes; 6
+falham sem a correção, medido com `git stash`.
+
+### Changed — duas funções estavam classificadas como stub e não eram
+
+**`sus_mod_plot_vulnerability()`** está inteiramente implementada: os três tipos (`ranking`,
+`pillars`, `lorenz`) e a mesma assinatura do R. O único `NotImplementedError` é **condicional**,
+sob `interactive=True`, por falta de equivalente ao plotly — limitação de escopo documentada, não
+trabalho pendente. Estava apenas fora do `__init__.py`, e foi assim que entrou como stub no
+controle. Agora exportada, verificada com 12 municípios — o que também endereça a ressalva do M27,
+que era o `sus_mod_vulnerability_index()` ter sido testado com um município só.
+
+**`sus_mod_burden()`** também não era stub: 268 linhas, com o `NotImplementedError` restrito a
+tipos de entrada não suportados (ajuste dlnm cru). **Não foi exportada de propósito** — consome
+`climasus_af`, e o `sus_mod_af()` está com divergência sistemática contra o R (M24). Exportar
+agora seria publicar número derivado de número errado. Fica pronta para o momento em que o M24
+fechar.
+
+`__all__` foi de 89 para 92.
+
+### Notes — o controle tinha uma função fantasma (M56)
+
+`sus_grid_plot` **nunca existiu no `climasus4r`**: não aparece em `getNamespaceExports()` e o
+NAMESPACE da v1.0.0 tem zero linha com `grid_plot`. O diff nome por nome entre as 108 linhas de
+função R do controle e os 108 `export()` deu exatamente um de cada lado — fantasma
+`sus_grid_plot`, ausente `export("%>%")`, o pipe do magrittr, que é reexportado pelo pacote mas
+não é função a portar.
+
+Então o número real de funções R a portar é **107**, não 108.
+
+A lição é a que importa: a contagem batia (108 = 108) e por isso a checagem de integridade
+passava. **Dois erros que se cancelam produzem um total correto** — conferir cardinalidade não
+substitui conferir os elementos. A checagem virou um diff nominal contra o NAMESPACE.
+
+Na mesma passagem, quatro funções saíram da fila como **não se aplica**, com evidência no código
+R: `sus_rap_addin_export` (`rstudioapi::getSourceEditorContext` — lê o código selecionado no
+editor do RStudio), `sus_rap_gui` (`shiny::runApp` — um "RAP Editor" de 130 linhas, que é produto
+e não função de biblioteca), `sus_rap_template` (`renv::` mais scaffolding de targets/quarto/GitHub
+Actions) e `sus_install_deps` (em Python o mecanismo são os extras do `pyproject`, já declarados).
+
+Ficam com categoria própria em vez de "feita": sair da fila não é o mesmo que ter sido
+implementado. A fila real caiu de **31 para 20** — 11 stubs e 9 ausentes.
+
 ### Fixed — o teto de ~91 MiB tinha nome e endereço (M44)
 
 **Não havia orçamento misterioso do DuckDB.** `_process_year()`, em

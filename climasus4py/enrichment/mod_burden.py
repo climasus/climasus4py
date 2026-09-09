@@ -383,13 +383,22 @@ def sus_mod_burden(
 
     if detected_kind == "af":
         if "component" in burden_tbl.columns:
-            total_rows = burden_tbl[burden_tbl["component"] == "total"]
+            # Summarise the component that was actually requested. This used
+            # to filter on the literal "total", so component="heat"/"cold"
+            # selected nothing: an_total summed an empty frame to 0 and
+            # af_pct_avg came out NaN — both silently wrong — before the
+            # top_an lookup raised IndexError on the empty selection.
+            # "all" keeps totals, which is the documented summary for it and
+            # matches how _burden_rank derives the ranking.
+            summary_component = "total" if component == "all" else component
+            total_rows = burden_tbl[burden_tbl["component"] == summary_component]
         else:
             total_rows = burden_tbl
         an_total = round(total_rows["an"].sum(skipna=True))
         af_avg = round(total_rows["af_pct"].mean(skipna=True), 2)
         top_city = conc_tbl["city"].iloc[0]
-        top_an = total_rows.loc[total_rows["city"] == top_city, "an"].iloc[0]
+        top_an_rows = total_rows.loc[total_rows["city"] == top_city, "an"]
+        top_an = top_an_rows.iloc[0] if len(top_an_rows) else float("nan")
 
         total_burden = {
             "an_total": an_total,

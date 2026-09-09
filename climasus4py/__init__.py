@@ -78,6 +78,7 @@ from .enrichment.socio_indicators import (
 )
 from .enrichment.spatial import sus_spatial_join
 from .io.cache import sus_cache_clear, sus_cache_info
+from .io.convert import sus_as_arrow, sus_as_duckdb
 from .io.export import sus_export
 from .io.materialize import materialize
 from .io.read import sus_data_read
@@ -101,6 +102,7 @@ from .viz.mod_plot_ml import sus_mod_plot_ml
 from .viz.mod_plot_sensitivity import sus_mod_plot_sensitivity
 from .viz.mod_plot_spatial_moran import sus_mod_plot_spatial_moran
 from .viz.mod_plot_swot import sus_mod_plot_swot
+from .viz.mod_plot_vulnerability import sus_mod_plot_vulnerability
 from .viz.plot_demographics import sus_data_plot_demographics
 from .viz.plot_aggregate_ts import sus_data_plot_aggregate_ts
 from .viz.plot_aggregate_map import sus_data_plot_aggregate_map
@@ -121,6 +123,12 @@ __all__ = [
     "sus_sql",
     # I/O
     "sus_export",
+    # Conversions that carry sus_meta across a format boundary. The file
+    # writers of the same family are not separate functions here: R's
+    # write_parquet_climasus / write_duckdb_climasus are
+    # sus_meta(rel, to_parquet=...) / sus_meta(rel, to_duckdb=...).
+    "sus_as_arrow",
+    "sus_as_duckdb",
     "sus_cache_info",
     "sus_cache_clear",
     "materialize",
@@ -217,6 +225,10 @@ __all__ = [
     "sus_mod_plot_ml",
     "sus_mod_plot_spatial_moran",
     "sus_mod_plot_swot",
+    # Was recorded as a stub and is not one: the three plot types are all
+    # implemented. Only ``interactive=True`` raises, for want of a plotly
+    # equivalent — a documented scope limit, not missing work.
+    "sus_mod_plot_vulnerability",
     # viz
     "sus_data_plot_demographics",
     "sus_data_plot_aggregate_ts",

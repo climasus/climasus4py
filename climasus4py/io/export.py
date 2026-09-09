@@ -5,6 +5,7 @@ Mirrors R: export.R — uses COPY TO for maximum throughput.
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import duckdb
@@ -72,7 +73,25 @@ def sus_export(
     if not overwrite and path.exists():
         raise FileExistsError(f"File already exists: {path}")
 
+    # ``COPY TO`` is what makes this fast — no Python-side materialisation —
+    # but it writes only the data, so any pipeline history the relation
+    # carries is dropped. Say so instead of losing provenance in silence;
+    # ``sus_meta(rel, to_parquet=...)`` keeps it, at the cost of going
+    # through Arrow. Which of the two should be the default is an API
+    # question, recorded as M19.
     if fmt == "parquet":
+        from ..core.meta import sus_meta
+
+        if sus_meta(data):
+            warnings.warn(
+                f"sus_export: {path.name} is being written without its "
+                f"sus_meta — COPY TO carries data only, so the pipeline "
+                f"history is lost. Use sus_meta(rel, to_parquet=...) to "
+                f"embed it in the Parquet schema.",
+                UserWarning,
+                stacklevel=2,
+            )
+
         _valid_compress = {"snappy", "zstd", "gzip", "none", "lz4"}
         if compress not in _valid_compress:
             raise ValueError(
