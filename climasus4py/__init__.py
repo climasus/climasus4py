@@ -153,10 +153,13 @@ __all__ = [
     "sus_climate_compute_spi",
     "sus_climate_compute_spei",
     # Heatwaves / coldwaves — results validated against climasus4r (103 and
-    # 128 events, identical). BLOCKED in practice by M10: both require a
-    # ``station_code`` column while ``sus_climate_inmet()`` emits
-    # ``wmo_code``, and neither exposes a ``station_col`` argument. Rename
-    # the column until M10 is resolved.
+    # 128 events, identical). M10 resolved 09/09/2026: they used to require a
+    # ``station_code`` column while ``sus_climate_inmet()`` emitted
+    # ``wmo_code``, which made these eight unusable with the package's own
+    # output. The INMET file labels the field "CODIGO (WMO)" but stores the
+    # INMET code (A701, A806) — a WMO code is five numeric digits — so the
+    # name was simply wrong, and ``station_code`` is both the accurate name
+    # and the one climasus4r uses.
     "sus_climate_compute_heatwaves",
     "hw_get_events",
     "hw_active_days",

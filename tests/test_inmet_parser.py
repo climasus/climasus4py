@@ -88,7 +88,7 @@ class TestParseHeader:
             "region": "S",
             "UF": "SC",
             "station_name": "FLORIANOPOLIS",
-            "wmo_code": "A806",
+            "station_code": "A806",
             "latitude": "-27,6025",
             "longitude": "-48,61999999",
             "altitude": "1,8",
@@ -104,10 +104,15 @@ class TestParseHeader:
         assert 'AS "date"' in clause
         assert 'AS "year"' in clause
         assert "'FLORIANOPOLIS' AS \"station_name\"" in clause
-        assert "'A806' AS \"wmo_code\"" in clause
+        assert "'A806' AS \"station_code\"" in clause
         assert '"PRECIPITAÇÃO TOTAL, HORÁRIO (mm)"' in clause
         assert 'AS "rainfall_mm"' in clause
-        assert 'AS "station_code"' not in clause
+        # Guarda de polaridade INVERTIDA em 09/09/2026 (M10). Antes esta linha
+        # afirmava que o parser NAO emitia "station_code", porque o canonico
+        # era "wmo_code". Hoje e o contrario: o nome vem do rotulo errado do
+        # INMET ("CODIGO (WMO)" com um codigo do INMET dentro) e o canonico e
+        # station_code, que e o que o climasus4r usa.
+        assert 'AS "wmo_code"' not in clause
 
     def test_region_extracted(self, tmp_path):
         path = _write_csv(tmp_path, _MINIMAL_CSV)
@@ -127,11 +132,11 @@ class TestParseHeader:
         assert "station_name" in df.columns
         assert df["station_name"].iloc[0] == "CURITIBA"
 
-    def test_wmo_code_extracted(self, tmp_path):
+    def test_station_code_extracted(self, tmp_path):
         path = _write_csv(tmp_path, _MINIMAL_CSV)
         df = _parse_df(path)
-        assert "wmo_code" in df.columns
-        assert df["wmo_code"].iloc[0] == "A803"
+        assert "station_code" in df.columns
+        assert df["station_code"].iloc[0] == "A803"
 
     def test_latitude_numeric(self, tmp_path):
         """Latitude com vírgula decimal deve ser convertida para float."""
@@ -181,7 +186,7 @@ class TestParseData:
             "region",
             "UF",
             "station_name",
-            "wmo_code",
+            "station_code",
             "latitude",
             "longitude",
             "altitude",

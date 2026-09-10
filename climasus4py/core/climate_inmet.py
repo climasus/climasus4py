@@ -65,7 +65,7 @@ _INMET_CATEGORY_COLUMNS: frozenset[str] = frozenset({
     "region",
     "UF",
     "station_name",
-    "wmo_code",
+    "station_code",
 })
 
 _INMET_FLOAT32_COLUMNS: frozenset[str] = frozenset({
@@ -117,8 +117,25 @@ _MESSAGES: dict[str, dict[str, str]] = {
 
 
 def _cast_inmet_types(rel: duckdb.DuckDBPyRelation) -> duckdb.DuckDBPyRelation:
-    """Apply compact type casts lazily in DuckDB — avoids pandas round-trip."""
+    """Apply compact type casts lazily in DuckDB — avoids pandas round-trip.
+
+    Also renames a legacy ``wmo_code`` column to ``station_code``. This is the
+    single choke point every path goes through — fresh parse and Parquet cache
+    alike — and the cache matters: parquet written before the M10 fix still has
+    the old name on disk, and a relation read from it would carry ``wmo_code``
+    out of the package, leaving the heatwave/coldwave functions blocked exactly
+    as before. Normalising here guarantees the canonical name at the boundary
+    without touching the files or asking anyone to re-download.
+    """
     conn = get_connection()
+    if "wmo_code" in rel.columns and "station_code" not in rel.columns:
+        renamed = ", ".join(
+            f"{quote_ident(c)} AS {quote_ident('station_code')}"
+            if c == "wmo_code"
+            else quote_ident(c)
+            for c in rel.columns
+        )
+        rel = conn.sql(f"SELECT {renamed} FROM rel")
     select_parts: list[str] = []
     for col in rel.columns:
         col_sql = quote_ident(col)
@@ -165,7 +182,8 @@ def sus_climate_inmet(
         If None (default), imports all 27 states.
     station_code:
         INMET station codes to filter (e.g. ["A101", "A122"]). Optional.
-        Matched case-insensitively against the canonical ``wmo_code`` column.
+        Matched case-insensitively against the canonical ``station_code``
+        column.
     use_cache:
         If True (default), enables two-level caching:
         session cache (MD5 hash) + Parquet/Zstd on disk.
@@ -197,7 +215,7 @@ def sus_climate_inmet(
 
     Standardized Columns
     --------------------
-    date, year, region, UF, station_name, wmo_code, latitude, longitude,
+    date, year, region, UF, station_name, station_code, latitude, longitude,
     altitude, founded_date, rainfall_mm, patm_mb, patm_max_mb, patm_min_mb,
     sr_kj_m2, tair_dry_bulb_c, tair_max_c, tair_min_c, dew_tmean_c,
     dew_tmax_c, dew_tmin_c, rh_mean_porc, rh_max_porc, rh_min_porc,
@@ -305,14 +323,14 @@ def sus_climate_inmet(
             console.print(
                 f"[cyan]INFO[/]  {msg['filter_code'].format(n=len(sc_list))}"
             )
-        if "wmo_code" not in climate_result.columns:
+        if "station_code" not in climate_result.columns:
             raise ValueError(
-                "Cannot filter by 'station_code': column 'wmo_code' not found "
-                "in the downloaded data."
+                "Cannot filter by 'station_code': column 'station_code' not "
+                "found in the downloaded data."
             )
         codes_sql = ", ".join(sql_string(code) for code in sc_list)
         climate_result = climate_result.filter(
-            f"{quote_ident('wmo_code')} IN ({codes_sql})"
+            f"{quote_ident('station_code')} IN ({codes_sql})"
         )
         if climate_result.limit(1).fetchone() is None:
             raise ValueError(msg["no_rows_code"].format(codes=", ".join(sc_list)))
@@ -322,7 +340,10 @@ def sus_climate_inmet(
 
     # --- metadata ------------------------------------------------------------
     station_id_col = next(
-        (c for c in ("wmo_code", "station_code", "station_name") if c in rel.columns),
+        # station_code primeiro: e o nome canonico desde a correcao do
+        # M10. wmo_code fica como alias de LEITURA para cache gravado antes
+        # dela -- parquet ja em disco nao muda de esquema sozinho.
+        (c for c in ("station_code", "wmo_code", "station_name") if c in rel.columns),
         None,
     )
     n_stations: int | None = None

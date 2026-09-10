@@ -2,6 +2,49 @@
 
 ## [Unreleased]
 
+### Changed — a coluna de estação passa a ser `station_code` de ponta a ponta (M10) · **quebra compatibilidade**
+
+`sus_climate_inmet()` emitia `wmo_code` enquanto `sus_climate_compute_heatwaves()`,
+`sus_climate_compute_coldwaves()` e os seis helpers (`hw_*` / `cw_*`) exigiam `station_code` —
+**oito funções inutilizáveis com a saída do próprio pacote**, e o erro era só um nome.
+
+**O que decidiu a questão foi o dado: a coluna `wmo_code` não continha código WMO.** Os valores são
+`A701`, `A705`, `A706` — códigos do INMET, com prefixo de letra. Código WMO é numérico de cinco
+dígitos; São Paulo é 83781. Das 350.400 linhas de SP 2023, **100% têm prefixo `A` e nenhuma é só
+dígitos**. E o R guarda exatamente os mesmos valores sob o nome `station_code`.
+
+Ou seja, a coluna estava com o **nome errado**, e a entrada da 0.2.0a4 que canonizou `wmo_code` foi
+escrita supondo que ela guardasse código WMO. Não foi reverter uma decisão deliberada — foi corrigir
+uma decisão tomada sobre premissa falsa. Isso resolveu junto a paridade, o bloqueio e a exatidão do
+nome.
+
+**De onde veio o nome:** do próprio arquivo do INMET, que rotula o campo como `CODIGO (WMO):` e
+coloca dentro dele o código do INMET. Conferido nos três fixtures do repositório — 2008 (`A828`),
+2015 (`A806`) e 2023 (`A806`): o rótulo está errado **na fonte** nos três anos. O parser transcreveu
+o rótulo literalmente, o que exonera quem o escreveu: ele pegou o nome do campo na origem.
+
+O mapa justificou a direção: `wmo_code` aparecia 14 vezes e só no lado produtor; `station_code`
+aparecia **138 vezes** em todo o resto — heatwaves 50, coldwaves 30, os plots 26, aggregate 9, mais
+anomaly, fill, indicators e uniplu. Levar `wmo_code` aos 138 pontos divergiria do R em toda a cadeia
+de clima e propagaria um nome incorreto.
+
+**O cache exigiu cuidado.** Parquet gravado antes desta correção tem `wmo_code` **em disco**, e uma
+relação lida dele carregaria o nome antigo para fora do pacote — o bloqueio persistiria, agora só
+para quem já tinha cache, o que é pior por ser silencioso. A normalização ficou em
+`_cast_inmet_types`, ponto único por onde passam os dois caminhos (parse novo e cache), sem tocar
+nos arquivos nem pedir redownload. Há teste para cache antigo, novo e híbrido com as duas colunas.
+
+Verificado **sem nenhum contorno**, direto na saída do `sus_climate_inmet`: heatwaves devolve 245
+eventos, coldwaves 297, e os seis helpers rodam. As oito funções que o achado dava como inutilizáveis
+passaram a funcionar; o default de `station_col` do `sus_climate_anomaly` ficou correto por
+consequência.
+
+Quem lê `wmo_code` no resultado precisa passar a ler `station_code`. 8 testes novos, incluindo um que
+documenta o fato decisivo e falha se a fonte mudar — reabrindo a discussão com evidência em vez de
+memória. Cinco testes que afirmavam o nome antigo foram atualizados, um deles com a **polaridade
+invertida**: garantia que o parser *não* emitia `station_code`, e agora garante que não emite
+`wmo_code`.
+
 ### Notes — M24 investigado: o defeito é do R, o Python está correto
 
 **Veredito invertido, e nenhuma mudança foi feita no Python.** O M24 estava registrado como
