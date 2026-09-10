@@ -260,6 +260,56 @@ def sus_data_standardize(
             )
             new_columns = schema_columns(rel)
 
+    # --- 2b. Date columns the explicit list does not name -------------
+    # The list above is hand-maintained, so a column it never heard of stays
+    # raw text: ``original_receipt_date`` (DTRECORIGA) came out as the string
+    # "05012023" for all 334.303 records of SIM-DO SP 2023 while the R
+    # returned a date. Ver M4.
+    #
+    # Reading ``all_date_columns`` from the climasus-data metadata does NOT
+    # fix it: that list publishes ``DTRECORIG``, without the trailing A, so it
+    # does not match the real DATASUS column. Correcting the metadata is the
+    # right long-term move and needs the coordinator.
+    #
+    # So the fallback is by shape, and it CONVERTS ONLY WHAT ACTUALLY PARSES.
+    # The guard is not paranoia: ``batch_number`` (NUMEROLOTE) also holds
+    # eight digits — "20230001", a year plus a sequence — and a name/shape
+    # heuristic without the guard would have turned a batch number into a
+    # date. Measured on the same dataset: 0 of 334.303 batch numbers parse as
+    # DDMMYYYY, against 334.303 of 334.303 receipt dates.
+    _DATE_NAME_HINTS = ("date", "data_", "fecha_", "dt_")
+    for col in list(new_columns):
+        if col in date_candidates:
+            continue
+        nome = col.lower()
+        parece_data = (
+            any(h in nome for h in _DATE_NAME_HINTS) or nome.startswith("dt")
+        )
+        if not parece_data:
+            continue
+        expr = (
+            f'COALESCE(TRY_STRPTIME(CAST("{col}" AS VARCHAR), \'%d%m%Y\')::DATE, '
+            f'TRY_CAST("{col}" AS DATE))'
+        )
+        try:
+            total, convertidos = rel.aggregate(
+                f'COUNT("{col}") AS n, COUNT({expr}) AS ok'
+            ).fetchone()
+        except duckdb.Error:
+            continue  # tipo em que a expressao nao se aplica: deixar como esta
+        if not total or convertidos != total:
+            # Uma unica linha que nao parseia e sinal de que a coluna nao e
+            # data. Exigir 100% em vez de uma maioria: converter "quase tudo"
+            # transformaria as sobras em NULL silencioso, que e o defeito do
+            # M59 por outro caminho.
+            continue
+        rel = rel.project(
+            ", ".join(
+                f'{expr} AS "{col}"' if c == col else f'"{c}"' for c in new_columns
+            )
+        )
+        new_columns = schema_columns(rel)
+
     # ------------------------------------------------------------------
     # 3. Value translation (categorical labels)
     # Applied AFTER rename — keys in categories.json are translated names

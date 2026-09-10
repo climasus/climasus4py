@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+### Fixed — a data de recebimento original volta a ser data (M4)
+
+`original_receipt_date` (`DTRECORIGA`) saía como a string `"05012023"` em todos os 334.303
+registros do SIM-DO SP 2023, enquanto o R devolvia uma data. A lista `date_candidates` é mantida à
+mão, e uma coluna que ela nunca ouviu falar fica em texto cru.
+
+**Uma correção a uma medição minha:** mais cedo eu havia registrado que `DTCADINV` e `DTRECORIGA`
+não eram cobertas por lista nenhuma. Estava errado quanto ao `DTCADINV` — comparei nomes **crus**
+contra uma lista que mistura crus e **traduzidos**, e a conversão roda *depois* do rename: o
+`DTCADINV` vira `investigation_registration_date`, que está na lista. Medido na saída real, das 11
+colunas de data do SIM-DO **10 já convertiam**. Faltava uma, exatamente como o achado dizia desde o
+início.
+
+Ler `all_date_columns` do `climasus-data` **não** resolveria: aquele metadado publica `DTRECORIG`,
+sem o `A` final, e não casa com a coluna real. Corrigir o metadado segue sendo o certo a longo prazo
+e precisa do coordenador — **mesma dependência do M5**.
+
+A correção é um fallback por forma depois da lista explícita, para colunas cujo nome sugere data,
+**convertendo só o que de fato parseia**.
+
+**O guard de parse não é paranoia, e o `batch_number` é a prova.** `NUMEROLOTE` também tem oito
+dígitos — `20230001`, ano mais sequência — e uma heurística por nome ou por forma sem o guard
+transformaria número de lote em data. Medido no mesmo dado: **0 de 334.303** números de lote
+parseiam como DDMMYYYY, contra **334.303 de 334.303** das datas de recebimento. Exijo 100% e não
+maioria, porque converter "quase tudo" nulificaria as sobras em silêncio — o defeito do M59 por
+outro caminho.
+
+Verificado: `original_receipt_date` passou de `VARCHAR "05012023"` para `DATE 2023-01-04`, com
+**zero nulos criados**; `batch_number` seguiu `VARCHAR`; e a contagem de colunas de data foi de 10
+para 11. 4 testes novos, incluindo os dois contraexemplos que definem o comportamento.
+
 ### Changed — a coluna de estação passa a ser `station_code` de ponta a ponta (M10) · **quebra compatibilidade**
 
 `sus_climate_inmet()` emitia `wmo_code` enquanto `sus_climate_compute_heatwaves()`,

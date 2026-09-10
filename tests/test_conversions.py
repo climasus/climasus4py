@@ -450,5 +450,76 @@ class TestCodigosDeLarguraFixa:
         assert df[coluna].tolist() == ["002231"]
 
 
+# ---------------------------------------------------------------------------
+# M4 — coluna de data que a lista explicita nao nomeia
+# ---------------------------------------------------------------------------
+
+class TestDataForaDaListaExplicita:
+    """``original_receipt_date`` (DTRECORIGA) saia como texto (M4).
+
+    A lista ``date_candidates`` e mantida a mao, entao uma coluna que ela nunca
+    ouviu falar fica em texto cru: eram 334.303 de 334.303 registros do SIM-DO
+    SP 2023 com a string "05012023" onde o R devolvia data.
+
+    Ler ``all_date_columns`` do climasus-data NAO conserta: aquele metadado
+    publica ``DTRECORIG``, sem o A final, e nao casa com a coluna real. O
+    fallback e por FORMA, e converte so o que de fato parseia.
+    """
+
+    def _rel(self, dados: dict):
+        return get_connection().from_df(pd.DataFrame(dados))
+
+    def test_unlisted_date_column_is_converted(self):
+        rel = self._rel({
+            "DTOBITO": ["01012023"],
+            "DTRECORIGA": ["05012023"],
+        })
+        std = sus_data_standardize(rel, lang="en", system="SIM-DO")
+        tipos = dict(zip(std.columns, (str(t) for t in std.types)))
+        coluna = next(c for c in std.columns if "receipt" in c)
+        assert tipos[coluna] == "DATE", tipos
+
+    def test_batch_number_is_spared(self):
+        """O contraexemplo que exige o guard de parse.
+
+        NUMEROLOTE tambem tem oito digitos -- "20230001", ano mais sequencia --
+        e uma heuristica por nome ou por forma, sem o guard, transformaria
+        numero de lote em data. Medido no SIM-DO SP 2023: 0 de 334.303 numeros
+        de lote parseiam como DDMMYYYY, contra 334.303 de 334.303 das datas.
+        """
+        rel = self._rel({
+            "DTOBITO": ["01012023"],
+            "NUMEROLOTE": ["20230001"],
+        })
+        std = sus_data_standardize(rel, lang="en", system="SIM-DO")
+        tipos = dict(zip(std.columns, (str(t) for t in std.types)))
+        lote = next((c for c in std.columns if "batch" in c or c == "NUMEROLOTE"), None)
+        assert lote is not None, list(std.columns)
+        assert tipos[lote] == "VARCHAR", tipos
+
+    def test_partial_parse_converts_nothing(self):
+        """Exigir 100%: converter "quase tudo" viraria NULL silencioso.
+
+        Uma coluna com nome de data e uma linha que nao parseia fica intacta.
+        O contrario -- converter a maioria e nulificar o resto -- e o defeito
+        do M59 por outro caminho.
+        """
+        rel = self._rel({
+            "DTOBITO": ["01012023", "02012023"],
+            "DTRECORIGA": ["05012023", "LIXO"],
+        })
+        std = sus_data_standardize(rel, lang="en", system="SIM-DO")
+        tipos = dict(zip(std.columns, (str(t) for t in std.types)))
+        coluna = next(c for c in std.columns if "receipt" in c)
+        assert tipos[coluna] == "VARCHAR", tipos
+
+    def test_no_nulls_are_created(self):
+        rel = self._rel({"DTOBITO": ["01012023"] * 3,
+                         "DTRECORIGA": ["05012023", "22062023", "04012023"]})
+        std = sus_data_standardize(rel, lang="en", system="SIM-DO")
+        coluna = next(c for c in std.columns if "receipt" in c)
+        assert std.df()[coluna].notna().all()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
