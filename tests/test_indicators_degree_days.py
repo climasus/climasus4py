@@ -652,3 +652,171 @@ class TestFlagsComoEvidencia:
     def test_o_stull_usa_os_mesmos_limiares(self):
         for f in ("extreme", "high", "low"):
             assert flag_threshold("wbgt_stull", f) == flag_threshold("wbgt", f)
+
+
+# ---------------------------------------------------------------------------
+# Os tres indicadores que JA existiam e nunca tinham sido conferidos
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def saida_tri(entrada) -> pd.DataFrame:
+    rel = get_connection().from_df(entrada)
+    return cs.sus_climate_compute_indicators(
+        rel, indicators=["hi", "thi", "vapor_pressure"],
+        station_col="station_code", date_col="datetime",
+        confidence_flags=False, verbose=False,
+    ).df()
+
+
+class TestIndiceDeCalor:
+    """O hi_c chegava a 151,6 C antes desta correcao (M75).
+
+    Os dois polinomios -- o do R em Fahrenheit e o daqui em Celsius -- sao a
+    MESMA regressao de Rothfusz: sem o teto eles concordam com mediana
+    0,000 C e media 0,0217. Faltavam tres pecas, e a terceira produzia
+    absurdo.
+    """
+
+    def test_paridade_exata_com_o_r(self, saida_tri, referencia_r):
+        py = saida_tri["hi_c"].astype(float)
+        r = referencia_r["hi_c"].astype(float)
+        ambos = py.notna() & r.notna()
+
+        assert (py.isna() != r.isna()).sum() == 0
+        assert ambos.sum() > 500
+        assert np.abs(py[ambos].to_numpy() - r[ambos].to_numpy()).max() == 0.0
+
+    def test_o_teto_de_60_graus(self, saida_tri):
+        """Rothfusz e um ajuste de ~27-43 C; alem disso o polinomio foge.
+
+        Sem o teto esta coluna chegava a 151,6 C -- um indice de calor
+        metade mais quente que qualquer temperatura ja registrada na Terra.
+        O teto dispara em 32,6% do dominio valido, entao nao era canto.
+        """
+        valores = saida_tri["hi_c"].dropna()
+
+        assert valores.max() <= 60.0
+        assert (valores >= 59.999).sum() > 0     # o teto de fato atua
+
+    def test_o_limiar_de_validade_e_26_7_e_nao_27(self):
+        """26,7 C sao 80 F, a borda real do dominio de Rothfusz.
+
+        O valor 27,0 que estava aqui divergia do R em 716 linhas de 200 mil
+        -- pequeno, mas so na mascara, sem nada a ver com a formula.
+        """
+        df = pd.DataFrame({
+            "station_code": ["A"] * 4,
+            "datetime": pd.date_range("2020-01-01", periods=4, freq="h"),
+            "tair_dry_bulb_c": [26.6, 26.7, 26.8, 27.0],
+            "rh_mean_porc": [50.0] * 4,
+        })
+        out = cs.sus_climate_compute_indicators(
+            get_connection().from_df(df), indicators=["hi"],
+            station_col="station_code", date_col="datetime",
+            confidence_flags=False, verbose=False,
+        ).df()
+
+        assert pd.isna(out["hi_c"].iloc[0])      # 26,6 fora
+        assert out["hi_c"].iloc[1:].notna().all()  # 26,7 em diante dentro
+
+    def test_o_ajuste_de_umidade_alta_do_r(self):
+        """R soma um ajuste acima de 85% de RH na faixa de 80-87 F.
+
+        Vale 0,264 C em media nas 5,5% de linhas onde incide -- pequeno,
+        mas e parte da formula publicada e estava faltando.
+        """
+        # 27,5 C = 81,5 F, dentro da faixa; RH 95 > 85
+        df = pd.DataFrame({
+            "station_code": ["A"], "datetime": [pd.Timestamp("2020-01-01")],
+            "tair_dry_bulb_c": [27.5], "rh_mean_porc": [95.0],
+        })
+        out = cs.sus_climate_compute_indicators(
+            get_connection().from_df(df), indicators=["hi"],
+            station_col="station_code", date_col="datetime",
+            confidence_flags=False, verbose=False,
+        ).df()
+        t_f = 27.5 * 9 / 5 + 32
+        ajuste = (95.0 - 85.0) / 10.0 * ((87.0 - t_f) / 5.0)
+
+        assert 80.0 <= t_f <= 87.0
+        assert abs(ajuste) > 0.1                 # o ajuste nao e nulo aqui
+        assert out["hi_c"].notna().iloc[0]
+
+    def test_fora_do_dominio_devolve_nulo_e_nao_extrapola(self):
+        df = pd.DataFrame({
+            "station_code": ["A", "A"],
+            "datetime": pd.date_range("2020-01-01", periods=2, freq="h"),
+            "tair_dry_bulb_c": [15.0, 35.0], "rh_mean_porc": [90.0, 20.0],
+        })
+        out = cs.sus_climate_compute_indicators(
+            get_connection().from_df(df), indicators=["hi"],
+            station_col="station_code", date_col="datetime",
+            confidence_flags=False, verbose=False,
+        ).df()
+
+        assert out["hi_c"].isna().all()   # frio demais / seco demais
+
+
+class TestThi:
+    """R e este pacote usavam variantes DIFERENTES do indice de Thom (M74).
+
+    R  : T - (1 - RH/100) * (T - 14.4) / 2   ==  T - (0.5 - 0.005 RH)(T - 14.4)
+    Antes daqui:                                 T - (0.55 - 0.0055 RH)(T - 14.5)
+
+    A segunda e a forma normalmente citada como indice de desconforto de
+    Thom. Nenhuma das duas esta errada -- sao coeficientes publicados
+    distintos -- entao o alinhamento seguiu a regra de replicar o R.
+    """
+
+    def test_paridade_com_o_r_a_menos_do_desempate(self, saida_tri, referencia_r):
+        """99,3% exatas; o residuo e arredondamento de empate, nao formula.
+
+        27 de 3.920 linhas diferem por exatamente 0,01, e todas sao casos
+        de meio exato na terceira casa (23,585; 9,315; 28,245). O round()
+        do R 4.x desempata conforme a representacao binaria -- a propria
+        documentacao dele avisa -- e nao ha modo do DuckDB que reproduza
+        isso: o ROUND_EVEN acerta 3.893 e o ROUND 3.884.
+        """
+        py = saida_tri["thi_c"].astype(float)
+        r = referencia_r["thi_c"].astype(float)
+        ambos = py.notna() & r.notna()
+        d = np.abs(py[ambos].to_numpy() - r[ambos].to_numpy())
+
+        assert (py.isna() != r.isna()).sum() == 0
+        # 0.01 mais uma folga de ponto flutuante: a subtracao de dois
+        # valores ja arredondados nao devolve 0,01 exato.
+        assert d.max() <= 0.0101
+        assert (d < 1e-9).sum() / len(d) > 0.99
+        assert d.mean() < 1e-4
+
+    def test_usa_a_variante_do_r(self):
+        df = pd.DataFrame({
+            "station_code": ["A"], "datetime": [pd.Timestamp("2020-01-01")],
+            "tair_dry_bulb_c": [30.0], "rh_mean_porc": [60.0],
+        })
+        out = cs.sus_climate_compute_indicators(
+            get_connection().from_df(df), indicators=["thi"],
+            station_col="station_code", date_col="datetime",
+            confidence_flags=False, verbose=False,
+        ).df()
+        do_r = 30.0 - ((1 - 60.0 / 100) * (30.0 - 14.4)) / 2
+        a_classica = 30.0 - (0.55 - 0.0055 * 60.0) * (30.0 - 14.5)
+
+        assert float(out["thi_c"].iloc[0]) == pytest.approx(do_r, abs=0.005)
+        # E as duas variantes de fato diferem neste ponto.
+        assert abs(do_r - a_classica) > 0.05
+
+
+class TestPressaoDeVapor:
+    def test_paridade_exata_com_o_r(self, saida_tri, referencia_r):
+        """A formula sempre foi a mesma; faltava so o arredondamento em 3."""
+        py = saida_tri["vapor_pressure_kpa"].astype(float)
+        r = referencia_r["vapor_pressure_kpa"].astype(float)
+        ambos = py.notna() & r.notna()
+
+        assert (py.isna() != r.isna()).sum() == 0
+        assert np.abs(py[ambos].to_numpy() - r[ambos].to_numpy()).max() == 0.0
+
+    def test_arredonda_em_tres_casas(self, saida_tri):
+        valores = saida_tri["vapor_pressure_kpa"].dropna()
+        assert (np.abs(valores * 1000 - np.round(valores * 1000)) < 1e-9).all()

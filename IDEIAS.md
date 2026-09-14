@@ -25,13 +25,13 @@ Formato de cada entrada:
 - **O quê:** `CANONICAL_STAGES` lista apenas os seis estágios do track de saúde (`import → clean → standardize → filter → variables → aggregate`), mas o código grava também `"climate"` (2 ocorrências) e `"enrichment"` (3 ocorrências) via `set_stage()`. Como `assert_after()` retorna sem checar quando o estágio não está na lista (`except ValueError: return`), nenhum erro aparece hoje. Consequência: se o guard da entrada anterior for ativado, **todo o track de clima/enriquecimento passaria batido** — o guard daria uma falsa sensação de cobertura.
 - **Por que não agora:** acoplado à decisão anterior — só faz sentido resolver junto. Exige definir se clima/enriquecimento formam uma cadeia ordenada própria (com sua própria lista de estágios) ou se são ramos paralelos ao track de saúde, e conferir como o `climasus4r` modela isso.
 
-## 2026-09-09 — o R devolve NA de idade quando `DTNASC` é nulo, mesmo com `IDADE` válida
+## 2026-09-09 — o R devolve NA de idade quando `DTNASC` é nulo, mesmo com `IDADE` válida  ·  **M6**
 
 - **Onde:** `climasus4r::sus_data_create_variables()` (coluna de idade) — lado R
 - **O quê:** medido no SIM-DO SP 2023 durante a correção do M6. As divergências de `age_years` entre os dois lados eram **471**, e a conta fecha exatamente em duas direções opostas: **335** registros onde o Python errava (o sentinela `IDADE='999'`, "idade desconhecida", virava 999 anos — corrigido em 09/09) e **136** registros onde o **R** erra: `DTNASC` nulo e `IDADE` trazendo valor válido codificado (ex. `IDADE='454'` = 54 anos). O Python decodifica e acerta; o R devolve `NA`, descartando idade que está no dado. Ou seja, depois da nossa correção a divergência residual esperada contra o R é de 136 linhas, **todas a favor do Python**.
 - **Por que não agora:** é bug do R, e pelo princípio de paridade do `CLAUDE.md` bugs do R são apontados e não replicados nem corrigidos daqui. Vale levar ao coordenador porque afeta o `climasus4r` publicado: 136 em 334.303 é 0,04%, mas são idades que existem no dado e estão sendo perdidas. Registrado também no M6.
 
-## 2026-09-09 — `dlnm::crosspred(at = x)` ordena `x`, e o `.saf_component` do R pareia posicionalmente
+## 2026-09-09 — `dlnm::crosspred(at = x)` ordena `x`, e o `.saf_component` do R pareia posicionalmente  ·  **M24**
 
 - **Onde:** `climasus4r::sus_mod_af()` → `.saf_component()` — lado R. Propaga para `sus_mod_excess()` e `sus_mod_swot()`.
 - **O quê:** o `sus_mod_af` faz `pred_obs <- dlnm::crosspred(cb, model, at = x, cen = cen)` e usa `rr_obs <- as.numeric(pred_obs$allRRfit)`. Mas o `crosspred` devolve `allRRfit` na ordem **crescente** de `x`, não na ordem em que `x` foi passado — verificado: `identical(predvar, sort(predvar))` é `TRUE` enquanto `identical(x, sort(x))` é `FALSE`. O `.saf_component` então pareia esse vetor **posicionalmente** com `cases` e com `in_range`, que estão em ordem de **data**. Como os valores de `x` são contínuos e todos distintos, os comprimentos coincidem (1812 = 1812) e **o R não emite aviso nenhum**: cada dia recebe silenciosamente o RR de outro dia.
@@ -40,7 +40,7 @@ Formato de cada entrada:
 - **Correção sugerida ao R:** `crosspred` aceita `at` e devolve `predvar`; basta reordenar por `match(x, pred_obs$predvar)` antes de usar, ou computar o RR por dia sem passar pelo grid ordenado. Vale também um `stopifnot(identical(as.numeric(pred_obs$predvar), as.numeric(x)))` como guarda.
 - **Por que não agora:** é bug do R, e pelo princípio de paridade do `CLAUDE.md` bugs do R são apontados e não replicados nem corrigidos daqui. O lado Python está correto e tem `tests/test_af_pairing.py` impedindo que alguém o alinhe ao comportamento defeituoso numa comparação futura. **Levar ao coordenador com prioridade**: afeta o `climasus4r` publicado, no número que vai para publicação.
 
-## 2026-09-14 — `sus_mod_metaregression()` fatia os coeficientes do `mvmeta` na ordem errada
+## 2026-09-14 — `sus_mod_metaregression()` fatia os coeficientes do `mvmeta` na ordem errada  ·  **M67**
 
 - **Onde:** `climasus4r::sus_mod_metaregression()` linhas 134 e 136, e o helper `.mr_wald_tests()` — lado R.
 - **O quê:** o `mvmeta` devolve o vetor de coeficientes em ordem **outcome-major intercalada**, e o R fatia como se cada moderador ocupasse um bloco contíguo. Verificado com `p=5` resultados e uma covariável: `names(coef(fit))` sai `y1.(Intercept)`, `y1.x`, `y2.(Intercept)`, `y2.x`, … O R faz `as.numeric(coef(active_fit))[seq_len(n_coef)]` e chama isso de bloco do intercepto.
@@ -51,7 +51,7 @@ Formato de cada entrada:
 - **No Python:** implementado `MvmetaFit.block(moderador)`, que acessa por passo `n_moderators`. Há dois testes em `tests/test_mod_metaregression.py` fixando o comportamento, sendo um deles o contraexemplo explícito de que a fatia ingênua **não** é o bloco do intercepto.
 - **Por que não agora (no R):** é bug do R e, por decisão do Andrey em 14/09/2026, bugs do R são anotados aqui e feitos corretamente no Python. **Levar ao coordenador com prioridade** — junto com o bug de pareamento da AF, é o segundo defeito que corrompe número publicável no `climasus4r`.
 
-## 2026-09-14 — `wct_c` do R converte o vento com o fator errado, e o próprio R prova
+## 2026-09-14 — `wct_c` do R converte o vento com o fator errado, e o próprio R prova  ·  **M69**
 
 - **Onde:** `climasus4r:::.compute_wct()` — lado R.
 - **O quê:** `ws_mph <- pmax(ws * 0.621371, 0.01)`. O `0.621371` converte **km/h → mph**; a coluna de entrada é `ws_2_m_s`, em **m/s**. O fator correto é `2.2369362920544`. Subestima o vento por 3,6×.
@@ -61,7 +61,7 @@ Formato de cada entrada:
 - **No Python:** `wct_c` replica o R por paridade (decisão do Andrey, para a apresentação ao coordenador ser defensável), com a constante nomeada `_MPH_PER_KMH` para não parecer erro de digitação. A fórmula correta fica **executável e testada** em `_wct_correct_units()` — função, não comentário, justamente para não se perder. Quatro testes fixam o achado.
 - **Por que não agora:** bug do R; anotado e não replicado como correção. **Levar ao coordenador** — é o achado mais fácil de verificar dos três, e o único que não depende de julgamento.
 
-## 2026-09-14 — `koppen_humidity` do R classifica umidade **ausente** como `"Perhumid"`
+## 2026-09-14 — `koppen_humidity` do R classifica umidade **ausente** como `"Perhumid"`  ·  **M70**
 
 - **Onde:** `climasus4r:::.compute_koppen_humidity()` — lado R.
 - **O quê:** é um `case_when` de quatro faixas terminando em `TRUE ~ "Perhumid"`. Esse ramo captura também o `NA`: com `rh_mean_porc` ausente, as três condições anteriores avaliam `NA`, nenhuma casa, e a linha vira **"Perhumid"** — a faixa *mais úmida* das quatro.
@@ -70,7 +70,7 @@ Formato de cada entrada:
 - **Estado:** o Python devolve `NULL`. A diretriz de replicar-e-anotar foi dada no contexto de *escolha de fórmula* (o WBGT), não de fabricação de valor ausente — por isso o comportamento conservador ficou e a decisão foi levada ao Andrey. Um teste nomeado fixa a divergência como **escolha**, não descuido.
 - **Por que não agora:** aguarda decisão.
 
-## 2026-09-14 — o WBGT do R não implementa as referências que a própria documentação cita
+## 2026-09-14 — o WBGT do R não implementa as referências que a própria documentação cita  ·  **M71**
 
 - **Onde:** `climasus4r:::.compute_wbgt()` e a página de ajuda de `sus_climate_compute_indicators` — lado R.
 - **O que a doc declara:** *"WBGT uses a dual wet-bulb estimate (**Liljegren + Bernard/Pourmoghani**) averaged for numerical robustness"*, com Liljegren et al. (2008) *JOEH* 5(10):645-655 e Bernard & Pourmoghani (1999) *AIHAJ* 60(1):32-37 nas referências. **A média de dois termos é deliberada** — corrijo aqui uma leitura minha anterior que a tratava como suspeita.
@@ -98,7 +98,7 @@ O que sobrevive a qualquer distribuição são dois fatos: o **ponto fixo psicro
 
 **Efeito colateral da paridade:** `wbgt_c` agora exige os quatro insumos (T, RH, SR, WS) onde antes bastavam T e RH. Em série sem radiação solar ele deixa de sair, e o `wbgt_stull_c` passa a ser o único disponível — o que na prática o torna o mais útil nas séries curtas do INMET.
 
-## 2026-09-14 — das 30 colunas de flag do R, 16 nunca disparam e 2 estão invertidas
+## 2026-09-14 — das 30 colunas de flag do R, 16 nunca disparam e 2 estão invertidas  ·  **M72**
 
 - **Onde:** `climasus4r:::.add_confidence_flags()` e o registry de limiares — lado R.
 - **Como funciona:** três booleanos por indicador que declare limiar (`_flag_extreme`, `_flag_high`, `_flag_low`), e uma **cadeia de prioridade** escolhe qual limiar declarado alimenta cada um. Quando nenhum nome casa, a coluna sai cheia de `FALSE` em vez de ser omitida.
@@ -111,3 +111,22 @@ O que sobrevive a qualquer distribuição são dois fatos: o **ponto fixo psicro
 - **No Python:** replicado integralmente, com `confidence_flags` (default `True`, igual ao R). A conta não fica em comentário: `flag_threshold(indicador, flag)` devolve qual limiar alimenta cada flag ou `None` quando é constante FALSE, e há teste parametrizado nomeando as 16. Verificado contra a saída real do `.add_confidence_flags` numa grade de −40 a 60: **todas** batem, incluindo as mortas e a inversão.
 - **Ressalva sobre o ganho:** as flags fecham 30 das 46 colunas que faltavam, resolvendo a paridade de *forma* da tabela. Mas 18 delas não carregam informação — o ganho de contagem é maior que o de utilidade, e isso deve ir ao coordenador junto.
 - **Por que não agora:** bug do R. **A inversão é o pedaço mais sério** — uma flag de frio extremo que não dispara no frio extremo é pior que nenhuma flag.
+
+## 2026-09-14 — `diurnal_range` do R agrupa por dia e não por estação  ·  **M76**
+
+- **Onde:** `climasus4r:::.compute_diurnal_range()` — lado R.
+- **O quê:** monta `day_key <- as.character(as.Date(df[["date"]]))` e agrega com `tapply(t, day_key, max)` — **por dia apenas**, sem agrupar por estação. Numa entrada multi-estação, a "amplitude diurna" de cada linha passa a ser o máximo menos o mínimo de **todas** as estações naquele dia, ou seja incorpora a diferença *entre* estações, que não é amplitude diurna. O Python faz `MAX(T) OVER (PARTITION BY estação, data) − MIN(T) OVER (...)`, que é a definição.
+- **Medido** com as 2 estações da fixture: **3.936 de 4.000** linhas diferem. A magnitude que medi (média 3,9 °C, máx 34) está **inflada** porque a fixture usa temperatura aleatória e não ciclo diário real — o que vale é a estrutura, não esse número.
+- **Segunda divergência no mesmo helper, ainda não tratada:** o R tem um ramo **primário** que usa `tair_max_c`/`tair_min_c` quando existem *e* o desvio-padrão entre dias de (max − min) passa de 0,5; só cai para `max(T) − min(T)` como **fallback**. O Python implementa sempre o fallback. Em entrada que traga max/min, os dois calculam coisas diferentes.
+- **Não alinhado ao R por ora:** replicar significaria misturar estações de propósito, e a decisão de replicar-e-anotar foi dada para *escolha de fórmula*, não para agrupamento que mistura unidades de observação.
+- **Por que não agora:** aguarda decisão, junto com o M70.
+
+---
+
+### Nota de 2026-09-14 — a auditoria que gerou M74, M75 e M76
+
+Ao conferir se cada indicador dado como portado estava **de fato** em paridade, descobri que `thi`, `diurnal_range` e `vapor_pressure` existiam no Python desde antes deste trabalho e **nunca tinham sido comparados contra o R**. Eu vinha tratando os três como portados sem evidência. **Três dos quatro divergiam.**
+
+O pior era meu: o `hi_c` chegava a **151,6 °C** por falta do teto de 60 °C do Rothfusz (**M75**) — corrigido, e agora em paridade exata. Registro também que meu primeiro número para esse achado ("média 9,875 °C de diferença") estava dominado por extrapolação fora do domínio do ajuste; os dois polinômios são a mesma regressão, com mediana 0,000 °C.
+
+**Lição de método que vale além deste módulo:** adotei `ROUND_EVEN` em todos os indicadores depois de descobrir que a paridade exata dos anteriores foi **sorte da fixture** não ter caído em nenhum caso de meio exato — não garantia estrutural. O `round()` do R 4.x desempata conforme a representação binária, e nenhum modo do DuckDB reproduz isso: `ROUND_EVEN` acerta 99,3% e é o melhor disponível.
