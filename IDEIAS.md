@@ -130,3 +130,18 @@ Ao conferir se cada indicador dado como portado estava **de fato** em paridade, 
 O pior era meu: o `hi_c` chegava a **151,6 °C** por falta do teto de 60 °C do Rothfusz (**M75**) — corrigido, e agora em paridade exata. Registro também que meu primeiro número para esse achado ("média 9,875 °C de diferença") estava dominado por extrapolação fora do domínio do ajuste; os dois polinômios são a mesma regressão, com mediana 0,000 °C.
 
 **Lição de método que vale além deste módulo:** adotei `ROUND_EVEN` em todos os indicadores depois de descobrir que a paridade exata dos anteriores foi **sorte da fixture** não ter caído em nenhum caso de meio exato — não garantia estrutural. O `round()` do R 4.x desempata conforme a representação binária, e nenhum modo do DuckDB reproduz isso: `ROUND_EVEN` acerta 99,3% e é o melhor disponível.
+
+
+---
+
+### Nota de 2026-09-14 — as variantes corretas, e uma armadilha de método  ·  **M77, M76**
+
+A diretriz passou a ser: **seguir o R sempre**, inclusive quando ele contraria a própria documentação ou os artigos que cita; anotar para conversar com o criador; e **guardar o código correto** quando o Python já o tinha, para não ter que reescrever.
+
+Auditei os cinco casos em que seguimos o R e só **dois** tinham o correto preservado — uma função auxiliar para o `wct`, uma coluna para o `wbgt`. Nos outros três o correto foi sobrescrito: o `NULL` do koppen, a forma clássica de Thom, a partição por estação do `diurnal_range`.
+
+Agora existe mecanismo nomeado: `CORRECTED_INDICATORS`. Cada divergência em que este pacote acredita que o R erra ganha uma **variante correta** — indicador de verdade, coluna própria, limiares herdados da base, teste. Ficam **fora** de `indicators="all"`, para o padrão entregar exatamente o conjunto de colunas do R, e são pedidas por nome. São cinco: `thi_classic`, `koppen_humidity_strict`, `diurnal_range_station`, `wct_ms` e `wbgt_stull`.
+
+**A armadilha de método, que vale além deste módulo.** Eu havia medido que as duas formas do `diurnal_range` divergem em "3.936 de 4.000 linhas". Errado: eu comparava arrays **por posição**, e a função de **janela** do DuckDB **reordena** as linhas de saída — ao contrário dos indicadores escalares, que preservam a ordem da entrada. Verificado nos dois casos. Medido com junção pela chave `(estação, datetime)`: **2.896 de 4.000 (72,4%)**, diferença média 4,118 °C, e sempre na mesma direção — misturar estações só pode aumentar a amplitude.
+
+As comparações de fixture deste módulo estão a salvo porque usam apenas indicadores escalares. Mas qualquer teste futuro que compare um indicador de janela posicionalmente cai na mesma armadilha, e há agora um teste que registra explicitamente a diferença de comportamento.

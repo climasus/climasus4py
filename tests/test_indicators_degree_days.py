@@ -31,6 +31,8 @@ import pytest
 import climasus4py as cs
 from climasus4py.core.engine import get_connection
 from climasus4py.enrichment.climate_indicators import (
+    ALL_INDICATORS,
+    CORRECTED_INDICATORS,
     _INDICATOR_DEFS,
     _MPH_PER_KMH,
     _MPH_PER_MS,
@@ -820,3 +822,216 @@ class TestPressaoDeVapor:
     def test_arredonda_em_tres_casas(self, saida_tri):
         valores = saida_tri["vapor_pressure_kpa"].dropna()
         assert (np.abs(valores * 1000 - np.round(valores * 1000)) < 1e-9).all()
+
+
+# ---------------------------------------------------------------------------
+# Variantes corretas (M77)
+# ---------------------------------------------------------------------------
+
+class TestVariantesCorretas:
+    """A regra e replicar o R e anotar; isso perde trabalho sem um lugar
+    para o codigo correto.
+
+    Cada divergencia em que este pacote acredita que o R erra tem uma
+    variante correta: indicador de verdade, com coluna propria e teste.
+    Ficam FORA de indicators="all", para o padrao entregar exatamente o
+    conjunto de colunas do R, e sao pedidas por nome.
+
+    Antes disso o arranjo era ad-hoc -- uma funcao auxiliar para a
+    sensacao termica, uma coluna para o WBGT, e nada para as outras duas.
+    """
+
+    def test_cada_variante_aponta_o_que_corrige(self):
+        assert CORRECTED_INDICATORS == {
+            "thi_classic": "thi",
+            "koppen_humidity_strict": "koppen_humidity",
+            "diurnal_range_station": "diurnal_range",
+            "wct_ms": "wct",
+            "wbgt_stull": "wbgt",
+        }
+        for variante, base in CORRECTED_INDICATORS.items():
+            assert variante in _INDICATOR_DEFS
+            assert base in ALL_INDICATORS
+
+    def test_ficam_fora_do_conjunto_padrao(self):
+        """indicators="all" tem de render o conjunto de colunas do R."""
+        for variante in CORRECTED_INDICATORS:
+            assert variante not in ALL_INDICATORS
+
+    def test_mas_sao_aceitas_por_nome(self, entrada):
+        rel = get_connection().from_df(entrada)
+        out = cs.sus_climate_compute_indicators(
+            rel, indicators=list(CORRECTED_INDICATORS),
+            station_col="station_code", date_col="datetime",
+            confidence_flags=False, verbose=False,
+        ).df()
+
+        for variante in CORRECTED_INDICATORS:
+            assert _INDICATOR_DEFS[variante][0] in out.columns
+
+    def test_herdam_os_limiares_do_que_corrigem(self):
+        """Mesma grandeza fisica, mesmas bandas -- e assim a comparacao
+        entre as duas colunas vira uma CONTAGEM."""
+        for variante, base in CORRECTED_INDICATORS.items():
+            for f in ("extreme", "high", "low"):
+                assert flag_threshold(variante, f) == flag_threshold(base, f)
+
+    def test_o_erro_de_codigo_desconhecido_menciona_as_variantes(self, entrada):
+        rel = get_connection().from_df(entrada)
+        with pytest.raises(ValueError, match="Corrected variants"):
+            cs.sus_climate_compute_indicators(
+                rel, indicators=["nao_existe"], station_col="station_code",
+                date_col="datetime", verbose=False,
+            )
+
+
+@pytest.fixture(scope="module")
+def par(entrada) -> pd.DataFrame:
+    """Variantes e bases na MESMA chamada, para a comparacao nao depender
+    de a ordem das linhas coincidir entre execucoes."""
+    rel = get_connection().from_df(entrada)
+    pedidos = [*CORRECTED_INDICATORS, *CORRECTED_INDICATORS.values()]
+    return cs.sus_climate_compute_indicators(
+        rel, indicators=pedidos, station_col="station_code",
+        date_col="datetime", confidence_flags=False, verbose=False,
+    ).df()
+
+
+class TestVarianteVsBase:
+    """Cada variante tem de DIFERIR da que corrige, senao nao ha o que
+    preservar. Comparadas na MESMA chamada, para nao depender de a ordem
+    das linhas coincidir entre execucoes.
+    """
+
+    @pytest.mark.parametrize(("variante", "base"), [
+        ("thi_classic_c", "thi_c"),
+        ("diurnal_range_station_c", "diurnal_range_c"),
+        ("wct_ms_c", "wct_c"),
+        ("wbgt_stull_c", "wbgt_c"),
+    ])
+    def test_as_numericas_diferem(self, par, variante, base):
+        a, b = par[variante].astype(float), par[base].astype(float)
+        m = a.notna() & b.notna()
+
+        assert m.sum() > 500
+        # 0.7 e nao 0.9: o diurnal_range so difere onde o dia tem mais de
+        # uma estacao, e na fixture isso e 72% das linhas.
+        assert (np.abs(a[m] - b[m]) > 1e-9).mean() > 0.7
+
+    def test_koppen_difere_SO_onde_a_umidade_falta(self, par, entrada):
+        """A unica variante cuja diferenca e restrita: o R rotula ausencia
+        como "Perhumid" e a estrita devolve nulo."""
+        a, b = par["koppen_humidity_strict"], par["koppen_humidity"]
+        dif = (a != b) & ~(a.isna() & b.isna())
+        sem_rh = par["rh_mean_porc"].isna()
+
+        assert int(dif.sum()) == int(sem_rh.sum()) == 40
+        assert (dif == sem_rh).all()
+        assert (b[sem_rh] == "Perhumid").all()
+        assert a[sem_rh].isna().all()
+
+    def test_o_wct_corrigido_converge_com_o_wcet(self, entrada):
+        """A prova do M69, agora entre duas COLUNAS em vez de uma funcao.
+
+        wcet_c (Environment Canada, km/h, conversao correta) e wct_ms_c
+        (NWS, m/s -> mph correto) sao a mesma grandeza e convergem; o
+        wct_c do R, nao.
+        """
+        rel = get_connection().from_df(entrada)
+        out = cs.sus_climate_compute_indicators(
+            rel, indicators=["wcet", "wct", "wct_ms"],
+            station_col="station_code", date_col="datetime",
+            confidence_flags=False, verbose=False,
+        ).df()
+        m = out["wcet_c"].notna() & out["wct_c"].notna() & out["wct_ms_c"].notna()
+
+        assert np.abs(out.loc[m, "wct_ms_c"] - out.loc[m, "wcet_c"]).max() < 0.1
+        assert np.abs(out.loc[m, "wct_c"] - out.loc[m, "wcet_c"]).mean() > 4.0
+
+    def test_a_ordem_das_linhas_segue_a_entrada(self, entrada):
+        """Premissa de toda comparacao contra fixture neste arquivo.
+
+        Se a saida reordenasse, comparar posicao a posicao com a
+        referencia do R nao significaria nada.
+        """
+        rel = get_connection().from_df(entrada)
+        out = cs.sus_climate_compute_indicators(
+            rel, indicators=["thi"], station_col="station_code",
+            date_col="datetime", confidence_flags=False, verbose=False,
+        ).df()
+
+        assert np.array_equal(out["rh_mean_porc"].to_numpy(),
+                              entrada["rh_mean_porc"].to_numpy(), equal_nan=True)
+        assert list(out["station_code"]) == list(entrada["station_code"])
+
+
+class TestDiurnalRangeSegueOR:
+    """O diurnal_range_c passou a agrupar por DIA apenas, como o R (M76).
+
+    ATENCAO AO METODO: a funcao de JANELA reordena as linhas de saida --
+    verificado, ao contrario dos indicadores escalares, que preservam a
+    ordem da entrada. Comparar por POSICAO contra a entrada nao vale aqui,
+    e foi assim que uma medicao minha anterior chegou a "3936 de 4000
+    linhas diferem" comparando arrays desalinhados. O numero correto,
+    junto pela chave (estacao, datetime), e 2896 de 4000.
+    """
+
+    CHAVE = ["station_code", "datetime"]
+
+    def _com_esperado(self, entrada, extras):
+        """Saida do pacote junta com o valor esperado, POR CHAVE."""
+        rel = get_connection().from_df(entrada)
+        out = cs.sus_climate_compute_indicators(
+            rel, indicators=extras, station_col="station_code",
+            date_col="datetime", confidence_flags=False, verbose=False,
+        ).df()
+        d = entrada.copy()
+        d["dia"] = pd.to_datetime(d["datetime"]).dt.date
+        por_dia = d.groupby("dia")["tair_dry_bulb_c"].agg(["max", "min"])
+        d["esperado_r"] = (por_dia["max"] - por_dia["min"]).reindex(d["dia"]).to_numpy()
+        por_est = d.groupby(["station_code", "dia"])["tair_dry_bulb_c"].agg(["max", "min"])
+        d["esperado_estacao"] = (por_est["max"] - por_est["min"]).reindex(
+            pd.MultiIndex.from_arrays([d["station_code"], d["dia"]])).to_numpy()
+        return out.merge(d[[*self.CHAVE, "esperado_r", "esperado_estacao"]],
+                         on=self.CHAVE, how="left", validate="one_to_one")
+
+    def test_a_chave_identifica_a_linha(self, entrada):
+        """Premissa da juncao: sem isso o merge nao significaria nada."""
+        assert not entrada.duplicated(self.CHAVE).any()
+
+    def test_a_janela_reordena_e_o_escalar_nao(self, entrada):
+        """Registra a diferenca de comportamento que invalidou a medicao.
+
+        Vale saber porque qualquer teste futuro que compare um indicador
+        de janela posicionalmente cai na mesma armadilha.
+        """
+        rel = get_connection().from_df(entrada)
+        def ordem(inds):
+            o = cs.sus_climate_compute_indicators(
+                rel, indicators=inds, station_col="station_code",
+                date_col="datetime", confidence_flags=False, verbose=False).df()
+            return np.array_equal(o["rh_mean_porc"].to_numpy(),
+                                  entrada["rh_mean_porc"].to_numpy(), equal_nan=True)
+
+        assert ordem(["thi"]) is True              # escalar: preserva
+        assert ordem(["diurnal_range"]) is False   # janela: reordena
+
+    def test_agrupa_sem_estacao_como_o_r(self, entrada):
+        j = self._com_esperado(entrada, ["diurnal_range"])
+        assert np.allclose(j["diurnal_range_c"], j["esperado_r"], equal_nan=True)
+
+    def test_a_variante_agrupa_por_estacao_e_dia(self, entrada):
+        j = self._com_esperado(entrada, ["diurnal_range_station"])
+        assert np.allclose(j["diurnal_range_station_c"], j["esperado_estacao"],
+                           equal_nan=True)
+
+    def test_as_duas_divergem_onde_o_dia_tem_mais_de_uma_estacao(self, entrada):
+        """Agrupar sem estacao dobra a amplitude com a diferenca ENTRE elas."""
+        j = self._com_esperado(entrada, ["diurnal_range", "diurnal_range_station"])
+        dif = np.abs(j["diurnal_range_c"] - j["diurnal_range_station_c"]) > 1e-9
+
+        assert entrada["station_code"].nunique() == 2
+        assert int(dif.sum()) == 2896
+        # E sempre na mesma direcao: misturar estacoes so pode AUMENTAR.
+        assert (j.loc[dif, "diurnal_range_c"]
+                > j.loc[dif, "diurnal_range_station_c"]).all()

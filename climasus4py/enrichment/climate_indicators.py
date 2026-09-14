@@ -300,8 +300,21 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
         "diurnal_range_c",
         ("T",),
         (
-            "(MAX({T}) OVER (PARTITION BY {STATION_COL}, {DATE_COL}::DATE) "
-            "- MIN({T}) OVER (PARTITION BY {STATION_COL}, {DATE_COL}::DATE)) "
+            # PARITY WITH R, INCLUDING ITS GROUPING (M76). R builds
+            # `day_key <- as.character(as.Date(df[["date"]]))` and
+            # aggregates with `tapply(t, day_key, max)` — by DAY ONLY, with
+            # no station in the grouping. On multi-station input each row's
+            # "diurnal range" therefore becomes the max minus the min
+            # across *every* station that day, which folds the spread
+            # between stations into a quantity that is supposed to describe
+            # one station's day.
+            #
+            # Measured on the two-station fixture: 3936 of 4000 rows differ
+            # from the per-station answer.
+            #
+            # See `diurnal_range_station` for the per-station version.
+            "(MAX({T}) OVER (PARTITION BY {DATE_COL}::DATE) "
+            "- MIN({T}) OVER (PARTITION BY {DATE_COL}::DATE)) "
             "AS diurnal_range_c"
         ),
     ),
@@ -458,7 +471,119 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
     ),
 }
 
-ALL_INDICATORS: tuple[str, ...] = tuple(_INDICATOR_DEFS.keys())
+# ---------------------------------------------------------------------------
+# Corrected variants
+# ---------------------------------------------------------------------------
+#
+# Wherever climasus4r does something this package believes is wrong, the rule
+# is to reproduce R anyway and record the finding (Andrey, 14/09/2026). That
+# rule loses work unless the correct version is kept somewhere, so each of
+# those cases also gets a *corrected variant*: a real indicator, with its own
+# output column and its own tests.
+#
+# They are deliberately NOT in `ALL_INDICATORS`, so `indicators="all"` yields
+# exactly the column set R yields. Ask for one by name to get it.
+#
+# This replaces what had grown ad hoc — a helper function for the wind chill,
+# a column for the WBGT, and nothing at all for two others.
+
+_CORRECTED_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
+    # ------------------------------------------------------------------
+    # THI in the form usually quoted as Thom's discomfort index.
+    # `thi_c` follows R's variant, T - (1 - RH/100)(T - 14.4)/2.
+    # Neither is wrong — they are different published coefficients — so
+    # this one exists to keep the alternative available, not to correct an
+    # error. Measured gap: mean -0.046 °C, range -1.40 to +1.21, and 1.3%
+    # disagreement on the 28 °C high_stress threshold.
+    # ------------------------------------------------------------------
+    "thi_classic": (
+        "thi_classic_c",
+        ("T", "RH"),
+        (
+            "CASE WHEN {T} IS NULL OR {RH} IS NULL THEN NULL ELSE "
+            "ROUND_EVEN({T} - (0.55 - 0.0055 * {RH}) * ({T} - 14.5), 2) "
+            "END AS thi_classic_c"
+        ),
+    ),
+    # ------------------------------------------------------------------
+    # Koppen humidity that reports missing humidity as missing.
+    # `koppen_humidity` follows R, whose `case_when` ends in
+    # `TRUE ~ "Perhumid"` and so labels a null reading with the *wettest*
+    # of the four bands. A count by class then files every absent reading
+    # under "Perhumid" with nothing to show it happened.
+    # ------------------------------------------------------------------
+    "koppen_humidity_strict": (
+        "koppen_humidity_strict",
+        ("RH",),
+        (
+            "CASE"
+            "  WHEN {RH} IS NULL THEN NULL"
+            "  WHEN {RH} < 30.0 THEN 'Arid'"
+            "  WHEN {RH} < 50.0 THEN 'Semi-arid'"
+            "  WHEN {RH} < 70.0 THEN 'Humid'"
+            "  ELSE 'Perhumid'"
+            " END AS koppen_humidity_strict"
+        ),
+    ),
+    # ------------------------------------------------------------------
+    # Diurnal range partitioned by station as well as day.
+    # `diurnal_range_c` follows R, which groups by day alone and so mixes
+    # stations. This is the definition: one station's spread within one
+    # calendar day.
+    # ------------------------------------------------------------------
+    "diurnal_range_station": (
+        "diurnal_range_station_c",
+        ("T",),
+        (
+            "(MAX({T}) OVER (PARTITION BY {STATION_COL}, {DATE_COL}::DATE) "
+            "- MIN({T}) OVER (PARTITION BY {STATION_COL}, {DATE_COL}::DATE)) "
+            "AS diurnal_range_station_c"
+        ),
+    ),
+    # ------------------------------------------------------------------
+    # NWS wind chill with the wind converted from m/s correctly.
+    # `wct_c` follows R, which applies the km/h -> mph factor (0.621371)
+    # to a column measured in m/s; the right factor is 2.23694. Promoted
+    # from the `_wct_correct_units()` helper to an indicator so every
+    # corrected variant lives in one place and is reachable the same way.
+    # ------------------------------------------------------------------
+    "wct_ms": (
+        "wct_ms_c",
+        ("T", "WS"),
+        (
+            "CASE WHEN {T} IS NULL OR {WS} IS NULL THEN NULL"
+            "  WHEN {T} > 10.0 OR {WS} <= 1.3 THEN NULL ELSE ROUND_EVEN((("
+            "  35.74 + 0.6215 * ({T} * 9.0 / 5.0 + 32.0)"
+            f"  - 35.75 * POWER(GREATEST({{WS}} * {_MPH_PER_MS}, 0.01), 0.16)"
+            "  + 0.4275 * ({T} * 9.0 / 5.0 + 32.0)"
+            f"    * POWER(GREATEST({{WS}} * {_MPH_PER_MS}, 0.01), 0.16)"
+            ") - 32.0) * 5.0 / 9.0, 2) END AS wct_ms_c"
+        ),
+    ),
+}
+
+#: `wbgt_stull` was the first corrected variant and shipped inside the
+#: default set. Moved out so `indicators="all"` matches R's columns; it is
+#: still reachable by name, like the rest.
+_CORRECTED_DEFS["wbgt_stull"] = _INDICATOR_DEFS.pop("wbgt_stull")
+
+_INDICATOR_DEFS.update(_CORRECTED_DEFS)
+
+#: Indicators emitted by ``indicators="all"`` — R's set plus the
+#: Python-only extras that predate this work. Excludes the corrected
+#: variants above.
+ALL_INDICATORS: tuple[str, ...] = tuple(
+    k for k in _INDICATOR_DEFS if k not in _CORRECTED_DEFS
+)
+
+#: Opt-in corrected variants, and what each one is the corrected form of.
+CORRECTED_INDICATORS: dict[str, str] = {
+    "thi_classic": "thi",
+    "koppen_humidity_strict": "koppen_humidity",
+    "diurnal_range_station": "diurnal_range",
+    "wct_ms": "wct",
+    "wbgt_stull": "wbgt",
+}
 
 #: R's indicator code -> this package's code, where the two disagree.
 #:
@@ -513,13 +638,18 @@ _INDICATOR_THRESHOLDS: dict[str, dict[str, float]] = {
     # `length(thresholds) > 0`, so these emit no flag columns at all.
     "cdd": {}, "hdd": {}, "gdd": {},
     "heat_stress_risk": {}, "koppen_humidity": {},
-    # Python-only, and given wbgt's thresholds on purpose: it is the same
-    # physical quantity, so the ISO 7243 bands apply to it unchanged. It
-    # also sharpens the M71 evidence — with the same threshold on both
-    # columns, `wbgt_c_flag_extreme` and `wbgt_stull_c_flag_extreme` can be
-    # counted against each other directly.
+    # Each corrected variant inherits the thresholds of the indicator it
+    # corrects — they measure the same physical quantity, so the same bands
+    # apply. Sharing them is also what makes the comparison a *count*:
+    # `wbgt_c_flag_extreme` against `wbgt_stull_c_flag_extreme` on the same
+    # threshold is the M71 evidence in one number.
     "wbgt_stull": {"extreme_heat": 31, "high_stress": 28,
                    "moderate_stress": 25, "warning_low": 15},
+    "thi_classic": {"high_stress": 28, "comfortable_max": 24,
+                    "comfortable_min": 20},
+    "diurnal_range_station": {"high": 15, "moderate": 10, "low": 5},
+    "wct_ms": {"high_risk": -35, "moderate_risk": -20, "low_risk": -10},
+    "koppen_humidity_strict": {},
 }
 
 #: Priority chains R uses to pick which declared threshold drives each flag.
@@ -872,11 +1002,16 @@ def sus_climate_compute_indicators(
         # Resolve R's codes to ours first, so a call copied from the R
         # documentation is not rejected for using R's vocabulary.
         ind_list = [resolve_indicator(c) for c in indicators]
-        unknown = set(ind_list) - set(ALL_INDICATORS)
+        # Validate against every KNOWN indicator, not just the default set:
+        # the corrected variants are excluded from `indicators="all"` so the
+        # default output matches R's columns, but asking for one by name has
+        # to work.
+        unknown = set(ind_list) - set(_INDICATOR_DEFS)
         if unknown:
             raise ValueError(
                 f"Unknown indicator code(s): {sorted(unknown)}. "
-                f"Available: {sorted(ALL_INDICATORS)}."
+                f"Available: {sorted(ALL_INDICATORS)}. "
+                f"Corrected variants (opt-in): {sorted(CORRECTED_INDICATORS)}."
             )
 
     # Auto-detect columns
