@@ -399,6 +399,153 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
 
 ALL_INDICATORS: tuple[str, ...] = tuple(_INDICATOR_DEFS.keys())
 
+#: R's indicator code -> this package's code, where the two disagree.
+#:
+#: Only one entry so far, and it is a real parity break rather than
+#: cosmetics: R's help page documents the code as ``'hi'``, so
+#: ``indicators=["hi"]`` is what a reader of the R documentation writes —
+#: and it used to raise "Unknown indicator code". The output column was
+#: never the problem; both sides emit ``hi_c``. Accepting the alias costs
+#: nothing and keeps the documented R vocabulary working. See M73.
+_INDICATOR_ALIASES: dict[str, str] = {"hi": "heat_index"}
+
+
+def resolve_indicator(code: str) -> str:
+    """Map an indicator code to this package's canonical name.
+
+    Accepts R's vocabulary as well as this package's own, so a call
+    transcribed from the R documentation works unchanged.
+    """
+    return _INDICATOR_ALIASES.get(code, code)
+
+
+# ---------------------------------------------------------------------------
+# Confidence flags — three booleans per indicator, mirroring R's
+# .add_confidence_flags()
+# ---------------------------------------------------------------------------
+
+#: Thresholds exactly as R's `.build_indicator_registry()` declares them.
+#: Kept under R's own key names rather than tidied, because the names are
+#: what decides whether a flag ever fires — see `_FLAG_CHAINS`.
+_INDICATOR_THRESHOLDS: dict[str, dict[str, float]] = {
+    "wbgt": {"extreme_heat": 31, "high_stress": 28, "moderate_stress": 25,
+             "warning_low": 15},
+    # R calls this indicator `hi`; this package calls it `heat_index`. The
+    # output column agrees (`hi_c`) but the *code* did not, so following R's
+    # documentation and passing indicators=["hi"] raised here. See
+    # `_INDICATOR_ALIASES`.
+    "heat_index": {"extreme_danger": 54, "dangerous": 41,
+                   "extreme_caution": 32, "caution": 27},
+    "thi": {"high_stress": 28, "comfortable_max": 24, "comfortable_min": 20},
+    "wcet": {"high_risk": -35, "moderate_risk": -20, "low_risk": -10},
+    "wct": {"high_risk": -35, "moderate_risk": -20, "low_risk": -10},
+    "et": {"hot": 35, "warm": 30, "cool": 20, "cold": 15},
+    "utci": {"extreme_heat_stress": 46, "strong_heat_stress": 38,
+             "moderate_heat_stress": 32, "slight_heat_stress": 26,
+             "slight_cold_stress": 9, "moderate_cold_stress": 0,
+             "strong_cold_stress": -13, "extreme_cold_stress": -27},
+    "pet": {"extreme_heat": 41, "strong_heat": 35, "moderate_heat": 29,
+            "slight_heat": 23, "slight_cold": 13, "moderate_cold": 8},
+    "diurnal_range": {"high": 15, "moderate": 10, "low": 5},
+    "vapor_pressure": {"high": 2.5, "moderate": 1.5},
+    # Declared empty in R, and the main body guards with
+    # `length(thresholds) > 0`, so these emit no flag columns at all.
+    "cdd": {}, "hdd": {}, "gdd": {},
+    "heat_stress_risk": {}, "koppen_humidity": {},
+    # Python-only, and given wbgt's thresholds on purpose: it is the same
+    # physical quantity, so the ISO 7243 bands apply to it unchanged. It
+    # also sharpens the M71 evidence — with the same threshold on both
+    # columns, `wbgt_c_flag_extreme` and `wbgt_stull_c_flag_extreme` can be
+    # counted against each other directly.
+    "wbgt_stull": {"extreme_heat": 31, "high_stress": 28,
+                   "moderate_stress": 25, "warning_low": 15},
+}
+
+#: Priority chains R uses to pick which declared threshold drives each flag.
+#: The first name present in the indicator's threshold dict wins; when none
+#: is present the column is emitted as constant FALSE.
+_FLAG_CHAINS: dict[str, tuple[str, ...]] = {
+    "extreme": ("extreme_heat", "extreme_heat_stress", "extreme_danger", "high_risk"),
+    "high": ("high_stress", "dangerous", "moderate_heat_stress",
+             "extreme_caution", "hot"),
+    "low": ("warning_low", "low_stress", "slight_cold_stress", "cold"),
+}
+
+#: `extreme`/`high` fire above the threshold, `low` below it.
+_FLAG_COMPARISON: dict[str, str] = {"extreme": ">", "high": ">", "low": "<"}
+
+
+def flag_threshold(indicator: str, flag: str) -> float | None:
+    """Which declared threshold drives one flag, or ``None`` for constant FALSE.
+
+    Exposed rather than inlined because the answer is the whole of the R
+    finding recorded as M72, and it is easier to read as data than to
+    re-derive from the chains. Two things fall out of it:
+
+    **16 of the 30 flag columns are constant FALSE**, because the
+    threshold names an indicator declares are not the names the chain
+    looks for. ``diurnal_range`` declares ``high``/``moderate``/``low``
+    and the chain wants ``high_stress``/``warning_low``, so all three of
+    its flags never fire; ``vapor_pressure`` is the same; ``pet``
+    declares ``slight_cold`` where the chain wants ``slight_cold_stress``
+    — a near miss that costs it two columns.
+
+    **2 more are inverted.** ``wcet`` and ``wct`` declare
+    ``high_risk = -35``, which lands in the *extreme* chain, and that
+    flag fires on ``value > -35``. For a wind chill, colder is worse: the
+    flag is TRUE at -30 °C and at +20 °C, and FALSE at -40 °C. Measured
+    over a -40..60 grid it is TRUE in 190 of 201 points — true almost
+    everywhere except the dangerous cases.
+
+    So of 30 emitted flag columns, 12 carry correct information.
+
+    Args:
+        indicator: Indicator code, e.g. ``"wbgt"``.
+        flag: One of ``"extreme"``, ``"high"``, ``"low"``.
+
+    Returns:
+        The threshold value, or ``None`` when no declared name matches the
+        chain for that flag.
+    """
+    thresholds = _INDICATOR_THRESHOLDS.get(indicator, {})
+    for nome in _FLAG_CHAINS[flag]:
+        if nome in thresholds:
+            return float(thresholds[nome])
+    return None
+
+
+def has_flags(indicator: str) -> bool:
+    """Whether an indicator emits flag columns at all.
+
+    R guards with ``length(reg$thresholds) > 0``, so the five indicators
+    that declare no thresholds (the three degree days,
+    ``heat_stress_risk`` and ``koppen_humidity``) get no flag columns —
+    not three FALSE ones.
+    """
+    return bool(_INDICATOR_THRESHOLDS.get(indicator))
+
+
+def _render_flag_exprs(indicator: str) -> list[str]:
+    """SQL for one indicator's three flag columns, in R's column order."""
+    if not has_flags(indicator):
+        return []
+    out_col = _INDICATOR_DEFS[indicator][0]
+    exprs = []
+    for flag in ("extreme", "high", "low"):
+        alvo = f"{out_col}_flag_{flag}"
+        limiar = flag_threshold(indicator, flag)
+        if limiar is None:
+            # R fills the column with FALSE rather than omitting it.
+            exprs.append(f"FALSE AS {alvo}")
+        else:
+            op = _FLAG_COMPARISON[flag]
+            # R's `!is.na(vals) & vals > thr` makes a missing value FALSE,
+            # not NA — so the flag is never null even where the indicator is.
+            exprs.append(
+                f'("{out_col}" IS NOT NULL AND "{out_col}" {op} {limiar}) AS {alvo}'
+            )
+    return exprs
+
 
 def _wct_correct_units(air_t: float | Sequence[float], ws_ms: float | Sequence[float]):
     """NWS wind chill with the wind converted from m/s correctly.
@@ -588,6 +735,7 @@ def sus_climate_compute_indicators(
     indicators: Sequence[str] | None = None,
     station_col: str | None = None,
     date_col: str | None = None,
+    confidence_flags: bool = True,
     lang: str = "pt",
     verbose: bool = True,
 ) -> duckdb.DuckDBPyRelation:
@@ -633,6 +781,13 @@ def sus_climate_compute_indicators(
             absent — useful for single-station inputs).
         date_col: Name of the date/datetime column (auto-detected if
             ``None``).
+        confidence_flags: Emit ``{col}_flag_extreme``, ``{col}_flag_high``
+            and ``{col}_flag_low`` for every indicator that declares
+            thresholds. Defaults to ``True``, matching R — whose own
+            default is ``region != "none"`` with ``region="auto"``.
+            Read :func:`flag_threshold` before relying on these: of the
+            30 columns R emits, 16 are constant ``FALSE`` and 2 are
+            inverted (M72).
         lang: Language for messages (``"pt"``, ``"en"``, ``"es"``).
         verbose: Print progress messages when ``True``.
 
@@ -653,7 +808,9 @@ def sus_climate_compute_indicators(
     if indicators is None:
         ind_list = list(ALL_INDICATORS)
     else:
-        ind_list = list(indicators)
+        # Resolve R's codes to ours first, so a call copied from the R
+        # documentation is not rejected for using R's vocabulary.
+        ind_list = [resolve_indicator(c) for c in indicators]
         unknown = set(ind_list) - set(ALL_INDICATORS)
         if unknown:
             raise ValueError(
@@ -687,6 +844,7 @@ def sus_climate_compute_indicators(
     select_head = f"* EXCLUDE ({', '.join(helpers)})" if helpers else "*"
 
     indicator_exprs: list[str] = []
+    flag_exprs: list[str] = []
     for ind in ind_list:
         if ind == "consecutive_hot_days":
             indicator_exprs.append(_render_chd_expr(_station_col, _date_col))
@@ -694,8 +852,14 @@ def sus_climate_compute_indicators(
             indicator_exprs.append(_render_hw_expr(_station_col))
         else:
             indicator_exprs.append(_render_indicator_sql(ind, _station_col, _date_col))
+        if confidence_flags:
+            flag_exprs.extend(_render_flag_exprs(ind))
 
-    select_clause = ", ".join([select_head, *indicator_exprs])
+    # The flags reference the indicator columns by their alias, which works
+    # because DuckDB resolves lateral column aliases inside one SELECT —
+    # no wrapping subquery needed. They come after every indicator so the
+    # order does not matter.
+    select_clause = ", ".join([select_head, *indicator_exprs, *flag_exprs])
     sql = f"{cte_sql} SELECT {select_clause} FROM {source}".strip()
 
     if verbose:

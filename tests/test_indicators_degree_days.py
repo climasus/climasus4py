@@ -31,9 +31,13 @@ import pytest
 import climasus4py as cs
 from climasus4py.core.engine import get_connection
 from climasus4py.enrichment.climate_indicators import (
+    _INDICATOR_DEFS,
     _MPH_PER_KMH,
     _MPH_PER_MS,
     _wct_correct_units,
+    flag_threshold,
+    has_flags,
+    resolve_indicator,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "indicators"
@@ -420,3 +424,231 @@ class TestWbgt:
         ).df()
 
         assert out["wbgt_stull_c"].notna().all()
+
+
+# ---------------------------------------------------------------------------
+# Flags de confianca (M72)
+# ---------------------------------------------------------------------------
+
+INDS_DA_FIXTURE = [
+    "wbgt", "wbgt_stull", "hi", "thi", "wcet", "wct",
+    "cdd", "hdd", "gdd", "vapor_pressure", "koppen_humidity",
+]
+
+
+@pytest.fixture(scope="module")
+def com_flags(entrada) -> pd.DataFrame:
+    rel = get_connection().from_df(entrada)
+    return cs.sus_climate_compute_indicators(
+        rel, indicators=INDS_DA_FIXTURE, station_col="station_code",
+        date_col="datetime", verbose=False,
+    ).df()
+
+
+class TestFlagsEstrutura:
+    """Tres booleanos por indicador que declare limiar, como no R.
+
+    O R guarda com ``length(reg$thresholds) > 0``, entao indicador sem
+    limiar nao ganha coluna nenhuma -- e nao tres colunas FALSE.
+    """
+
+    def test_saem_por_padrao(self, com_flags):
+        """R usa region != "none" com region="auto", logo TRUE por padrao."""
+        assert any("_flag_" in c for c in com_flags.columns)
+
+    def test_podem_ser_desligadas(self, entrada):
+        rel = get_connection().from_df(entrada)
+        sem = cs.sus_climate_compute_indicators(
+            rel, indicators=INDS_DA_FIXTURE, station_col="station_code",
+            date_col="datetime", confidence_flags=False, verbose=False,
+        ).df()
+        assert not any("_flag_" in c for c in sem.columns)
+
+    def test_tres_colunas_por_indicador_com_limiar(self, com_flags):
+        com_limiar = [i for i in INDS_DA_FIXTURE if has_flags(resolve_indicator(i))]
+        flags = [c for c in com_flags.columns if "_flag_" in c]
+
+        assert len(flags) == 3 * len(com_limiar)
+
+    @pytest.mark.parametrize("ind", ["cdd", "hdd", "gdd", "koppen_humidity"])
+    def test_indicador_sem_limiar_nao_ganha_flag(self, com_flags, ind):
+        out_col = _INDICATOR_DEFS[ind][0]
+
+        assert not has_flags(ind)
+        assert not [c for c in com_flags.columns if c.startswith(out_col + "_flag_")]
+
+    def test_a_flag_nunca_e_nula(self, com_flags):
+        """R faz !is.na(vals) & vals > thr, logo ausencia vira FALSE, nao NA.
+
+        Importa porque uma flag nula se propagaria em qualquer filtro ou
+        soma a jusante.
+        """
+        for c in [c for c in com_flags.columns if "_flag_" in c]:
+            assert com_flags[c].notna().all()
+            assert com_flags[c].dtype == bool
+
+    def test_onde_o_indicador_e_nulo_a_flag_e_false(self, com_flags):
+        nulo = com_flags["wcet_c"].isna()
+
+        assert nulo.sum() > 0
+        assert not com_flags.loc[nulo, "wcet_c_flag_extreme"].any()
+
+
+class TestFlagsLimiares:
+    """Qual limiar declarado alimenta cada flag -- a cadeia de prioridade do R.
+
+    Conferido contra a saida real do ``.add_confidence_flags`` numa grade
+    de -40 a 60, nao contra a minha leitura do codigo dele.
+    """
+
+    @pytest.mark.parametrize(("ind", "flag", "esperado"), [
+        ("wbgt", "extreme", 31.0), ("wbgt", "high", 28.0), ("wbgt", "low", 15.0),
+        ("heat_index", "extreme", 54.0), ("heat_index", "high", 41.0),
+        ("thi", "high", 28.0),
+        ("wcet", "extreme", -35.0), ("wct", "extreme", -35.0),
+    ])
+    def test_limiar_que_de_fato_alimenta_a_flag(self, ind, flag, esperado):
+        assert flag_threshold(ind, flag) == pytest.approx(esperado)
+
+    @pytest.mark.parametrize(("ind", "flag"), [
+        ("heat_index", "low"), ("thi", "extreme"), ("thi", "low"),
+        ("wcet", "high"), ("wcet", "low"), ("wct", "high"), ("wct", "low"),
+        ("diurnal_range", "extreme"), ("diurnal_range", "high"),
+        ("diurnal_range", "low"),
+        ("vapor_pressure", "extreme"), ("vapor_pressure", "high"),
+        ("vapor_pressure", "low"),
+    ])
+    def test_nomes_que_a_cadeia_nunca_le(self, ind, flag):
+        """16 das 30 colunas de flag do R sao constante FALSE.
+
+        Nao por falta de limiar declarado, mas porque o NOME declarado nao
+        esta na cadeia de prioridade. O diurnal_range declara
+        high/moderate/low e a cadeia procura high_stress/warning_low; o pet
+        declara slight_cold onde a cadeia quer slight_cold_stress -- quase
+        acerto que custa duas colunas.
+        """
+        assert flag_threshold(ind, flag) is None
+
+    def test_as_colunas_constantes_saem_mesmo_assim(self, com_flags):
+        """O R emite a coluna cheia de FALSE em vez de omiti-la."""
+        for c in ("vapor_pressure_kpa_flag_extreme",
+                  "vapor_pressure_kpa_flag_high",
+                  "vapor_pressure_kpa_flag_low",
+                  "thi_c_flag_extreme", "thi_c_flag_low"):
+            assert c in com_flags.columns
+            assert not com_flags[c].any()
+
+    def test_a_conta_das_colunas_que_nao_disparam(self):
+        """Dos 7 indicadores com limiar ja portados, 13 das 21 flags sao mortas.
+
+        Por indicador: wbgt 0, heat_index 1 (low), thi 2 (extreme e low),
+        wcet 2 (high e low), wct 2, diurnal_range 3, vapor_pressure 3.
+
+        No conjunto completo do R -- que inclui et, utci e pet, ainda nao
+        portados -- sao 16 de 30.
+        """
+        portados = ["wbgt", "heat_index", "thi", "wcet", "wct",
+                    "diurnal_range", "vapor_pressure"]
+        por_indicador = {
+            i: sum(1 for f in ("extreme", "high", "low")
+                   if flag_threshold(i, f) is None)
+            for i in portados
+        }
+
+        assert por_indicador == {
+            "wbgt": 0, "heat_index": 1, "thi": 2, "wcet": 2, "wct": 2,
+            "diurnal_range": 3, "vapor_pressure": 3,
+        }
+        assert sum(por_indicador.values()) == 13
+        assert all(has_flags(i) for i in portados)
+
+    def test_a_conta_completa_do_r(self):
+        """16 das 30 colunas do conjunto completo do R nunca disparam."""
+        todos_do_r = ["wbgt", "heat_index", "thi", "wcet", "wct", "et",
+                      "utci", "pet", "diurnal_range", "vapor_pressure"]
+        mortas = sum(1 for i in todos_do_r for f in ("extreme", "high", "low")
+                     if flag_threshold(i, f) is None)
+
+        assert len(todos_do_r) * 3 == 30
+        assert mortas == 16
+
+
+class TestFlagInvertidaNoFrio:
+    """A flag extreme de wcet/wct marca o lado AMENO (M72).
+
+    Os dois declaram high_risk = -35, que cai na cadeia do extreme, e essa
+    flag dispara em valor > limiar. Para sensacao termica de frio, mais
+    frio e pior -- entao a flag e TRUE em quase todo lugar e FALSE
+    exatamente nos casos perigosos.
+    """
+
+    def test_o_high_risk_cai_na_cadeia_do_extreme(self):
+        assert flag_threshold("wcet", "extreme") == -35.0
+        assert flag_threshold("wcet", "high") is None
+
+    def test_dispara_no_ameno_e_nao_no_perigoso(self, com_flags):
+        com_valor = com_flags[com_flags["wcet_c"].notna()]
+        mais_frio = com_valor.loc[com_valor["wcet_c"].idxmin()]
+
+        assert mais_frio["wcet_c"] < -40          # risco de vida
+        assert not bool(mais_frio["wcet_c_flag_extreme"])
+        # E TRUE na maioria esmagadora, que e o outro sintoma.
+        assert com_valor["wcet_c_flag_extreme"].mean() > 0.8
+
+    def test_o_mesmo_no_wct(self, com_flags):
+        com_valor = com_flags[com_flags["wct_c"].notna()]
+        mais_frio = com_valor.loc[com_valor["wct_c"].idxmin()]
+
+        assert not bool(mais_frio["wct_c_flag_extreme"])
+
+
+class TestAliasDoCodigoR:
+    """R documenta o codigo como 'hi'; este pacote usa 'heat_index' (M73).
+
+    A coluna de saida sempre foi a mesma (hi_c); o codigo nao. Uma chamada
+    transcrita da documentacao do R levantava Unknown indicator code.
+    """
+
+    def test_resolve(self):
+        assert resolve_indicator("hi") == "heat_index"
+        assert resolve_indicator("heat_index") == "heat_index"
+        assert resolve_indicator("wbgt") == "wbgt"
+
+    def test_o_codigo_do_r_e_aceito(self, entrada):
+        rel = get_connection().from_df(entrada)
+        out = cs.sus_climate_compute_indicators(
+            rel, indicators=["hi"], station_col="station_code",
+            date_col="datetime", verbose=False,
+        ).df()
+
+        assert "hi_c" in out.columns
+        assert "hi_c_flag_extreme" in out.columns
+
+    def test_codigo_inexistente_ainda_levanta(self, entrada):
+        rel = get_connection().from_df(entrada)
+        with pytest.raises(ValueError, match="Unknown indicator"):
+            cs.sus_climate_compute_indicators(
+                rel, indicators=["nao_existe"], station_col="station_code",
+                date_col="datetime", verbose=False,
+            )
+
+
+class TestFlagsComoEvidencia:
+    """As flags tornam o M71 contavel em vez de argumentavel.
+
+    ``wbgt_stull`` recebe os limiares do ``wbgt`` de proposito -- e a mesma
+    grandeza fisica, entao as bandas do ISO 7243 valem igual, e com o mesmo
+    limiar nas duas colunas a diferenca vira uma contagem.
+    """
+
+    def test_o_stull_marca_mais_que_o_dobro_de_calor_extremo(self, com_flags):
+        como_o_r = int(com_flags["wbgt_c_flag_extreme"].sum())
+        validado = int(com_flags["wbgt_stull_c_flag_extreme"].sum())
+
+        assert como_o_r == 207
+        assert validado == 449
+        assert validado > 2 * como_o_r
+
+    def test_o_stull_usa_os_mesmos_limiares(self):
+        for f in ("extreme", "high", "low"):
+            assert flag_threshold("wbgt_stull", f) == flag_threshold("wbgt", f)

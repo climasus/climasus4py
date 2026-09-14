@@ -97,3 +97,17 @@ Por decisão do Andrey, o Python passou a **replicar o R** nos três casos, para
 O que sobrevive a qualquer distribuição são dois fatos: o **ponto fixo psicrométrico** (a 30 °C/60%, Stull erra 0,10 °C e o `tnw` do R erra 5,12) e a **consequência no limiar** (acima de 31 °C o `wbgt_c` marca 207 linhas e o `wbgt_stull_c` marca 449, mais que o dobro).
 
 **Efeito colateral da paridade:** `wbgt_c` agora exige os quatro insumos (T, RH, SR, WS) onde antes bastavam T e RH. Em série sem radiação solar ele deixa de sair, e o `wbgt_stull_c` passa a ser o único disponível — o que na prática o torna o mais útil nas séries curtas do INMET.
+
+## 2026-09-14 — das 30 colunas de flag do R, 16 nunca disparam e 2 estão invertidas
+
+- **Onde:** `climasus4r:::.add_confidence_flags()` e o registry de limiares — lado R.
+- **Como funciona:** três booleanos por indicador que declare limiar (`_flag_extreme`, `_flag_high`, `_flag_low`), e uma **cadeia de prioridade** escolhe qual limiar declarado alimenta cada um. Quando nenhum nome casa, a coluna sai cheia de `FALSE` em vez de ser omitida.
+
+**Problema 1 — 16 das 30 colunas nunca disparam.** Não por falta de limiar declarado, mas porque o **nome** declarado não está na cadeia. O `diurnal_range` declara `high=15`, `moderate=10`, `low=5` e a cadeia procura `high_stress`/`warning_low`: as três flags dele são mortas. O `vapor_pressure` é igual. O `pet` declara **seis** limiares e só o `extreme_heat` é lido, porque ele escreve `slight_cold` onde a cadeia quer `slight_cold_stress` — quase acerto que custa duas colunas. Por indicador: `wbgt` 0, `hi` 1, `thi` 2, `wcet` 2, `wct` 2, `et` 1, `utci` 0, `pet` 2, `diurnal_range` 3, `vapor_pressure` 3.
+
+**Problema 2 — as flags de frio estão invertidas.** `wcet` e `wct` declaram `high_risk = -35`, que cai na cadeia do **extreme**, e essa flag dispara em `valor > limiar`. Para sensação térmica de frio, **mais frio é pior**. Medido numa grade de −40 a 60: a flag é TRUE em **190 de 201** pontos — TRUE a −30 °C e a +20 °C, FALSE a −40 °C. Na fixture de 4.000 linhas é TRUE em 1.657 de 1.838 linhas com valor, e no valor **mais frio** da amostra (−43,61 °C, risco de vida) está **FALSE**.
+
+- **Conta final:** das 30 colunas emitidas, **16 constantes FALSE, 2 invertidas, 12 com informação correta**.
+- **No Python:** replicado integralmente, com `confidence_flags` (default `True`, igual ao R). A conta não fica em comentário: `flag_threshold(indicador, flag)` devolve qual limiar alimenta cada flag ou `None` quando é constante FALSE, e há teste parametrizado nomeando as 16. Verificado contra a saída real do `.add_confidence_flags` numa grade de −40 a 60: **todas** batem, incluindo as mortas e a inversão.
+- **Ressalva sobre o ganho:** as flags fecham 30 das 46 colunas que faltavam, resolvendo a paridade de *forma* da tabela. Mas 18 delas não carregam informação — o ganho de contagem é maior que o de utilidade, e isso deve ir ao coordenador junto.
+- **Por que não agora:** bug do R. **A inversão é o pedaço mais sério** — uma flag de frio extremo que não dispara no frio extremo é pior que nenhuma flag.
