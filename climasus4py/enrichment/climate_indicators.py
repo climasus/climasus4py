@@ -60,6 +60,20 @@ _CHD_THRESHOLD = 32.0
 _HW_THRESHOLD = 35.0
 _HW_MIN_RUN = 3
 
+# Degree-day bases, matching R's defaults. R allows a biome-specific
+# `region` to override them; the Python signature has no `region` yet (M12).
+_CDD_BASE = 18.0
+_HDD_BASE = 18.0
+_GDD_BASE = 10.0
+_GDD_UPPER = 30.0
+
+#: The km/h -> mph factor. R applies it to a wind column in m/s, which is
+#: the unit bug recorded as M69; kept named so the parity is explicit
+#: rather than looking like a typo someone should "fix".
+_MPH_PER_KMH = 0.621371
+#: The correct m/s -> mph factor, used by :func:`_wct_correct_units`.
+_MPH_PER_MS = 2.2369362920544
+
 # ---------------------------------------------------------------------------
 # Indicator definitions: code → (output_column, required_keys, sql_template)
 # Templates are rendered by _render_sql with substituted column names.
@@ -162,6 +176,125 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
         ),
     ),
     # ------------------------------------------------------------------
+    # Degree days — Cooling / Heating / Growing.
+    #
+    # Ported to match R exactly, including that these are per-observation
+    # values rather than the daily means of the classical definition: R
+    # applies the base temperature to each row of the series it receives.
+    # On hourly INMET data that makes cdd_c an hourly cooling load, and
+    # summing it over a day is the caller's job.
+    #
+    # The bases are R's defaults (18 / 18 / 10-30). R lets a biome-specific
+    # `region` override them; the Python signature has no `region` yet, so
+    # the defaults are fixed here — part of the parameter gap tracked in M12.
+    #
+    # The explicit NULL guard is not redundant: DuckDB's GREATEST and LEAST
+    # *ignore* NULL arguments, so GREATEST(NULL - 18, 0) is 0, while R's
+    # pmax(NA - 18, 0) is NA. Without the guard a missing temperature would
+    # report zero degree-days — which reads as a mild day rather than as an
+    # absent one, and sums into totals as a real observation.
+    # ------------------------------------------------------------------
+    "cdd": (
+        "cdd_c",
+        ("T",),
+        (
+            "CASE WHEN {T} IS NULL THEN NULL ELSE "
+            f"ROUND(GREATEST({{T}} - {_CDD_BASE}, 0.0), 1) END AS cdd_c"
+        ),
+    ),
+    "hdd": (
+        "hdd_c",
+        ("T",),
+        (
+            "CASE WHEN {T} IS NULL THEN NULL ELSE "
+            f"ROUND(GREATEST({_HDD_BASE} - {{T}}, 0.0), 1) END AS hdd_c"
+        ),
+    ),
+    "gdd": (
+        "gdd_c",
+        ("T",),
+        (
+            "CASE WHEN {T} IS NULL THEN NULL ELSE "
+            f"ROUND(LEAST(GREATEST({{T}}, {_GDD_BASE}), {_GDD_UPPER}) "
+            f"- {_GDD_BASE}, 1) END AS gdd_c"
+        ),
+    ),
+    # ------------------------------------------------------------------
+    # Koppen humidity class — four bands on relative humidity.
+    # ------------------------------------------------------------------
+    "koppen_humidity": (
+        "koppen_humidity",
+        ("RH",),
+        (
+            "CASE"
+            "  WHEN {RH} IS NULL THEN NULL"
+            "  WHEN {RH} < 30.0 THEN 'Arid'"
+            "  WHEN {RH} < 50.0 THEN 'Semi-arid'"
+            "  WHEN {RH} < 70.0 THEN 'Humid'"
+            "  ELSE 'Perhumid'"
+            " END AS koppen_humidity"
+        ),
+    ),
+    # ------------------------------------------------------------------
+    # Wind Chill Equivalent Temperature (WCET) — Environment Canada
+    # (2001), wind in km/h. Defined only for T <= 10 °C and wind above
+    # 4.8 km/h (1.3 m/s); outside that domain the regression is
+    # meaningless, so R masks it to NA and so does this.
+    # ------------------------------------------------------------------
+    "wcet": (
+        "wcet_c",
+        ("T", "WS"),
+        (
+            # The IS NULL arm comes first for the same reason as in the
+            # degree days, and it bit twice: GREATEST(NULL * 3.6, 0.01)
+            # is 0.01 in DuckDB, so without it a missing wind speed
+            # silently became a 0.01 m/s calm and produced a wind chill
+            # for an hour that has no wind measurement. Measured on 4000
+            # synthetic rows: 20 fabricated values before this guard.
+            "CASE WHEN {T} IS NULL OR {WS} IS NULL THEN NULL"
+            "  WHEN {T} > 10.0 OR {WS} <= 1.3 THEN NULL ELSE ROUND("
+            "  13.12 + 0.6215 * {T}"
+            "  - 11.37 * POWER(GREATEST({WS} * 3.6, 0.01), 0.16)"
+            "  + 0.3965 * {T} * POWER(GREATEST({WS} * 3.6, 0.01), 0.16)"
+            ", 2) END AS wcet_c"
+        ),
+    ),
+    # ------------------------------------------------------------------
+    # Wind Chill Temperature (WCT) — NWS form, computed in Fahrenheit and
+    # converted back.
+    #
+    # PARITY WITH A UNIT BUG IN R, DELIBERATE. R converts the wind with
+    # `ws * 0.621371`, which is the km/h -> mph factor, applied to
+    # `ws_2_m_s` — a column in metres per second. The correct factor is
+    # 2.23694.
+    #
+    # The proof needs no external reference, because R implements the same
+    # physical quantity twice: `wcet_c` (Environment Canada, km/h) and
+    # this one must agree. Measured over 200k points in the valid domain,
+    # R's two columns differ by a mean of 4.503 °C (max 7.49); with the
+    # correct m/s -> mph factor they differ by 0.024 °C (max 0.04), which
+    # is just the gap between the two published regressions.
+    #
+    # The error runs warm: understating the wind understates the chill, so
+    # cold-wave risk is underestimated. Kept faithful here because it is a
+    # published output of climasus4r and correcting it silently would make
+    # the two packages disagree; `_wct_correct_units` below keeps the right
+    # formula alive and tested. See M69.
+    # ------------------------------------------------------------------
+    "wct": (
+        "wct_c",
+        ("T", "WS"),
+        (
+            "CASE WHEN {T} IS NULL OR {WS} IS NULL THEN NULL"
+            "  WHEN {T} > 10.0 OR {WS} <= 1.3 THEN NULL ELSE ROUND((("
+            "  35.74 + 0.6215 * ({T} * 9.0 / 5.0 + 32.0)"
+            f"  - 35.75 * POWER(GREATEST({{WS}} * {_MPH_PER_KMH}, 0.01), 0.16)"
+            "  + 0.4275 * ({T} * 9.0 / 5.0 + 32.0)"
+            f"    * POWER(GREATEST({{WS}} * {_MPH_PER_KMH}, 0.01), 0.16)"
+            ") - 32.0) * 5.0 / 9.0, 2) END AS wct_c"
+        ),
+    ),
+    # ------------------------------------------------------------------
     # Consecutive Hot Days (CHD) — sentinel; rendered against the
     # gaps-and-islands run CTE built in sus_climate_compute_indicators.
     # ------------------------------------------------------------------
@@ -182,6 +315,39 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
 }
 
 ALL_INDICATORS: tuple[str, ...] = tuple(_INDICATOR_DEFS.keys())
+
+
+def _wct_correct_units(air_t: float | Sequence[float], ws_ms: float | Sequence[float]):
+    """NWS wind chill with the wind converted from m/s correctly.
+
+    This is not what ``wct_c`` emits. ``wct_c`` reproduces R, which uses
+    the km/h -> mph factor on a column measured in m/s (M69). This
+    function exists so the correct formula stays *executable and tested*
+    rather than living in a comment, where nothing would notice if it
+    drifted or was lost.
+
+    Use it to reproduce the evidence: over the valid domain this agrees
+    with ``wcet_c`` to about 0.02 °C, while ``wct_c`` runs some 4.5 °C
+    warmer. Both are the same physical quantity, so only one of those
+    gaps can be right.
+
+    Args:
+        air_t: Air temperature in degrees Celsius.
+        ws_ms: Wind speed in metres per second.
+
+    Returns:
+        Wind chill in degrees Celsius, unmasked — the caller applies the
+        ``T <= 10 and ws > 1.3`` domain if it wants R's masking.
+    """
+    import numpy as np  # noqa: PLC0415
+
+    t = np.asarray(air_t, dtype=float)
+    mph = np.maximum(np.asarray(ws_ms, dtype=float) * _MPH_PER_MS, 0.01)
+    t_f = t * 9.0 / 5.0 + 32.0
+    chill_f = (
+        35.74 + 0.6215 * t_f - 35.75 * mph**0.16 + 0.4275 * t_f * mph**0.16
+    )
+    return (chill_f - 32.0) * 5.0 / 9.0
 
 
 # ---------------------------------------------------------------------------

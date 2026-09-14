@@ -50,3 +50,34 @@ Formato de cada entrada:
 - **Por que o `sus_mod_pool` escapa:** lá `q = 1`, e com um único moderador as duas ordenações coincidem. O defeito aparece só quando entram covariáveis.
 - **No Python:** implementado `MvmetaFit.block(moderador)`, que acessa por passo `n_moderators`. Há dois testes em `tests/test_mod_metaregression.py` fixando o comportamento, sendo um deles o contraexemplo explícito de que a fatia ingênua **não** é o bloco do intercepto.
 - **Por que não agora (no R):** é bug do R e, por decisão do Andrey em 14/09/2026, bugs do R são anotados aqui e feitos corretamente no Python. **Levar ao coordenador com prioridade** — junto com o bug de pareamento da AF, é o segundo defeito que corrompe número publicável no `climasus4r`.
+
+## 2026-09-14 — `wct_c` do R converte o vento com o fator errado, e o próprio R prova
+
+- **Onde:** `climasus4r:::.compute_wct()` — lado R.
+- **O quê:** `ws_mph <- pmax(ws * 0.621371, 0.01)`. O `0.621371` converte **km/h → mph**; a coluna de entrada é `ws_2_m_s`, em **m/s**. O fator correto é `2.2369362920544`. Subestima o vento por 3,6×.
+- **A prova não precisa de referência externa.** O R implementa a mesma grandeza física duas vezes: `wcet_c` (Environment Canada, vento em km/h, conversão `ws*3.6` **correta**) e `wct_c` (NWS, em mph). As duas regressões publicadas concordam entre si a menos de ~0,03 °C — então a inconsistência aparece na saída do próprio pacote.
+- **Medido:** em 4.000 linhas no domínio válido (1.838 com as duas colunas preenchidas), `wct_c − wcet_c` dá média **+4,602 °C**, mediana +4,560, faixa +1,83 a +7,67. Em 200 mil pontos: `|wct_R − wcet|` média 4,503 (máx 7,49) contra `|wct_corrigido − wcet|` média **0,024** (máx 0,04).
+- **A direção importa:** subestimar o vento subestima a sensação de frio, então `wct_c` sai **sempre** mais quente que a verdade (verificado em 100% das linhas). Para onda de frio é o lado perigoso — reporta menos risco do que existe.
+- **No Python:** `wct_c` replica o R por paridade (decisão do Andrey, para a apresentação ao coordenador ser defensável), com a constante nomeada `_MPH_PER_KMH` para não parecer erro de digitação. A fórmula correta fica **executável e testada** em `_wct_correct_units()` — função, não comentário, justamente para não se perder. Quatro testes fixam o achado.
+- **Por que não agora:** bug do R; anotado e não replicado como correção. **Levar ao coordenador** — é o achado mais fácil de verificar dos três, e o único que não depende de julgamento.
+
+## 2026-09-14 — `koppen_humidity` do R classifica umidade **ausente** como `"Perhumid"`
+
+- **Onde:** `climasus4r:::.compute_koppen_humidity()` — lado R.
+- **O quê:** é um `case_when` de quatro faixas terminando em `TRUE ~ "Perhumid"`. Esse ramo captura também o `NA`: com `rh_mean_porc` ausente, as três condições anteriores avaliam `NA`, nenhuma casa, e a linha vira **"Perhumid"** — a faixa *mais úmida* das quatro.
+- **Medido:** nas 4.000 linhas da fixture, 40 têm umidade nula e as 40 saem `"Perhumid"`. Onde a umidade existe, R e Python concordam em **3.960 de 3.960**. As 40 são as únicas divergências.
+- **Por que é diferente do `wct`:** lá é um número errado numa coluna numérica; aqui o R **inventa uma categoria** para dado que não existe. Uma contagem por classe de umidade soma as ausências na faixa mais úmida, e nada sinaliza isso.
+- **Estado:** o Python devolve `NULL`. A diretriz de replicar-e-anotar foi dada no contexto de *escolha de fórmula* (o WBGT), não de fabricação de valor ausente — por isso o comportamento conservador ficou e a decisão foi levada ao Andrey. Um teste nomeado fixa a divergência como **escolha**, não descuido.
+- **Por que não agora:** aguarda decisão.
+
+## 2026-09-14 — o WBGT do R não implementa as referências que a própria documentação cita
+
+- **Onde:** `climasus4r:::.compute_wbgt()` e a página de ajuda de `sus_climate_compute_indicators` — lado R.
+- **O que a doc declara:** *"WBGT uses a dual wet-bulb estimate (**Liljegren + Bernard/Pourmoghani**) averaged for numerical robustness"*, com Liljegren et al. (2008) *JOEH* 5(10):645-655 e Bernard & Pourmoghani (1999) *AIHAJ* 60(1):32-37 nas referências. **A média de dois termos é deliberada** — corrijo aqui uma leitura minha anterior que a tratava como suspeita.
+- **O que o código faz:** `tnw1 <- airT * atan(0.16 * sqrt(pmax(e_a,0.01) + 0.1)) + 3` tem a forma `T·atan(c·√x)+k`, que é a de **Stull (2011)** — cujo termo principal é `T·atan(0.151977·√(RH + 8.313659))` e espera **RH em porcentagem**. O R alimenta com `e_a`, pressão de vapor em **kPa**: com T=30/RH=60 o `atan` recebe 0,26 onde a forma pede 1,26. E `tnw2 <- airT + 0.33*(rh/100)*exp(0.0514*airT) - 4` tem a forma da **temperatura aparente australiana** (Steadman/BOM) sem o termo de vento — não um bulbo úmido. Nem Stull nem Steadman estão nas referências declaradas, e Liljegren (2008) é modelo iterativo de balanço de energia, sem forma fechada.
+- **Medido** contra tabela psicrométrica (T=30 °C, RH=60%, referência ≈ 23,9 °C): Stull, que o Python usa, dá **24,00 °C** (erro 0,10); o `tnw` do R dá **18,78 °C** (erro 5,12).
+- **Segundo sintoma, independente:** o WBGT existe para capturar carga solar, mas a temperatura de globo do R vai de **28,00 a 28,84 °C** com a radiação indo de 0 a 1000 W/m² — amplitude de 0,84 °C, praticamente inerte. Em sol pleno um globo passa de 45 °C na literatura.
+- **Consequência medida:** as duas colunas `wbgt_c` diferem em média **3,35 °C** e discordam no limiar de 31 °C (calor extremo, ISO 7243) em **15,5%** dos casos — e os limiares que o R aplica (31/28/25) são os do WBGT *externo*.
+- **Ressalva honesta:** o desvio de 5 °C contra a tabela e a inércia solar são medições sólidas; a atribuição a uma troca de unidade é **inferência** minha, forte mas inferência. O coordenador conhece a origem do código e resolve isso em minutos.
+- **Plano acordado:** `wbgt_c` replica o R (paridade) e `wbgt_stull_c` entra como indicador **separado** com a fórmula validada, para as duas saírem lado a lado e a diferença virar dado em vez de afirmação. Ainda não implementado.
+- **Por que não agora:** precisa de decisão do coordenador sobre o lado R.
