@@ -74,6 +74,22 @@ _MPH_PER_KMH = 0.621371
 #: The correct m/s -> mph factor, used by :func:`_wct_correct_units`.
 _MPH_PER_MS = 2.2369362920544
 
+#: `t_mrt - airT` in R's UTCI, written out. R computes a mean radiant
+#: temperature as `airT + 0.07*sr_wm2 - 1.5` and then uses the difference
+#: from air temperature three times; inlining it keeps the three uses from
+#: drifting apart.
+_UTCI_DTMRT = (
+    "(0.07 * (CASE WHEN {SR} IS NULL OR {SR} < 0 THEN 0.0"
+    "              ELSE {SR} / 3.6 END) - 1.5)"
+)
+
+#: The same difference in R's PET, which uses different coefficients
+#: (`airT + 0.06*sr_wm2 - 2`).
+_PET_DTMRT = (
+    "(0.06 * (CASE WHEN {SR} IS NULL OR {SR} < 0 THEN 0.0"
+    "              ELSE {SR} / 3.6 END) - 2.0)"
+)
+
 # ---------------------------------------------------------------------------
 # Indicator definitions: code → (output_column, required_keys, sql_template)
 # Templates are rendered by _render_sql with substituted column names.
@@ -488,6 +504,74 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
             "  WHEN {WBGT} > 20.0 THEN 'Low'"
             "  ELSE 'None'"
             " END AS heat_stress_risk"
+        ),
+    ),
+    # ------------------------------------------------------------------
+    # Universal Thermal Climate Index, as climasus4r computes it.
+    #
+    # R's help page calls this a "Fiala-polynomial-inspired multi-term
+    # regression" and cites Brode et al. (2012) — the UTCI paper. That
+    # hedging is fair: the published UTCI is a 6th-order polynomial in 210
+    # terms, and this is six terms, so it is an approximation of the index
+    # rather than the index. Worth knowing when reading the column, which
+    # is why it is recorded (M80) rather than treated as a defect.
+    #
+    # Two measurements matter for interpretation. The solar response is
+    # 4.97 °C across 0 to 1000 W/m² where the published UTCI runs well
+    # over 10 °C above air temperature in full sun; the wind response is
+    # -3.01 °C from 0.5 to 20 m/s. Both understate. And the 50 °C ceiling
+    # *binds on real data* — the fixture maximum is exactly 50.00.
+    # ------------------------------------------------------------------
+    "utci": (
+        "utci_c",
+        ("T", "RH", "WS", "SR"),
+        (
+            "CASE WHEN {T} IS NULL OR {RH} IS NULL THEN NULL ELSE "
+            "ROUND_EVEN(LEAST(GREATEST("
+            "  {T}"
+            "  + 0.048 * ((({RH} / 100.0)"
+            "       * 0.6108 * EXP(17.27 * {T} / ({T} + 237.3))) * 1000.0 - 1000.0) / 100.0"
+            "  - 0.29 * LN(GREATEST(COALESCE({WS}, 0.0) * 1.5, 0.5) + 0.1)"
+            f"  + 0.016 * {_UTCI_DTMRT}"
+            f"  + 0.01 * POWER({_UTCI_DTMRT}, 2) / 10.0"
+            f"  - 0.00006 * POWER({_UTCI_DTMRT}, 2)"
+            "       * GREATEST(COALESCE({WS}, 0.0) * 1.5, 0.5)"
+            ", -60.0), 50.0), 2) END AS utci_c"
+        ),
+    ),
+    # ------------------------------------------------------------------
+    # Physiological Equivalent Temperature, as climasus4r computes it.
+    #
+    # PARITY INCLUDING A SILENT FALLBACK (M81). R's seasonal clothing
+    # adjustment reads `df[["date"]]` — a HARDCODED column name, not the
+    # `datetime_col` the function accepts and auto-detects. When no column
+    # is literally named `date`, `inherits()` fails and the month becomes
+    # 6 for every row, so the documented "seasonal clothing adjustment"
+    # quietly does not apply. Verified: with the fixture, whose date
+    # column is named `datetime`, R's answer equals its month-6 branch
+    # exactly.
+    #
+    # The effect is small — January 31.25 against July 31.13, a 0.12 °C
+    # spread — so what is lost is a documented feature rather than much
+    # accuracy. Replicated here, `date` column and all.
+    #
+    # Note also that PET is NOT clamped, unlike UTCI: R returns 63.60 at
+    # T=60 and -59.17 at T=-50.
+    # ------------------------------------------------------------------
+    "pet": (
+        "pet_c",
+        ("T", "RH", "WS", "SR"),
+        (
+            "CASE WHEN {T} IS NULL OR {RH} IS NULL THEN NULL ELSE "
+            "ROUND_EVEN("
+            "  {T} + 0.1 * ({RH} - 50.0) / 10.0"
+            "  - 0.3 * GREATEST(COALESCE({WS}, 0.0), 0.1)"
+            f"  + 0.05 * ({_PET_DTMRT})"
+            "  + 0.5 * (1.0 - CASE"
+            "      WHEN {PET_MONTH} IN (12, 1, 2) THEN 0.5 * 0.6"
+            "      WHEN {PET_MONTH} IN (3, 4, 5, 9, 10, 11) THEN 0.7 * 0.6"
+            "      ELSE 0.9 * 0.6 END)"
+            ", 2) END AS pet_c"
         ),
     ),
     # ------------------------------------------------------------------
@@ -927,11 +1011,30 @@ _WBGT_EXPR = (
 )
 
 
-def _substitute_inmet_cols(template: str, station_col: str, date_col: str) -> str:
-    """Replace {T}, {Tmax}, {WBGT}, {STATION_COL}, {DATE_COL} placeholders."""
+#: What R falls back to when no column is literally named `date`: month 6.
+PET_MONTH_FALLBACK = "6"
+
+
+def _pet_month_expr(columns: Sequence[str]) -> str:
+    """SQL for the month R's PET uses, or the literal fallback.
+
+    R reads `df[["date"]]` by that exact name rather than the
+    `datetime_col` it was given, so a series whose date column is called
+    anything else silently gets month 6 for every row and the documented
+    seasonal clothing adjustment never applies (M81). Replicated here by
+    keying off a column literally named `date`.
+    """
+    return 'MONTH("date")' if "date" in columns else PET_MONTH_FALLBACK
+
+
+def _substitute_inmet_cols(
+    template: str, station_col: str, date_col: str, month_expr: str = PET_MONTH_FALLBACK
+) -> str:
+    """Replace {T}, {Tmax}, {WBGT}, {PET_MONTH}, {STATION_COL}, {DATE_COL}."""
     # {WBGT} first: the fragment itself contains {T}/{RH}/{SR}/{WS}, which
     # the column loop below then resolves.
     out = template.replace("{WBGT}", _WBGT_EXPR)
+    out = out.replace("{PET_MONTH}", month_expr)
     for key, col in _INMET_COLS.items():
         out = out.replace("{" + key + "}", col)
     out = out.replace("{STATION_COL}", station_col)
@@ -943,10 +1046,11 @@ def _render_indicator_sql(
     ind: str,
     station_col: str,
     date_col: str,
+    month_expr: str = PET_MONTH_FALLBACK,
 ) -> str:
     """Render a regular indicator template; CHD/HWD use special render below."""
     _, _, template = _INDICATOR_DEFS[ind]
-    return _substitute_inmet_cols(template, station_col, date_col)
+    return _substitute_inmet_cols(template, station_col, date_col, month_expr)
 
 
 def _render_chd_expr(station_col: str, date_col: str) -> str:
@@ -1134,6 +1238,11 @@ def sus_climate_compute_indicators(
     # Validate required columns are present
     _check_required_cols(_rel, ind_list)
 
+    # PET's clothing adjustment keys off a column literally named `date`,
+    # because that is the name R hardcodes; anything else falls back to
+    # month 6 (M81).
+    _month_expr = _pet_month_expr(_rel.limit(0).df().columns.tolist())
+
     # Build the query against a local relation alias via rel.query() —
     # this avoids any global view registration on the singleton connection.
     # uuid suffixes on alias and CTE name protect against state bleeding
@@ -1160,7 +1269,9 @@ def sus_climate_compute_indicators(
         elif ind == "heat_wave":
             indicator_exprs.append(_render_hw_expr(_station_col))
         else:
-            indicator_exprs.append(_render_indicator_sql(ind, _station_col, _date_col))
+            indicator_exprs.append(
+                _render_indicator_sql(ind, _station_col, _date_col, _month_expr)
+            )
         if confidence_flags:
             flag_exprs.extend(_render_flag_exprs(ind))
 

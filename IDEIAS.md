@@ -161,3 +161,20 @@ As comparações de fixture deste módulo estão a salvo porque usam apenas indi
 - **Pior que o M70, por uma razão específica:** `"None"` é **também** a resposta legítima para tempo frio — um WBGT de 15 °C é corretamente `"None"`. Então "sem risco" e "sem dado" viram a mesma string. No koppen o rótulo fabricado era `"Perhumid"`, que chama atenção; aqui ele se esconde no **valor mais comum da coluna**: 3.049 de 4.000 linhas saem `"None"`, e 80 delas não têm dado.
 - **No Python:** paridade de 4.000/4.000. A variante `heat_stress_risk_strict` devolve `NULL` quando falta T ou RH; fora dessas linhas concorda com a do R, e a diferença na contagem de `"None"` é exatamente 80.
 - **Defeito meu corrigido no caminho, e o mecanismo vale registrar:** eu substituía a expressão **crua** do WBGT na classificação, e o R classifica o que `.compute_wbgt()` **devolve** — já arredondado em duas casas. Três linhas caíram uma faixa acima, cada uma exatamente sobre um limiar (20,00, 28,00, 30,00), porque um WBGT de 19,997 cru é `"Low"` e arredondado é `"None"`. O arredondamento passou para dentro do fragmento `_WBGT_EXPR`, e o `wbgt_c` reusa o mesmo fragmento — então as faixas de risco não podem mais divergir da coluna que classificam.
+
+## 2026-09-14 — `utci_c` é aproximação de seis termos, não o polinômio UTCI  ·  **M80**
+
+- **Onde:** `climasus4r:::.compute_utci()` — replicado no Python.
+- **O quê:** a ajuda do R descreve como *"Fiala-polynomial-inspired multi-term regression"* e cita Bröde et al. (2012), o artigo do UTCI. **O hedge é justo** — o UTCI publicado é polinômio de sexta ordem com 210 termos, e o R diz *"inspired"*, não *"implements"*. Por isso isto **não** é tratado como defeito; é nota de interpretação.
+- **Medido** rodando o `.compute_utci` do R (T=30, RH=60, ws=2): resposta ao sol de **4,97 °C** ao longo de 0 a 1000 W/m² (30,39 no escuro, 35,36 em sol pleno), onde o UTCI publicado passa de 10 °C acima do ar. Resposta ao vento de **−3,01 °C** de 0,5 a 20 m/s. As duas subestimam.
+- **O teto de 50 °C atua em dado real**, não é limite defensivo distante: na fixture o máximo é exatamente 50,00, truncando 2 linhas. O piso de −60 não foi alcançado.
+- **No Python:** paridade exata, 0,00e+00 em 3.920 valores.
+
+## 2026-09-14 — PET lê uma coluna chamada `date` e ignora o `datetime_col`  ·  **M81**
+
+- **Onde:** `climasus4r:::.compute_pet()` e o dispatch — lado R, replicado.
+- **O quê:** o PET aplica um ajuste sazonal de vestuário derivado do mês, e para achar o mês o dispatch passa `df[["date"]]` — **nome fixo**, não o `datetime_col` que a função aceita como parâmetro e detecta sozinha. Sem coluna chamada literalmente `date`, o `inherits()` falha e o mês vira **6 para todas as linhas**: o ajuste documentado fica inerte, em silêncio.
+- **Verificado:** a fixture chama a coluna de `datetime`, e a saída do R sobre ela é **idêntica** ao ramo do mês 6. Numa série do `sus_climate_inmet` — cuja coluna de tempo não se chama `date` — o recurso nunca entra.
+- **O efeito é pequeno:** janeiro 31,25 contra julho 31,13, diferença de **0,12 °C**. Então o que se perde é um *recurso documentado*, não muita exatidão — e é essa a razão de registrar em vez de corrigir: o conserto mudaria número publicado para ganhar 0,12 °C.
+- **Detalhe adicional:** o PET **não** tem limite, ao contrário do UTCI, que o R limita em [−60, 50]. Medido: T=60 → 63,60; T=−50 com vento 30 → −59,17.
+- **No Python:** replicado, coluna `date` e tudo. Paridade de 99,82% — 7 de 3.920 linhas diferem por 0,01, todas casos de meio exato, o mesmo desempate do `thi_c`.

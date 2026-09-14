@@ -1158,3 +1158,168 @@ class TestRiscoDeEstresseTermico:
     def test_as_seis_faixas(self, saida_et):
         assert set(saida_et["heat_stress_risk"].unique()) <= {
             "Extreme", "Very High", "High", "Moderate", "Low", "None"}
+
+
+# ---------------------------------------------------------------------------
+# utci e pet (M80, M81) -- os dois ultimos indicadores
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def saida_up(entrada) -> pd.DataFrame:
+    rel = get_connection().from_df(entrada)
+    return cs.sus_climate_compute_indicators(
+        rel, indicators=["utci", "pet"], station_col="station_code",
+        date_col="datetime", confidence_flags=False, verbose=False,
+    ).df()
+
+
+class TestUtci:
+    """Aproximacao de seis termos, nao o polinomio publicado (M80).
+
+    A ajuda do R chama de "Fiala-polynomial-inspired multi-term
+    regression" e cita Brode et al. (2012), o artigo do UTCI. O hedge e
+    justo: o UTCI publicado e um polinomio de sexta ordem com 210 termos,
+    e este tem seis. Registrado para quem le a coluna saber, nao como
+    defeito.
+    """
+
+    def test_paridade_exata_com_o_r(self, saida_up, referencia_r):
+        py = saida_up["utci_c"].astype(float)
+        r = referencia_r["utci_c"].astype(float)
+        ambos = py.notna() & r.notna()
+
+        assert (py.isna() != r.isna()).sum() == 0
+        assert ambos.sum() > 3000
+        assert np.abs(py[ambos].to_numpy() - r[ambos].to_numpy()).max() == 0.0
+
+    def test_o_teto_de_50_graus_atua_em_dado_real(self, saida_up):
+        """Nao e limite defensivo distante: ele TRUNCA a fixture."""
+        assert saida_up["utci_c"].max() == 50.0
+        assert int((saida_up["utci_c"] >= 50.0).sum()) == 2
+
+    @pytest.mark.parametrize(("sr_kj", "esperado"), [
+        (0, 30.39), (1800, 31.87), (3600, 35.36),
+    ])
+    def test_resposta_ao_sol_e_modesta(self, sr_kj, esperado):
+        """4,97 C de 0 a 1000 W/m2, onde o UTCI publicado passa de 10.
+
+        Os valores vem de rodar o .compute_utci do R com T=30, RH=60 e
+        ws=2 -- nao da minha leitura da formula.
+        """
+        df = pd.DataFrame({
+            "station_code": ["A"], "datetime": [pd.Timestamp("2020-01-01")],
+            "tair_dry_bulb_c": [30.0], "rh_mean_porc": [60.0],
+            "ws_2_m_s": [2.0], "sr_kj_m2": [float(sr_kj)],
+        })
+        out = cs.sus_climate_compute_indicators(
+            get_connection().from_df(df), indicators=["utci"],
+            station_col="station_code", date_col="datetime",
+            confidence_flags=False, verbose=False,
+        ).df()
+
+        assert float(out["utci_c"].iloc[0]) == pytest.approx(esperado, abs=0.01)
+
+
+class TestPet:
+    """O ajuste sazonal de vestuario nao se aplica sem coluna `date` (M81).
+
+    R le o `date` por esse nome FIXO, e nao o datetime_col que a funcao
+    aceita e detecta. Sem uma coluna chamada literalmente `date`, o
+    inherits() falha e o mes vira 6 para todas as linhas, entao o ajuste
+    documentado fica inerte. Replicado, coluna `date` e tudo.
+    """
+
+    def test_paridade_com_o_r_a_menos_do_desempate(self, saida_up, referencia_r):
+        """99,82% exatas; o residuo e o mesmo desempate do thi_c.
+
+        7 de 3.920 linhas diferem por 0,01, todas casos de meio exato
+        (34,645; 34,455; -21,515; 24,755). O round() do R 4.x desempata
+        conforme a representacao binaria.
+        """
+        py = saida_up["pet_c"].astype(float)
+        r = referencia_r["pet_c"].astype(float)
+        ambos = py.notna() & r.notna()
+        d = np.abs(py[ambos].to_numpy() - r[ambos].to_numpy())
+
+        assert (py.isna() != r.isna()).sum() == 0
+        assert d.max() <= 0.0101
+        assert (d < 1e-9).sum() / len(d) > 0.998
+
+    def test_sem_coluna_date_o_mes_e_6(self, entrada):
+        """A fixture chama a coluna de `datetime`, entao cai no fallback."""
+        from climasus4py.enrichment.climate_indicators import (
+            PET_MONTH_FALLBACK,
+            _pet_month_expr,
+        )
+
+        assert "date" not in entrada.columns
+        assert _pet_month_expr(list(entrada.columns)) == PET_MONTH_FALLBACK
+
+    def test_com_coluna_date_o_ajuste_se_aplica(self):
+        """Janeiro e julho passam a diferir -- so com a coluna certa.
+
+        Diferenca de 0,12 C: o que se perde e um recurso documentado, nao
+        muita exatidao.
+        """
+        from climasus4py.enrichment.climate_indicators import _pet_month_expr
+
+        df = pd.DataFrame({
+            "station_code": ["A", "A"],
+            "datetime": [pd.Timestamp("2020-01-15"), pd.Timestamp("2020-07-15")],
+            "date": [pd.Timestamp("2020-01-15").date(),
+                     pd.Timestamp("2020-07-15").date()],
+            "tair_dry_bulb_c": [30.0, 30.0], "rh_mean_porc": [60.0, 60.0],
+            "ws_2_m_s": [2.0, 2.0], "sr_kj_m2": [1800.0, 1800.0],
+        })
+        assert _pet_month_expr(list(df.columns)) != "6"
+        out = cs.sus_climate_compute_indicators(
+            get_connection().from_df(df), indicators=["pet"],
+            station_col="station_code", date_col="datetime",
+            confidence_flags=False, verbose=False,
+        ).df()
+        jan, jul = float(out["pet_c"].iloc[0]), float(out["pet_c"].iloc[1])
+
+        assert jan == pytest.approx(31.25, abs=0.01)
+        assert jul == pytest.approx(31.13, abs=0.01)
+        assert abs(jan - jul) == pytest.approx(0.12, abs=0.01)
+
+    def test_pet_nao_tem_teto_ao_contrario_do_utci(self, saida_up):
+        """R limita o UTCI em [-60, 50] e nao limita o PET."""
+        assert saida_up["utci_c"].max() <= 50.0
+        df = pd.DataFrame({
+            "station_code": ["A"], "datetime": [pd.Timestamp("2020-01-01")],
+            "tair_dry_bulb_c": [60.0], "rh_mean_porc": [100.0],
+            "ws_2_m_s": [0.1], "sr_kj_m2": [3600.0],
+        })
+        out = cs.sus_climate_compute_indicators(
+            get_connection().from_df(df), indicators=["pet"],
+            station_col="station_code", date_col="datetime",
+            confidence_flags=False, verbose=False,
+        ).df()
+
+        assert float(out["pet_c"].iloc[0]) > 50.0
+
+
+class TestTodosOsQuinzeIndicadoresDoR:
+    """Fecha o M12: os 15 indicadores do R existem no Python."""
+
+    COLUNA_DO_R = {
+        "wbgt": "wbgt_c", "hi": "hi_c", "thi": "thi_c", "wcet": "wcet_c",
+        "wct": "wct_c", "et": "et_c", "utci": "utci_c", "pet": "pet_c",
+        "cdd": "cdd_c", "hdd": "hdd_c", "gdd": "gdd_c",
+        "diurnal_range": "diurnal_range_c",
+        "vapor_pressure": "vapor_pressure_kpa",
+        "heat_stress_risk": "heat_stress_risk",
+        "koppen_humidity": "koppen_humidity",
+    }
+
+    def test_sao_quinze(self):
+        assert len(self.COLUNA_DO_R) == 15
+
+    @pytest.mark.parametrize("codigo", list(COLUNA_DO_R))
+    def test_portado_com_a_coluna_do_r(self, codigo):
+        canonico = resolve_indicator(codigo)
+
+        assert canonico in _INDICATOR_DEFS
+        assert _INDICATOR_DEFS[canonico][0] == self.COLUNA_DO_R[codigo]
+        assert canonico in ALL_INDICATORS
