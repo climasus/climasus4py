@@ -2,6 +2,45 @@
 
 ## [Unreleased]
 
+### Added — `sus_mod_metaregression()` deixa de ser stub · **diverge do R de propósito**
+
+Usa o mesmo motor `_mvmeta` do `sus_mod_pool`, já verificado contra o `mvmeta 1.0.3`. Covariáveis
+de cidade são padronizadas, então o bloco do intercepto *é* a curva de uma cidade média — e é ele
+que alimenta o `crosspred`.
+
+**Aqui o Python não copia o R, porque o R está errado (M67).** O `mvmeta` devolve o vetor de
+coeficientes em ordem **outcome-major intercalada** — `y1.(Intercept)`, `y1.x`, `y2.(Intercept)`,
+`y2.x`, … — e o R fatia como se cada moderador ocupasse um bloco contíguo no início.
+
+Medido com interceptos verdadeiros `0,1 0,2 0,3 0,4 0,5` e inclinações `0,9 0,8 0,7 0,6 0,5`, a
+fatia do R devolve **`0,08 0,9226 0,2217 0,7913 0,3404`**: alternando intercepto e inclinação, e
+cobrindo só os três primeiros resultados. O mesmo erro está em `.mr_wald_tests()`, onde a covariável
+1 pega as posições 6..10 — `y3.x, y4.(Intercept), y4.x, y5.(Intercept), y5.x`.
+
+Isso atinge **toda** a saída da função sempre que houver covariável, ou seja sempre. O
+`sus_mod_pool` escapa porque lá `q = 1`, e com um único moderador as duas ordenações coincidem.
+
+O Python usa `MvmetaFit.block(j)`, que acessa por passo `n_moderators`. Dois testes fixam isso, um
+deles sendo o contraexemplo explícito de que a fatia ingênua **não** é o bloco do intercepto.
+
+### Fixed — desenho singular devolvia coeficientes zerados em silêncio (M68)
+
+Achado no meu próprio código, testando a meta-regressão com dado que eu havia montado errado: duas
+covariáveis perfeitamente colineares (`pib = 34 − 40 × pobreza`). Não deu erro — o `_gls` falhava na
+fatoração, devolvia o sentinela de zeros, e o que chegava à saída era **RR = 1,0 com intervalo
+[1,0 , 1,0]** e `Q = inf`. Um resultado fabricado com cara de plausível. A matriz de informação era
+36×36 com posto 24, porque o posto do desenho era 2 e não 3.
+
+`mvmeta_fit()` agora checa o posto de `X` antes de ajustar e nomeia a colinearidade; e se o GLS
+falhar mesmo com `Psi = 0`, levanta em vez de devolver zeros. Covariável constante é caso particular
+(colinear com o intercepto) e passa a ser **descartada com aviso**, que é o que o chamador quis
+dizer — o R escala por 1 e a leva para o ajuste.
+
+Não há checagem separada de "menos cidades que termos": o posto é limitado pelo número de linhas,
+então `m < q` sempre aparece como deficiência de posto. Fixado em teste.
+
+29 testes. `__all__` 94 → 95.
+
 ### Added — `sus_mod_pool()` deixa de ser stub: agrupamento multi-cidade de DLNM
 
 O stub recusava rodar alegando depender de `dlnm::crosspred()` e `mvmeta`, "nenhum com

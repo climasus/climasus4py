@@ -67,6 +67,7 @@ from .enrichment.mod_dlnm import sus_mod_dlnm
 from .enrichment.mod_excess import sus_mod_excess
 from .enrichment.mod_its import sus_mod_its
 from .enrichment.mod_ml import sus_mod_ml, sus_mod_ml_predict
+from .enrichment.mod_metaregression import sus_mod_metaregression
 from .enrichment.mod_pool import sus_mod_pool
 from .enrichment.mod_sensitivity import sus_mod_sensitivity
 from .enrichment.mod_spatial_moran import sus_mod_spatial_moran
@@ -198,6 +199,7 @@ __all__ = [
     # Exposure-response modelling — the sus_mod_dlnm() chain
     "sus_mod_dlnm",
     "sus_mod_pool",
+    "sus_mod_metaregression",
     "sus_mod_af",
     # Destravado em 09/09/2026: eu o havia segurado por consumir
     # climasus_af, que o M24 dava como divergente -- investigado, o

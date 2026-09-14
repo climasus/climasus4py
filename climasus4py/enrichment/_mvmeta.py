@@ -261,6 +261,47 @@ class MvmetaFit:
     X: list[np.ndarray] = field(repr=False)
 
     @property
+    def n_moderators(self) -> int:
+        """Columns of the study-level design, including the intercept."""
+        return self.n_coef // self.n_outcomes
+
+    def block(self, moderator: int = 0) -> tuple[np.ndarray, np.ndarray]:
+        """Coefficients and covariance for one moderator, across outcomes.
+
+        The coefficient vector is *outcome-major*: outcome 1's full row of
+        moderators, then outcome 2's, and so on — exactly how R's
+        ``mvmeta`` names them (``y1.(Intercept)``, ``y1.x``,
+        ``y2.(Intercept)``, ``y2.x``, ...). So one moderator's effects sit
+        at a stride of ``n_moderators``, not in a contiguous leading
+        slice.
+
+        Getting that wrong is silent, which is why this is a method rather
+        than a slice at each call site: see the R bug recorded as M67,
+        where ``sus_mod_metaregression()`` takes the first ``p`` entries as
+        the intercept block and so feeds ``crosspred`` a vector that is
+        half intercepts and half covariate slopes, interleaved.
+
+        Args:
+            moderator: Column index in the study-level design; ``0`` is
+                the intercept, which is the pooled effect with every
+                covariate at its centring value.
+
+        Returns:
+            ``(coef, vcov)`` for that moderator, each of length/shape
+            ``n_outcomes``.
+
+        Raises:
+            IndexError: If *moderator* is outside the design.
+        """
+        q = self.n_moderators
+        if not 0 <= moderator < q:
+            raise IndexError(
+                f"moderator {moderator} outside the design (0..{q - 1})."
+            )
+        idx = np.arange(moderator, self.n_coef, q)
+        return self.coef[idx], self.vcov[np.ix_(idx, idx)]
+
+    @property
     def n_par_psi(self) -> int:
         """Free parameters in the unstructured between-study covariance."""
         return 0 if self.method == "fixed" else _n_par(self.n_outcomes)
@@ -330,6 +371,20 @@ def mvmeta_fit(
         xmat = xmat[:, None]
     if xmat.shape[0] != m:
         raise ValueError(f"X has {xmat.shape[0]} rows but y has {m} studies.")
+    # A rank-deficient design makes the GLS information matrix singular, and
+    # the failure is otherwise silent: every coefficient comes back zero, so
+    # a caller sees RR = 1 with a [1, 1] interval and nothing announcing
+    # that no model was fitted. Two collinear covariates are enough.
+    rank = int(np.linalg.matrix_rank(xmat))
+    if rank < xmat.shape[1]:
+        raise ValueError(
+            f"X is rank-deficient: {xmat.shape[1]} columns but rank {rank}. "
+            "Some study-level covariate is a linear combination of the "
+            "others (or of the intercept), so their separate effects are "
+            "not identifiable. Drop the redundant column."
+        )
+    # No separate "fewer studies than terms" check: rank is bounded by the
+    # row count, so m < q always surfaces above as rank deficiency.
     # kron(I_p, x_i'): outcome-major ordering, matching how R's mvmeta names
     # and orders its coefficients ("y1.(Intercept)", "y1.x", "y2.(Intercept)",
     # ...). Getting this backwards is invisible in `coef` for plain pooling —
@@ -369,9 +424,17 @@ def mvmeta_fit(
     )
     psi = _par_to_psi(np.asarray(result.x, dtype=float), p)
     gls = _gls(y, S, design, psi)
-    if not gls.ok:  # pragma: no cover - optimiser landed outside the cone
+    if not gls.ok:  # optimiser landed outside the cone; fall back to Psi = 0
         psi = np.zeros((p, p))
         gls = _gls(y, S, design, psi)
+    if not gls.ok:
+        raise ValueError(
+            "The generalised least squares solution is singular even with "
+            "Psi = 0. Either a within-study covariance is not positive "
+            "definite, or the study-level design does not identify the "
+            "coefficients. Returning zeros here would look like a fitted "
+            "model with RR = 1 everywhere."
+        )
 
     return MvmetaFit(
         coef=gls.beta, vcov=gls.vcov_beta, psi=psi, method=method,
