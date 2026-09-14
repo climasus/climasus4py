@@ -102,6 +102,7 @@ from .viz.mod_plot_af import sus_mod_plot_af
 from .viz.mod_plot_burden import sus_mod_plot_burden
 from .viz.mod_plot_dlnm import sus_mod_plot_dlnm
 from .viz.mod_plot_ml import sus_mod_plot_ml
+from .viz.mod_plot_pool import sus_mod_plot_pool
 from .viz.mod_plot_sensitivity import sus_mod_plot_sensitivity
 from .viz.mod_plot_spatial_moran import sus_mod_plot_spatial_moran
 from .viz.mod_plot_swot import sus_mod_plot_swot
@@ -232,6 +233,7 @@ __all__ = [
     "sus_climate_plot_heatwaves",
     # viz — modelagem
     "sus_mod_plot_dlnm",
+    "sus_mod_plot_pool",
     "sus_mod_plot_af",
     "sus_mod_plot_burden",
     "sus_mod_plot_sensitivity",

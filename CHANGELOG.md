@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+### Added — `sus_mod_plot_pool()` deixa de ser stub
+
+O stub dizia que **não havia `x` válido que a função pudesse receber**, porque o `sus_mod_pool` era
+stub também. Resolvido.
+
+Os três tipos do R portados: `"overall"` (curva agrupada com faixa de IC), `"forest"` (a estimativa
+própria de cada cidade mais o BLUP recuado abaixo, ordenado por RR com o menor embaixo — como o R) e
+`"spaghetti"` (curvas BLUP em cinza atrás da agrupada). As cores `#4472C4` e os cinzas ficaram
+idênticas às do R, para as figuras dos dois pacotes serem comparáveis a olho.
+
+`interactive=True` levanta `ImportError` — `plotly` não é empacotado pelo `climasus4py`, mesmo
+precedente do `sus_mod_plot_dlnm` e do `sus_mod_plot_burden`. Recusar é melhor que devolver estático
+em silêncio.
+
+**Dois detalhes que valem registro.** O recuo para `"overall"` quando não há BLUP muda o *gráfico*,
+não a tabela: quem pediu `"spaghetti"` pediu `city_table`, então a tabela sai de `type` e não do tipo
+efetivamente desenhado. E o aviso de base não compartilhada (M65) é repetido **na hora de plotar** —
+quem abre o gráfico depois não viu o aviso do cálculo, e é olhando a curva que a conclusão é tirada.
+
+Verificado visualmente nos três tipos. Um teste visual inicial saiu degenerado e a explicação vale:
+com `method="fixed"` o `Psi` é zero, então todo BLUP colapsa na média agrupada e as cinco curvas do
+spaghetti ficam exatamente sob a agrupada. Não é defeito — é a propriedade que
+`test_sem_heterogeneidade_todo_estudo_colapsa_na_media` já fixa. Refeito com `reml`, as curvas
+divergem e o encolhimento aparece (cidade com RR 1,2145 → BLUP 1,1665).
+
+Com isso o **M60 fecha** pela via mais direta: os três stubs que ele citava deixaram de ser stubs.
+
+27 testes. `__all__` 95 → 96; stubs de modelagem 9 → 8.
+
 ### Added — `sus_mod_metaregression()` deixa de ser stub · **diverge do R de propósito**
 
 Usa o mesmo motor `_mvmeta` do `sus_mod_pool`, já verificado contra o `mvmeta 1.0.3`. Covariáveis
