@@ -133,7 +133,7 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
             # is silent nonsense, which CLAUDE.md section 3 makes the
             # explicit exception to the parity rule.
             "CASE WHEN {T} IS NULL OR {RH} IS NULL THEN NULL"
-            "  WHEN {T} < 26.7 OR {RH} < 40.0 THEN NULL"
+            "{MASK_HI}"
             "  ELSE ROUND_EVEN(LEAST(("
             "    (-42.379"
             "     + 2.04901523 * ({T} * 9.0 / 5.0 + 32.0)"
@@ -341,7 +341,7 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
         ("T",),
         (
             "CASE WHEN {T} IS NULL THEN NULL ELSE "
-            f"ROUND_EVEN(GREATEST({{T}} - {_CDD_BASE}, 0.0), 1) END AS cdd_c"
+            "ROUND_EVEN(GREATEST({T} - {P:cdd_base}, 0.0), 1) END AS cdd_c"
         ),
     ),
     "hdd": (
@@ -349,7 +349,7 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
         ("T",),
         (
             "CASE WHEN {T} IS NULL THEN NULL ELSE "
-            f"ROUND_EVEN(GREATEST({_HDD_BASE} - {{T}}, 0.0), 1) END AS hdd_c"
+            "ROUND_EVEN(GREATEST({P:hdd_base} - {T}, 0.0), 1) END AS hdd_c"
         ),
     ),
     "gdd": (
@@ -357,8 +357,8 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
         ("T",),
         (
             "CASE WHEN {T} IS NULL THEN NULL ELSE "
-            f"ROUND_EVEN(LEAST(GREATEST({{T}}, {_GDD_BASE}), {_GDD_UPPER}) "
-            f"- {_GDD_BASE}, 1) END AS gdd_c"
+            "ROUND_EVEN(LEAST(GREATEST({T}, {P:gdd_base}), {P:gdd_upper}) "
+            "- {P:gdd_base}, 1) END AS gdd_c"
         ),
     ),
     # ------------------------------------------------------------------
@@ -407,11 +407,12 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
             # silently became a 0.01 m/s calm and produced a wind chill
             # for an hour that has no wind measurement. Measured on 4000
             # synthetic rows: 20 fabricated values before this guard.
-            "CASE WHEN {T} IS NULL OR {WS} IS NULL THEN NULL"
-            "  WHEN {T} > 10.0 OR {WS} <= 1.3 THEN NULL ELSE ROUND_EVEN("
+            "CASE WHEN {T} IS NULL THEN NULL"
+            "{MASK_WIND}"
+            "  ELSE ROUND_EVEN("
             "  13.12 + 0.6215 * {T}"
-            "  - 11.37 * POWER(GREATEST({WS} * 3.6, 0.01), 0.16)"
-            "  + 0.3965 * {T} * POWER(GREATEST({WS} * 3.6, 0.01), 0.16)"
+            "  - 11.37 * POWER(GREATEST(COALESCE({WS}, 0.0) * 3.6, 0.01), 0.16)"
+            "  + 0.3965 * {T} * POWER(GREATEST(COALESCE({WS}, 0.0) * 3.6, 0.01), 0.16)"
             ", 2) END AS wcet_c"
         ),
     ),
@@ -441,12 +442,13 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
         "wct_c",
         ("T", "WS"),
         (
-            "CASE WHEN {T} IS NULL OR {WS} IS NULL THEN NULL"
-            "  WHEN {T} > 10.0 OR {WS} <= 1.3 THEN NULL ELSE ROUND_EVEN((("
+            "CASE WHEN {T} IS NULL THEN NULL"
+            "{MASK_WIND}"
+            "  ELSE ROUND_EVEN((("
             "  35.74 + 0.6215 * ({T} * 9.0 / 5.0 + 32.0)"
-            f"  - 35.75 * POWER(GREATEST({{WS}} * {_MPH_PER_KMH}, 0.01), 0.16)"
+            f"  - 35.75 * POWER(GREATEST(COALESCE({{WS}}, 0.0) * {_MPH_PER_KMH}, 0.01), 0.16)"
             "  + 0.4275 * ({T} * 9.0 / 5.0 + 32.0)"
-            f"    * POWER(GREATEST({{WS}} * {_MPH_PER_KMH}, 0.01), 0.16)"
+            f"    * POWER(GREATEST(COALESCE({{WS}}, 0.0) * {_MPH_PER_KMH}, 0.01), 0.16)"
             ") - 32.0) * 5.0 / 9.0, 2) END AS wct_c"
         ),
     ),
@@ -536,6 +538,7 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
             f"  + 0.01 * POWER({_UTCI_DTMRT}, 2) / 10.0"
             f"  - 0.00006 * POWER({_UTCI_DTMRT}, 2)"
             "       * GREATEST(COALESCE({WS}, 0.0) * 1.5, 0.5)"
+            "  + {P:utci_correction}"
             ", -60.0), 50.0), 2) END AS utci_c"
         ),
     ),
@@ -568,9 +571,11 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
             "  - 0.3 * GREATEST(COALESCE({WS}, 0.0), 0.1)"
             f"  + 0.05 * ({_PET_DTMRT})"
             "  + 0.5 * (1.0 - CASE"
-            "      WHEN {PET_MONTH} IN (12, 1, 2) THEN 0.5 * 0.6"
-            "      WHEN {PET_MONTH} IN (3, 4, 5, 9, 10, 11) THEN 0.7 * 0.6"
-            "      ELSE 0.9 * 0.6 END)"
+            "      WHEN {PET_MONTH} IN (12, 1, 2) THEN 0.5 * {P:clothing_factor}"
+            "      WHEN {PET_MONTH} IN (3, 4, 5, 9, 10, 11)"
+            "        THEN 0.7 * {P:clothing_factor}"
+            "      ELSE 0.9 * {P:clothing_factor} END)"
+            "  + {P:pet_correction}"
             ", 2) END AS pet_c"
         ),
     ),
@@ -593,6 +598,147 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
         _SENTINEL_HW,
     ),
 }
+
+# ---------------------------------------------------------------------------
+# Regional parameters
+# ---------------------------------------------------------------------------
+#
+# R's `region` argument swaps a table of biome-specific constants into the
+# indicator formulas. The values below are `climasus4r:::.region_params_table()`
+# verbatim, minus three entries the R package declares and never reads --
+# `wbgt_high_warning`, `wbgt_extreme` and `metabolic_factor` (M82). That
+# omission matters most for `wbgt_extreme`, which varies from 31 in the Amazon
+# to 33 in the Caatinga: the package advertises regionally adapted WBGT
+# thresholds and then classifies with the fixed registry ones regardless.
+
+_REGION_PARAMS: dict[str, dict[str, float]] = {
+    "amazon": {"hi_min_temp": 24.0, "hi_min_rh": 40.0, "gdd_base": 15.0,
+               "gdd_upper": 35.0, "cdd_base": 20.0, "hdd_base": 18.0,
+               "utci_correction": 1.5, "pet_correction": 1.0,
+               "clothing_factor": 0.5},
+    "cerrado": {"hi_min_temp": 25.5, "hi_min_rh": 35.0, "gdd_base": 12.0,
+                "gdd_upper": 32.0, "cdd_base": 19.0, "hdd_base": 16.0,
+                "utci_correction": 0.5, "pet_correction": 0.3,
+                "clothing_factor": 0.6},
+    "caatinga": {"hi_min_temp": 25.0, "hi_min_rh": 30.0, "gdd_base": 12.0,
+                 "gdd_upper": 34.0, "cdd_base": 20.0, "hdd_base": 14.0,
+                 "utci_correction": -0.5, "pet_correction": -0.3,
+                 "clothing_factor": 0.4},
+    "atlantic_forest": {"hi_min_temp": 25.0, "hi_min_rh": 40.0, "gdd_base": 12.0,
+                        "gdd_upper": 32.0, "cdd_base": 19.0, "hdd_base": 15.0,
+                        "utci_correction": 1.0, "pet_correction": 0.8,
+                        "clothing_factor": 0.5},
+    "pampa": {"hi_min_temp": 26.0, "hi_min_rh": 40.0, "gdd_base": 8.0,
+              "gdd_upper": 30.0, "cdd_base": 18.0, "hdd_base": 15.0,
+              "utci_correction": -1.0, "pet_correction": -0.8,
+              "clothing_factor": 0.7},
+    "pantanal": {"hi_min_temp": 24.5, "hi_min_rh": 35.0, "gdd_base": 14.0,
+                 "gdd_upper": 34.0, "cdd_base": 20.0, "hdd_base": 16.0,
+                 "utci_correction": 0.5, "pet_correction": 0.4,
+                 "clothing_factor": 0.5},
+    "southeast": {"hi_min_temp": 25.5, "hi_min_rh": 40.0, "gdd_base": 10.0,
+                  "gdd_upper": 32.0, "cdd_base": 19.0, "hdd_base": 16.0,
+                  "utci_correction": 0.0, "pet_correction": 0.0,
+                  "clothing_factor": 0.6},
+    "south": {"hi_min_temp": 26.0, "hi_min_rh": 40.0, "gdd_base": 8.0,
+              "gdd_upper": 30.0, "cdd_base": 18.0, "hdd_base": 14.0,
+              "utci_correction": -1.5, "pet_correction": -1.2,
+              "clothing_factor": 0.7},
+}
+
+#: What the formulas use when `region="none"` — R's own `%||%` fallbacks,
+#: scattered through `.dispatch_indicator()` rather than tabulated.
+_REGION_NONE: dict[str, float] = {
+    "hi_min_temp": 26.7, "hi_min_rh": 40.0, "gdd_base": 10.0,
+    "gdd_upper": 30.0, "cdd_base": 18.0, "hdd_base": 18.0,
+    "utci_correction": 0.0, "pet_correction": 0.0, "clothing_factor": 0.6,
+}
+
+#: Which biome R assigns to each state, from `.detect_region_from_data()`.
+#: MT and MS route to a further pantanal-vs-cerrado split in R; here they
+#: resolve to pantanal, which is what R's helper returns for them.
+_UF_TO_REGION: dict[str, str] = {
+    **{uf: "amazon" for uf in ("AC", "AM", "AP", "PA", "RO", "RR", "TO")},
+    **{uf: "caatinga" for uf in ("AL", "BA", "CE", "MA", "PB", "PE",
+                                 "PI", "RN", "SE")},
+    **{uf: "atlantic_forest" for uf in ("ES", "RJ", "SP")},
+    "RS": "pampa",
+    **{uf: "south" for uf in ("PR", "SC")},
+    "MG": "southeast",
+    **{uf: "cerrado" for uf in ("DF", "GO")},
+    **{uf: "pantanal" for uf in ("MT", "MS")},
+}
+
+REGIONS: tuple[str, ...] = tuple(_REGION_PARAMS)
+
+
+def detect_region(rel: duckdb.DuckDBPyRelation) -> str:
+    """Infer the biome the way R's `.detect_region_from_data()` does.
+
+    R tries the most common `UF` first, then the mean `latitude`, and
+    falls back to ``"southeast"``. No spatial join is involved, which is
+    why this ports cleanly — the `use_cache`/`cache_dir` arguments belong
+    to other parts of the R function, not to this.
+
+    Returns:
+        A biome name from :data:`REGIONS`.
+    """
+    cols = rel.limit(0).df().columns.tolist()
+    if "UF" in cols:
+        linha = rel.aggregate(
+            'UF, count(*) AS n', 'UF'
+        ).filter("UF IS NOT NULL").order("n DESC").limit(1).fetchone()
+        if linha and linha[0] in _UF_TO_REGION:
+            return _UF_TO_REGION[linha[0]]
+    if "latitude" in cols:
+        media = rel.aggregate("avg(latitude)").fetchone()[0]
+        if media is not None:
+            lat = float(media)
+            if lat < -30:
+                return "pampa"
+            if lat < -25:
+                return "south"
+            if lat < -15:
+                return "southeast"
+            if lat < -5:
+                return "cerrado"
+            return "amazon"
+    return "southeast"
+
+
+def resolve_region_params(
+    region: str,
+    rel: duckdb.DuckDBPyRelation,
+    custom_thresholds: dict[str, float] | None = None,
+) -> tuple[str, dict[str, float]]:
+    """Resolve `region` to its parameters, mirroring R.
+
+    ``"auto"`` detects from the data; an unknown name warns and falls back
+    to ``"southeast"``, as R does; ``"none"`` uses the scattered defaults
+    R reaches through `%||%`. `custom_thresholds` then overrides
+    individual entries, matching R's `utils::modifyList`.
+
+    Returns:
+        ``(resolved_region, params)`` — the name is returned too because
+        it decides whether the validity mask applies.
+    """
+    alvo = (region or "auto").strip().lower()
+    if alvo == "none":
+        params = dict(_REGION_NONE)
+    else:
+        if alvo == "auto":
+            alvo = detect_region(rel)
+        if alvo not in _REGION_PARAMS:
+            print(
+                f"Unknown region {region!r}; defaulting to 'southeast'. "
+                f"Valid: {', '.join(REGIONS)}."
+            )
+            alvo = "southeast"
+        params = dict(_REGION_PARAMS[alvo])
+    if custom_thresholds:
+        params.update(custom_thresholds)
+    return alvo, params
+
 
 # ---------------------------------------------------------------------------
 # Corrected variants
@@ -715,12 +861,13 @@ _CORRECTED_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
         "wct_ms_c",
         ("T", "WS"),
         (
-            "CASE WHEN {T} IS NULL OR {WS} IS NULL THEN NULL"
-            "  WHEN {T} > 10.0 OR {WS} <= 1.3 THEN NULL ELSE ROUND_EVEN((("
+            "CASE WHEN {T} IS NULL THEN NULL"
+            "{MASK_WIND}"
+            "  ELSE ROUND_EVEN((("
             "  35.74 + 0.6215 * ({T} * 9.0 / 5.0 + 32.0)"
-            f"  - 35.75 * POWER(GREATEST({{WS}} * {_MPH_PER_MS}, 0.01), 0.16)"
+            f"  - 35.75 * POWER(GREATEST(COALESCE({{WS}}, 0.0) * {_MPH_PER_MS}, 0.01), 0.16)"
             "  + 0.4275 * ({T} * 9.0 / 5.0 + 32.0)"
-            f"    * POWER(GREATEST({{WS}} * {_MPH_PER_MS}, 0.01), 0.16)"
+            f"    * POWER(GREATEST(COALESCE({{WS}}, 0.0) * {_MPH_PER_MS}, 0.01), 0.16)"
             ") - 32.0) * 5.0 / 9.0, 2) END AS wct_ms_c"
         ),
     ),
@@ -1027,14 +1174,39 @@ def _pet_month_expr(columns: Sequence[str]) -> str:
     return 'MONTH("date")' if "date" in columns else PET_MONTH_FALLBACK
 
 
+#: The validity masks R applies when `apply_validity_mask` is on AND no
+#: region is set. Empty strings when off — see `_mask_clauses`.
+_MASK_HI = "  WHEN {T} < {P:hi_min_temp} OR {RH} < {P:hi_min_rh} THEN NULL"
+_MASK_WIND = "  WHEN {T} > 10.0 OR COALESCE({WS}, 0.0) <= 1.3 THEN NULL"
+
+
+def _mask_clauses(apply_mask: bool) -> tuple[str, str]:
+    """The two mask clauses, or empty strings when the mask is off.
+
+    R computes `apply_mask = apply_validity_mask && !use_region`, so with
+    its own defaults (`region="auto"`) the mask is OFF — see M83 for what
+    that produces.
+    """
+    return (_MASK_HI, _MASK_WIND) if apply_mask else ("", "")
+
+
 def _substitute_inmet_cols(
-    template: str, station_col: str, date_col: str, month_expr: str = PET_MONTH_FALLBACK
+    template: str,
+    station_col: str,
+    date_col: str,
+    month_expr: str = PET_MONTH_FALLBACK,
+    params: dict[str, float] | None = None,
+    apply_mask: bool = False,
 ) -> str:
-    """Replace {T}, {Tmax}, {WBGT}, {PET_MONTH}, {STATION_COL}, {DATE_COL}."""
-    # {WBGT} first: the fragment itself contains {T}/{RH}/{SR}/{WS}, which
+    """Replace every placeholder: columns, WBGT, month, region params, masks."""
+    mask_hi, mask_wind = _mask_clauses(apply_mask)
+    out = template.replace("{MASK_HI}", mask_hi).replace("{MASK_WIND}", mask_wind)
+    # {WBGT} next: the fragment itself contains {T}/{RH}/{SR}/{WS}, which
     # the column loop below then resolves.
-    out = template.replace("{WBGT}", _WBGT_EXPR)
+    out = out.replace("{WBGT}", _WBGT_EXPR)
     out = out.replace("{PET_MONTH}", month_expr)
+    for chave, valor in (params or _REGION_NONE).items():
+        out = out.replace("{P:" + chave + "}", repr(float(valor)))
     for key, col in _INMET_COLS.items():
         out = out.replace("{" + key + "}", col)
     out = out.replace("{STATION_COL}", station_col)
@@ -1047,10 +1219,14 @@ def _render_indicator_sql(
     station_col: str,
     date_col: str,
     month_expr: str = PET_MONTH_FALLBACK,
+    params: dict[str, float] | None = None,
+    apply_mask: bool = False,
 ) -> str:
     """Render a regular indicator template; CHD/HWD use special render below."""
     _, _, template = _INDICATOR_DEFS[ind]
-    return _substitute_inmet_cols(template, station_col, date_col, month_expr)
+    return _substitute_inmet_cols(
+        template, station_col, date_col, month_expr, params, apply_mask
+    )
 
 
 def _render_chd_expr(station_col: str, date_col: str) -> str:
@@ -1143,6 +1319,9 @@ def sus_climate_compute_indicators(
     indicators: Sequence[str] | None = None,
     station_col: str | None = None,
     date_col: str | None = None,
+    region: str = "auto",
+    apply_validity_mask: bool = True,
+    custom_thresholds: dict[str, float] | None = None,
     confidence_flags: bool = True,
     lang: str = "pt",
     verbose: bool = True,
@@ -1189,6 +1368,20 @@ def sus_climate_compute_indicators(
             absent — useful for single-station inputs).
         date_col: Name of the date/datetime column (auto-detected if
             ``None``).
+        region: Brazilian biome whose constants the formulas use, or
+            ``"auto"`` (default) to infer it from a ``UF`` or ``latitude``
+            column, or ``"none"`` for the unregionalised defaults. Valid
+            biomes: ``"amazon"``, ``"cerrado"``, ``"caatinga"``,
+            ``"atlantic_forest"``, ``"pampa"``, ``"pantanal"``,
+            ``"southeast"``, ``"south"``.
+        apply_validity_mask: Mask HI, WCET and WCT to ``NULL`` outside
+            their meteorological domains. Only takes effect when
+            ``region="none"``, because R computes
+            ``apply_validity_mask && !use_region`` — so with the defaults
+            here, as in R, the mask is **off** and those columns
+            extrapolate. See M83 for what that produces.
+        custom_thresholds: Overrides for individual region constants,
+            applied after the biome table (R's ``modifyList``).
         confidence_flags: Emit ``{col}_flag_extreme``, ``{col}_flag_high``
             and ``{col}_flag_low`` for every indicator that declares
             thresholds. Defaults to ``True``, matching R — whose own
@@ -1243,6 +1436,13 @@ def sus_climate_compute_indicators(
     # month 6 (M81).
     _month_expr = _pet_month_expr(_rel.limit(0).df().columns.tolist())
 
+    # Region decides the constants AND whether the validity mask applies:
+    # R computes `apply_mask = apply_validity_mask && !use_region`, and
+    # `use_region` is `region != "none"`. So with R's own defaults the mask
+    # is OFF (M83).
+    _region, _params = resolve_region_params(region, _rel, custom_thresholds)
+    _apply_mask = apply_validity_mask and _region == "none"
+
     # Build the query against a local relation alias via rel.query() —
     # this avoids any global view registration on the singleton connection.
     # uuid suffixes on alias and CTE name protect against state bleeding
@@ -1270,7 +1470,10 @@ def sus_climate_compute_indicators(
             indicator_exprs.append(_render_hw_expr(_station_col))
         else:
             indicator_exprs.append(
-                _render_indicator_sql(ind, _station_col, _date_col, _month_expr)
+                _render_indicator_sql(
+                    ind, _station_col, _date_col, _month_expr,
+                    _params, _apply_mask,
+                )
             )
         if confidence_flags:
             flag_exprs.extend(_render_flag_exprs(ind))

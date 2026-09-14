@@ -178,3 +178,19 @@ As comparações de fixture deste módulo estão a salvo porque usam apenas indi
 - **O efeito é pequeno:** janeiro 31,25 contra julho 31,13, diferença de **0,12 °C**. Então o que se perde é um *recurso documentado*, não muita exatidão — e é essa a razão de registrar em vez de corrigir: o conserto mudaria número publicado para ganhar 0,12 °C.
 - **Detalhe adicional:** o PET **não** tem limite, ao contrário do UTCI, que o R limita em [−60, 50]. Medido: T=60 → 63,60; T=−50 com vento 30 → −59,17.
 - **No Python:** replicado, coluna `date` e tudo. Paridade de 99,82% — 7 de 3.920 linhas diferem por 0,01, todas casos de meio exato, o mesmo desempate do `thi_c`.
+
+## 2026-09-14 — três dos doze parâmetros de bioma são declarados e nunca lidos  ·  **M82**
+
+- **Onde:** `climasus4r:::.region_params_table()` — lado R.
+- **O quê:** a tabela declara 12 parâmetros para cada um dos 8 biomas. Varrendo o corpo de **todas** as funções internas do pacote *exceto a própria tabela* — onde os nomes são definidos — três não aparecem em lugar nenhum: **`wbgt_high_warning`, `wbgt_extreme` e `metabolic_factor`**. Zero ocorrências fora da tabela; os outros nove aparecem entre 1 e 5 vezes, todos no `.dispatch_indicator`.
+- **Importa mais no `wbgt_extreme`:** ele vai de **31 na Amazônia a 33 na Caatinga**, e a documentação destaca *"regionally adapted thresholds"* como ponto de robustez científica. Mas as flags são alimentadas por `reg$thresholds` — do **registry** de indicadores, com valores fixos 31/28/25 — e não pelos `region_params`. O limiar por bioma é declarado, documentado e nunca chega ao cálculo.
+- Somado ao **M72**, são **duas rotas independentes** pelas quais limiares declarados não alcançam as flags.
+- **No Python:** os nove lidos foram portados; os três não, de propósito, com teste que falha se alguém os adicionar sem ligar o uso.
+
+## 2026-09-14 — com os defaults, o R **desliga** a máscara de validade  ·  **M83**
+
+- **Onde:** corpo de `sus_climate_compute_indicators` — lado R, replicado.
+- **O quê:** `apply_mask = apply_validity_mask && !use_region`, com `use_region <- region != "none"`. Como o default é `region="auto"`, sai `apply_mask = TRUE && !TRUE = FALSE`: a máscara fica **desligada no caminho padrão**, e as regressões de HI, WCET e WCT extrapolam para fora do domínio em que foram ajustadas. É preciso pedir `region="none"` explicitamente para ligá-la — `apply_validity_mask=TRUE` sozinho **não basta**, o que inverte a leitura natural do nome do parâmetro.
+- **Medido, rodando os helpers do R:** com T=20 e RH=90 o índice de **calor** devolve **18,48 °C** — *abaixo* da temperatura do ar. Na fixture o `hi_c` desce a **−16,38 °C**, um índice de calor abaixo de zero. E o `wcet_c`, fórmula de sensação térmica de **frio**, chega a **+53,39 °C**; com T=25 e vento 5 m/s devolve 26,34 em vez de NA. O `wct_c` vai a +51,10.
+- **A documentação do R está correta aqui** — ela diz explicitamente *"When region==\"none\", masks HI, WCET, WCT outside their valid meteorological domains"*. Então não é divergência doc/código como no M71: é que o **default** entrega o caminho sem máscara, e os valores resultantes não têm significado físico.
+- **Correção de uma falha na minha verificação.** Todas as comparações que eu fiz antes disso para `hi_c`, `wcet_c` e `wct_c` chamaram os helpers do R com `apply_mask=TRUE` — configuração que o R só usa com `region="none"`. Verifiquei paridade contra um caminho **não padrão** e reportei como "paridade exata" sem qualificar. Agora há **duas fixtures**, e os dois caminhos batem com diferença máxima 0,00e+00 e os nulos nas mesmas linhas.

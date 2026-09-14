@@ -32,6 +32,10 @@ import climasus4py as cs
 from climasus4py.core.engine import get_connection
 from climasus4py.enrichment.climate_indicators import (
     ALL_INDICATORS,
+    REGIONS,
+    _REGION_NONE,
+    _REGION_PARAMS,
+    detect_region,
     CORRECTED_INDICATORS,
     _INDICATOR_DEFS,
     _MPH_PER_KMH,
@@ -63,7 +67,7 @@ def saida_wbgt(entrada) -> pd.DataFrame:
     rel = get_connection().from_df(entrada)
     return cs.sus_climate_compute_indicators(
         rel, indicators=["wbgt", "wbgt_stull"], station_col="station_code",
-        date_col="datetime", verbose=False,
+        date_col="datetime", region="none", verbose=False,
     ).df()
 
 
@@ -72,7 +76,7 @@ def saida_py(entrada) -> pd.DataFrame:
     rel = get_connection().from_df(entrada)
     return cs.sus_climate_compute_indicators(
         rel, indicators=NOVOS, station_col="station_code",
-        date_col="datetime", verbose=False,
+        date_col="datetime", region="none", verbose=False,
     ).df()
 
 
@@ -136,7 +140,7 @@ class TestNulosDoDuckDB:
         })
         out = cs.sus_climate_compute_indicators(
             get_connection().from_df(df), indicators=["cdd", "hdd", "gdd"],
-            station_col="station_code", date_col="datetime", verbose=False,
+            station_col="station_code", date_col="datetime", region="none", verbose=False,
         ).df()
 
         assert pd.isna(out[coluna].iloc[1])
@@ -155,7 +159,7 @@ class TestNulosDoDuckDB:
         })
         out = cs.sus_climate_compute_indicators(
             get_connection().from_df(df), indicators=["wcet", "wct"],
-            station_col="station_code", date_col="datetime", verbose=False,
+            station_col="station_code", date_col="datetime", region="none", verbose=False,
         ).df()
 
         assert pd.isna(out["wcet_c"].iloc[1])
@@ -190,7 +194,7 @@ class TestDominioDeValidade:
         })
         out = cs.sus_climate_compute_indicators(
             get_connection().from_df(df), indicators=["wcet"],
-            station_col="station_code", date_col="datetime", verbose=False,
+            station_col="station_code", date_col="datetime", region="none", verbose=False,
         ).df()
 
         assert out["wcet_c"].notna().iloc[0] is np.True_ if vale else True
@@ -262,7 +266,7 @@ class TestKoppen:
         })
         out = cs.sus_climate_compute_indicators(
             get_connection().from_df(df), indicators=["koppen_humidity"],
-            station_col="station_code", date_col="datetime", verbose=False,
+            station_col="station_code", date_col="datetime", region="none", verbose=False,
         ).df()
 
         assert list(out["koppen_humidity"]) == [
@@ -342,7 +346,7 @@ class TestWbgt:
         })
         out = cs.sus_climate_compute_indicators(
             get_connection().from_df(df), indicators=["wbgt_stull"],
-            station_col="station_code", date_col="datetime", verbose=False,
+            station_col="station_code", date_col="datetime", region="none", verbose=False,
         ).df()
         twb = (float(out["wbgt_stull_c"].iloc[0]) - 0.33 * 30.0) / 0.67
 
@@ -422,7 +426,7 @@ class TestWbgt:
         })
         out = cs.sus_climate_compute_indicators(
             get_connection().from_df(df), indicators=["wbgt_stull"],
-            station_col="station_code", date_col="datetime", verbose=False,
+            station_col="station_code", date_col="datetime", region="none", verbose=False,
         ).df()
 
         assert out["wbgt_stull_c"].notna().all()
@@ -443,7 +447,7 @@ def com_flags(entrada) -> pd.DataFrame:
     rel = get_connection().from_df(entrada)
     return cs.sus_climate_compute_indicators(
         rel, indicators=INDS_DA_FIXTURE, station_col="station_code",
-        date_col="datetime", verbose=False,
+        date_col="datetime", region="none", verbose=False,
     ).df()
 
 
@@ -462,7 +466,7 @@ class TestFlagsEstrutura:
         rel = get_connection().from_df(entrada)
         sem = cs.sus_climate_compute_indicators(
             rel, indicators=INDS_DA_FIXTURE, station_col="station_code",
-            date_col="datetime", confidence_flags=False, verbose=False,
+            date_col="datetime", confidence_flags=False, region="none", verbose=False,
         ).df()
         assert not any("_flag_" in c for c in sem.columns)
 
@@ -620,7 +624,7 @@ class TestAliasDoCodigoR:
         rel = get_connection().from_df(entrada)
         out = cs.sus_climate_compute_indicators(
             rel, indicators=["hi"], station_col="station_code",
-            date_col="datetime", verbose=False,
+            date_col="datetime", region="none", verbose=False,
         ).df()
 
         assert "hi_c" in out.columns
@@ -631,7 +635,7 @@ class TestAliasDoCodigoR:
         with pytest.raises(ValueError, match="Unknown indicator"):
             cs.sus_climate_compute_indicators(
                 rel, indicators=["nao_existe"], station_col="station_code",
-                date_col="datetime", verbose=False,
+                date_col="datetime", region="none", verbose=False,
             )
 
 
@@ -666,7 +670,7 @@ def saida_tri(entrada) -> pd.DataFrame:
     return cs.sus_climate_compute_indicators(
         rel, indicators=["hi", "thi", "vapor_pressure"],
         station_col="station_code", date_col="datetime",
-        confidence_flags=False, verbose=False,
+        confidence_flags=False, region="none", verbose=False,
     ).df()
 
 
@@ -715,7 +719,7 @@ class TestIndiceDeCalor:
         out = cs.sus_climate_compute_indicators(
             get_connection().from_df(df), indicators=["hi"],
             station_col="station_code", date_col="datetime",
-            confidence_flags=False, verbose=False,
+            confidence_flags=False, region="none", verbose=False,
         ).df()
 
         assert pd.isna(out["hi_c"].iloc[0])      # 26,6 fora
@@ -735,7 +739,7 @@ class TestIndiceDeCalor:
         out = cs.sus_climate_compute_indicators(
             get_connection().from_df(df), indicators=["hi"],
             station_col="station_code", date_col="datetime",
-            confidence_flags=False, verbose=False,
+            confidence_flags=False, region="none", verbose=False,
         ).df()
         t_f = 27.5 * 9 / 5 + 32
         ajuste = (95.0 - 85.0) / 10.0 * ((87.0 - t_f) / 5.0)
@@ -753,7 +757,7 @@ class TestIndiceDeCalor:
         out = cs.sus_climate_compute_indicators(
             get_connection().from_df(df), indicators=["hi"],
             station_col="station_code", date_col="datetime",
-            confidence_flags=False, verbose=False,
+            confidence_flags=False, region="none", verbose=False,
         ).df()
 
         assert out["hi_c"].isna().all()   # frio demais / seco demais
@@ -799,7 +803,7 @@ class TestThi:
         out = cs.sus_climate_compute_indicators(
             get_connection().from_df(df), indicators=["thi"],
             station_col="station_code", date_col="datetime",
-            confidence_flags=False, verbose=False,
+            confidence_flags=False, region="none", verbose=False,
         ).df()
         do_r = 30.0 - ((1 - 60.0 / 100) * (30.0 - 14.4)) / 2
         a_classica = 30.0 - (0.55 - 0.0055 * 60.0) * (30.0 - 14.5)
@@ -883,7 +887,7 @@ class TestVariantesCorretas:
         with pytest.raises(ValueError, match="Corrected variants"):
             cs.sus_climate_compute_indicators(
                 rel, indicators=["nao_existe"], station_col="station_code",
-                date_col="datetime", verbose=False,
+                date_col="datetime", region="none", verbose=False,
             )
 
 
@@ -895,7 +899,7 @@ def par(entrada) -> pd.DataFrame:
     pedidos = [*CORRECTED_INDICATORS, *CORRECTED_INDICATORS.values()]
     return cs.sus_climate_compute_indicators(
         rel, indicators=pedidos, station_col="station_code",
-        date_col="datetime", confidence_flags=False, verbose=False,
+        date_col="datetime", confidence_flags=False, region="none", verbose=False,
     ).df()
 
 
@@ -943,7 +947,7 @@ class TestVarianteVsBase:
         out = cs.sus_climate_compute_indicators(
             rel, indicators=["wcet", "wct", "wct_ms"],
             station_col="station_code", date_col="datetime",
-            confidence_flags=False, verbose=False,
+            confidence_flags=False, region="none", verbose=False,
         ).df()
         m = out["wcet_c"].notna() & out["wct_c"].notna() & out["wct_ms_c"].notna()
 
@@ -959,7 +963,7 @@ class TestVarianteVsBase:
         rel = get_connection().from_df(entrada)
         out = cs.sus_climate_compute_indicators(
             rel, indicators=["thi"], station_col="station_code",
-            date_col="datetime", confidence_flags=False, verbose=False,
+            date_col="datetime", confidence_flags=False, region="none", verbose=False,
         ).df()
 
         assert np.array_equal(out["rh_mean_porc"].to_numpy(),
@@ -985,7 +989,7 @@ class TestDiurnalRangeSegueOR:
         rel = get_connection().from_df(entrada)
         out = cs.sus_climate_compute_indicators(
             rel, indicators=extras, station_col="station_code",
-            date_col="datetime", confidence_flags=False, verbose=False,
+            date_col="datetime", confidence_flags=False, region="none", verbose=False,
         ).df()
         d = entrada.copy()
         d["dia"] = pd.to_datetime(d["datetime"]).dt.date
@@ -1050,7 +1054,7 @@ def saida_et(entrada) -> pd.DataFrame:
         rel, indicators=["et", "heat_stress_risk", "et_calm",
                          "heat_stress_risk_strict", "wbgt"],
         station_col="station_code", date_col="datetime",
-        confidence_flags=False, verbose=False,
+        confidence_flags=False, region="none", verbose=False,
     ).df()
 
 
@@ -1169,7 +1173,7 @@ def saida_up(entrada) -> pd.DataFrame:
     rel = get_connection().from_df(entrada)
     return cs.sus_climate_compute_indicators(
         rel, indicators=["utci", "pet"], station_col="station_code",
-        date_col="datetime", confidence_flags=False, verbose=False,
+        date_col="datetime", confidence_flags=False, region="none", verbose=False,
     ).df()
 
 
@@ -1214,7 +1218,7 @@ class TestUtci:
         out = cs.sus_climate_compute_indicators(
             get_connection().from_df(df), indicators=["utci"],
             station_col="station_code", date_col="datetime",
-            confidence_flags=False, verbose=False,
+            confidence_flags=False, region="none", verbose=False,
         ).df()
 
         assert float(out["utci_c"].iloc[0]) == pytest.approx(esperado, abs=0.01)
@@ -1275,7 +1279,7 @@ class TestPet:
         out = cs.sus_climate_compute_indicators(
             get_connection().from_df(df), indicators=["pet"],
             station_col="station_code", date_col="datetime",
-            confidence_flags=False, verbose=False,
+            confidence_flags=False, region="none", verbose=False,
         ).df()
         jan, jul = float(out["pet_c"].iloc[0]), float(out["pet_c"].iloc[1])
 
@@ -1294,7 +1298,7 @@ class TestPet:
         out = cs.sus_climate_compute_indicators(
             get_connection().from_df(df), indicators=["pet"],
             station_col="station_code", date_col="datetime",
-            confidence_flags=False, verbose=False,
+            confidence_flags=False, region="none", verbose=False,
         ).df()
 
         assert float(out["pet_c"].iloc[0]) > 50.0
@@ -1323,3 +1327,246 @@ class TestTodosOsQuinzeIndicadoresDoR:
         assert canonico in _INDICATOR_DEFS
         assert _INDICATOR_DEFS[canonico][0] == self.COLUNA_DO_R[codigo]
         assert canonico in ALL_INDICATORS
+
+
+# ---------------------------------------------------------------------------
+# region, apply_validity_mask e custom_thresholds (M82, M83)
+# ---------------------------------------------------------------------------
+
+REF_SUDESTE = FIXTURES / "referencia_r_southeast.parquet"
+
+
+@pytest.fixture(scope="module")
+def referencia_sudeste() -> pd.DataFrame:
+    """R no seu caminho PADRAO: region auto -> southeast, mascara desligada."""
+    return pd.read_parquet(REF_SUDESTE)
+
+
+@pytest.fixture(scope="module")
+def saida_padrao(entrada) -> pd.DataFrame:
+    """O Python com os defaults, que agora sao os do R."""
+    rel = get_connection().from_df(entrada)
+    return cs.sus_climate_compute_indicators(
+        rel, indicators=["hi", "wcet", "wct", "cdd", "hdd", "gdd", "utci",
+                         "pet", "et", "wbgt", "thi", "vapor_pressure",
+                         "koppen_humidity", "heat_stress_risk"],
+        station_col="station_code", date_col="datetime",
+        confidence_flags=False, verbose=False,
+    ).df()
+
+
+class TestCaminhoPadraoDoR:
+    """Com os defaults, R desliga a mascara de validade (M83).
+
+    `apply_mask = apply_validity_mask && !use_region`, e `use_region` e
+    `region != "none"`. Como o default e region="auto", a mascara sai
+    DESLIGADA -- e os indices extrapolam para fora do dominio em que
+    foram ajustados.
+
+    Esta e a configuracao que um usuario obtem sem pedir nada, entao e a
+    que precisa de fixture propria. A outra fixture deste arquivo, a
+    nao-regionalizada, so e alcancada com region="none".
+    """
+
+    @pytest.mark.parametrize("coluna", [
+        "hi_c", "wcet_c", "wct_c", "cdd_c", "hdd_c", "gdd_c",
+        "utci_c", "et_c", "wbgt_c", "vapor_pressure_kpa",
+    ])
+    def test_paridade_com_o_caminho_padrao(self, saida_padrao, referencia_sudeste, coluna):
+        py = saida_padrao[coluna].astype(float)
+        r = referencia_sudeste[coluna].astype(float)
+        ambos = py.notna() & r.notna()
+
+        assert (py.isna() != r.isna()).sum() == 0
+        assert ambos.sum() > 3000
+        assert np.abs(py[ambos].to_numpy() - r[ambos].to_numpy()).max() == 0.0
+
+    @pytest.mark.parametrize("coluna", ["thi_c", "pet_c"])
+    def test_paridade_a_menos_do_desempate(self, saida_padrao, referencia_sudeste, coluna):
+        """Os dois que dependem do arredondamento do R."""
+        py = saida_padrao[coluna].astype(float)
+        r = referencia_sudeste[coluna].astype(float)
+        ambos = py.notna() & r.notna()
+        d = np.abs(py[ambos].to_numpy() - r[ambos].to_numpy())
+
+        assert d.max() <= 0.0101
+        assert (d < 1e-9).sum() / len(d) > 0.99
+
+    @pytest.mark.parametrize("coluna", ["koppen_humidity", "heat_stress_risk"])
+    def test_as_categoricas(self, saida_padrao, referencia_sudeste, coluna):
+        py, r = saida_padrao[coluna], referencia_sudeste[coluna]
+        assert ((py == r) | (py.isna() & r.isna())).all()
+
+    def test_o_indice_de_calor_extrapola_por_padrao(self, saida_padrao):
+        """Sem a mascara, hi_c desce abaixo de zero -- num indice de CALOR."""
+        assert saida_padrao["hi_c"].min() < 0
+        assert saida_padrao["hi_c"].min() == pytest.approx(-16.38, abs=0.01)
+
+    def test_a_sensacao_de_frio_extrapola_para_o_calor(self, saida_padrao):
+        """wcet_c chega a +53 C, numa formula de sensacao termica de FRIO."""
+        assert saida_padrao["wcet_c"].max() > 50.0
+        assert saida_padrao["wcet_c"].max() == pytest.approx(53.39, abs=0.01)
+
+    def test_a_mascara_so_atua_com_region_none(self, entrada):
+        rel = get_connection().from_df(entrada)
+        def nulos(**kw):
+            return int(cs.sus_climate_compute_indicators(
+                rel, indicators=["wcet"], station_col="station_code",
+                date_col="datetime", confidence_flags=False, verbose=False,
+                **kw).df()["wcet_c"].isna().sum())
+
+        assert nulos(region="none") == 2162                    # mascara ativa
+        assert nulos(region="southeast") == 40                 # desligada
+        assert nulos() == 40                                   # default = auto
+        # apply_validity_mask sozinho nao basta: o R exige region="none".
+        assert nulos(region="southeast", apply_validity_mask=True) == 40
+        assert nulos(region="none", apply_validity_mask=False) == 40
+
+
+class TestRegiao:
+    """Oito biomas, cada um com suas constantes (M82)."""
+
+    def test_os_oito_biomas(self):
+        assert REGIONS == ("amazon", "cerrado", "caatinga", "atlantic_forest",
+                           "pampa", "pantanal", "southeast", "south")
+
+    @pytest.mark.parametrize(("regiao", "cdd_base", "gdd_base", "gdd_upper"), [
+        ("amazon", 20.0, 15.0, 35.0),
+        ("caatinga", 20.0, 12.0, 34.0),
+        ("south", 18.0, 8.0, 30.0),
+        ("none", 18.0, 10.0, 30.0),
+    ])
+    def test_as_bases_dos_graus_dia_mudam(self, entrada, regiao, cdd_base,
+                                          gdd_base, gdd_upper):
+        """O efeito mais direto do region: graus-dia com base de bioma."""
+        rel = get_connection().from_df(entrada)
+        out = cs.sus_climate_compute_indicators(
+            rel, indicators=["cdd", "gdd"], station_col="station_code",
+            date_col="datetime", region=regiao, confidence_flags=False,
+            verbose=False).df()
+        t = entrada["tair_dry_bulb_c"]
+        esperado_cdd = np.maximum(t - cdd_base, 0).round(1)
+        esperado_gdd = (np.minimum(np.maximum(t, gdd_base), gdd_upper)
+                        - gdd_base).round(1)
+
+        assert np.allclose(out["cdd_c"], esperado_cdd, equal_nan=True)
+        assert np.allclose(out["gdd_c"], esperado_gdd, equal_nan=True)
+
+    def test_a_correcao_do_utci_e_aditiva(self, entrada):
+        """amazon soma +1,5 e south soma -1,5 ao mesmo calculo."""
+        rel = get_connection().from_df(entrada)
+        def utci(regiao):
+            return cs.sus_climate_compute_indicators(
+                rel, indicators=["utci"], station_col="station_code",
+                date_col="datetime", region=regiao, confidence_flags=False,
+                verbose=False).df()["utci_c"]
+        base, am, so = utci("southeast"), utci("amazon"), utci("south")
+        # O teto de 50 C atua em algumas linhas, entao compara onde nao atua.
+        livre = (base < 48) & (base > -58) & base.notna()
+
+        assert (am[livre] - base[livre]).round(2).eq(1.5).all()
+        assert (so[livre] - base[livre]).round(2).eq(-1.5).all()
+
+    def test_region_desconhecida_avisa_e_cai_no_sudeste(self, entrada, capsys):
+        rel = get_connection().from_df(entrada)
+        out = cs.sus_climate_compute_indicators(
+            rel, indicators=["cdd"], station_col="station_code",
+            date_col="datetime", region="patagonia", confidence_flags=False,
+            verbose=False).df()
+        saida = capsys.readouterr().out
+
+        assert "Unknown region" in saida
+        assert "southeast" in saida
+        # E o resultado e o do sudeste: cdd_base = 19.
+        esperado = np.maximum(entrada["tair_dry_bulb_c"] - 19.0, 0).round(1)
+        assert np.allclose(out["cdd_c"], esperado, equal_nan=True)
+
+
+class TestAutoDeteccao:
+    """R detecta por UF, senao por latitude, senao cai no sudeste."""
+
+    def test_sem_uf_nem_latitude(self, entrada):
+        assert detect_region(get_connection().from_df(entrada)) == "southeast"
+
+    @pytest.mark.parametrize(("uf", "esperado"), [
+        ("AM", "amazon"), ("BA", "caatinga"), ("SP", "atlantic_forest"),
+        ("RS", "pampa"), ("SC", "south"), ("MG", "southeast"),
+        ("GO", "cerrado"), ("MT", "pantanal"),
+    ])
+    def test_por_uf(self, entrada, uf, esperado):
+        rel = get_connection().from_df(entrada.assign(UF=uf))
+        assert detect_region(rel) == esperado
+
+    @pytest.mark.parametrize(("lat", "esperado"), [
+        (-32.0, "pampa"), (-27.0, "south"), (-20.0, "southeast"),
+        (-10.0, "cerrado"), (-2.0, "amazon"),
+    ])
+    def test_por_latitude(self, entrada, lat, esperado):
+        rel = get_connection().from_df(entrada.assign(latitude=lat))
+        assert detect_region(rel) == esperado
+
+    def test_a_uf_tem_precedencia_sobre_a_latitude(self, entrada):
+        """R checa UF primeiro; a latitude e o segundo recurso."""
+        rel = get_connection().from_df(entrada.assign(UF="AM", latitude=-32.0))
+        assert detect_region(rel) == "amazon"
+
+
+class TestCustomThresholds:
+    """Sobrescreve constantes individuais, como o modifyList do R."""
+
+    def test_sobrescreve_uma_base(self, entrada):
+        rel = get_connection().from_df(entrada)
+        out = cs.sus_climate_compute_indicators(
+            rel, indicators=["cdd"], station_col="station_code",
+            date_col="datetime", region="amazon",
+            custom_thresholds={"cdd_base": 25.0},
+            confidence_flags=False, verbose=False).df()
+        esperado = np.maximum(entrada["tair_dry_bulb_c"] - 25.0, 0).round(1)
+
+        assert np.allclose(out["cdd_c"], esperado, equal_nan=True)
+
+    def test_o_que_nao_e_sobrescrito_vem_do_bioma(self, entrada):
+        """So a chave dada muda; o resto segue a amazonia (gdd_base=15)."""
+        rel = get_connection().from_df(entrada)
+        out = cs.sus_climate_compute_indicators(
+            rel, indicators=["gdd"], station_col="station_code",
+            date_col="datetime", region="amazon",
+            custom_thresholds={"cdd_base": 25.0},
+            confidence_flags=False, verbose=False).df()
+        t = entrada["tair_dry_bulb_c"]
+        esperado = (np.minimum(np.maximum(t, 15.0), 35.0) - 15.0).round(1)
+
+        assert np.allclose(out["gdd_c"], esperado, equal_nan=True)
+
+
+class TestParametrosDeclaradosENuncaLidos:
+    """Tres dos doze parametros de bioma do R nunca sao lidos (M82).
+
+    `wbgt_high_warning`, `wbgt_extreme` e `metabolic_factor` aparecem na
+    tabela de regioes e em nenhum outro lugar do pacote R -- verificado
+    varrendo o corpo de todas as internas exceto a propria tabela.
+
+    Importa mais no `wbgt_extreme`, que vai de 31 na Amazonia a 33 na
+    Caatinga: o pacote anuncia limiares de WBGT adaptados por regiao e
+    depois classifica com os limiares fixos do registry.
+    """
+
+    NUNCA_LIDOS = ("wbgt_high_warning", "wbgt_extreme", "metabolic_factor")
+
+    @pytest.mark.parametrize("chave", NUNCA_LIDOS)
+    def test_nao_foram_portados(self, chave):
+        for params in _REGION_PARAMS.values():
+            assert chave not in params
+
+    def test_os_limiares_do_wbgt_nao_mudam_com_a_regiao(self):
+        """A prova de que o wbgt_extreme do bioma nao chega a lugar nenhum."""
+        assert flag_threshold("wbgt", "extreme") == 31.0
+        # 31 e o do registry, nao o do bioma: a Caatinga declara 33.
+
+    def test_os_nove_que_sobraram_estao_todos_portados(self):
+        esperados = {"hi_min_temp", "hi_min_rh", "gdd_base", "gdd_upper",
+                     "cdd_base", "hdd_base", "utci_correction",
+                     "pet_correction", "clothing_factor"}
+        for regiao, params in _REGION_PARAMS.items():
+            assert set(params) == esperados, regiao
+        assert set(_REGION_NONE) == esperados

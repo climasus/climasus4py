@@ -257,51 +257,57 @@ def test_heat_wave_does_not_flag_two_day_run():
 # ---------------------------------------------------------------------------
 
 
-def test_heat_index_null_below_temperature_threshold():
-    """T < 27°C → hi_c = NULL (outside Rothfusz domain)."""
+def _rel_hi(temps, rhs):
     import pandas as pd
 
     from climasus4py.core.engine import get_connection
 
-    conn = get_connection()
-    rel = conn.from_df(pd.DataFrame({
-        "station_code": ["A"] * 2,
-        "date": pd.date_range("2023-01-01", periods=2, freq="D"),
-        "tair_dry_bulb_c": [20.0, 35.0],   # 20 = below domain, 35 = inside
-        "rh_mean_porc": [60.0, 60.0],
-        "tair_max_c": [25.0, 40.0],
+    return get_connection().from_df(pd.DataFrame({
+        "station_code": ["A"] * len(temps),
+        "date": pd.date_range("2023-01-01", periods=len(temps), freq="D"),
+        "tair_dry_bulb_c": temps,
+        "rh_mean_porc": rhs,
+        "tair_max_c": [t + 5 for t in temps],
     }))
-    out = sus_climate_compute_indicators(
-        rel, indicators=["heat_index"], verbose=False
-    ).df()
-    assert pd.isna(out["hi_c"].iloc[0])
-    assert pd.notna(out["hi_c"].iloc[1])
 
 
-def test_heat_index_null_below_humidity_threshold():
-    """RH < 40% → hi_c = NULL."""
+def test_heat_index_masked_outside_the_domain_when_region_is_none():
+    """Fora do dominio de Rothfusz, hi_c = NULL -- com region="none".
+
+    A mascara de validade so atua nessa configuracao, porque o R computa
+    `apply_validity_mask && !use_region` e qualquer regiao diferente de
+    "none" a desliga (M83).
+    """
     import pandas as pd
 
-    from climasus4py.core.engine import get_connection
-
-    conn = get_connection()
-    rel = conn.from_df(pd.DataFrame({
-        "station_code": ["A"] * 2,
-        "date": pd.date_range("2023-01-01", periods=2, freq="D"),
-        "tair_dry_bulb_c": [35.0, 35.0],
-        "rh_mean_porc": [25.0, 60.0],   # 25 = below domain, 60 = inside
-        "tair_max_c": [40.0, 40.0],
-    }))
     out = sus_climate_compute_indicators(
-        rel, indicators=["heat_index"], verbose=False
+        _rel_hi([20.0, 35.0, 35.0], [60.0, 25.0, 60.0]),
+        indicators=["heat_index"], region="none", verbose=False,
     ).df()
-    assert pd.isna(out["hi_c"].iloc[0])
-    assert pd.notna(out["hi_c"].iloc[1])
+
+    assert pd.isna(out["hi_c"].iloc[0])   # 20 C: frio demais
+    assert pd.isna(out["hi_c"].iloc[1])   # 25% RH: seco demais
+    assert pd.notna(out["hi_c"].iloc[2])  # 35 C / 60%: dentro
 
 
-# ---------------------------------------------------------------------------
-# BUG-03 regression: WBGT exists, returns wbgt_c column
-# ---------------------------------------------------------------------------
+def test_heat_index_extrapolates_with_the_default_region():
+    """Com o default do R a mascara esta DESLIGADA, e o indice extrapola.
+
+    O resultado e um indice de CALOR abaixo da temperatura do ar -- 18,48 C
+    para T=20 e RH=90. Nao e defeito do port: e o que o R devolve, e esta
+    registrado como M83. Este teste existe para a mudanca de comportamento
+    ficar visivel em vez de surpreender.
+    """
+    import pandas as pd
+
+    out = sus_climate_compute_indicators(
+        _rel_hi([20.0, 35.0], [90.0, 25.0]),
+        indicators=["heat_index"], verbose=False,
+    ).df()
+
+    assert out["hi_c"].notna().all()
+    assert float(out["hi_c"].iloc[0]) == pytest.approx(18.48, abs=0.01)
+    assert float(out["hi_c"].iloc[0]) < 20.0   # "calor" abaixo do ar
 
 
 def test_wbgt_indicator_available_and_returns_column(full_rel):
