@@ -81,3 +81,19 @@ Formato de cada entrada:
 - **Ressalva honesta:** o desvio de 5 °C contra a tabela e a inércia solar são medições sólidas; a atribuição a uma troca de unidade é **inferência** minha, forte mas inferência. O coordenador conhece a origem do código e resolve isso em minutos.
 - **Plano acordado:** `wbgt_c` replica o R (paridade) e `wbgt_stull_c` entra como indicador **separado** com a fórmula validada, para as duas saírem lado a lado e a diferença virar dado em vez de afirmação. Ainda não implementado.
 - **Por que não agora:** precisa de decisão do coordenador sobre o lado R.
+
+---
+
+### Nota de 2026-09-14 — decisões sobre as três entradas acima
+
+Por decisão do Andrey, o Python passou a **replicar o R** nos três casos, para a apresentação ao coordenador ser defensável. O mérito dos defeitos segue **aberto** — o que foi decidido é o comportamento do Python, não que o R esteja certo.
+
+- **`wct_c`** replica o R, e a fórmula correta ficou em `_wct_correct_units()` — função executável e testada, não comentário.
+- **`koppen_humidity`** passou a classificar umidade ausente como `"Perhumid"`, igual ao R.
+- **`wbgt_c`** replica o R (diferença 0,000e+00 em 3.920 valores), e `wbgt_stull_c` entrou como **coluna separada** com a fórmula validada, para a divergência sair como dado na mesma tabela.
+
+**Correção a um número que eu reportei.** Eu havia dito que as duas versões do WBGT diferiam em média 3,35 °C com 15,5% de discordância no limiar. Aquela medição amostrava vento de 0,2 a 4 m/s; na fixture o vento vai a 18 e o termo de globo do R é dividido por `ws^0,2`. Medido na fixture de 4.000 linhas: média **−0,363 °C**, mediana −0,625, **faixa de −7,98 a +8,07**. Não é viés constante — as duas divergem em até 8 °C nos **dois** sentidos, e uma média engana. Eu não devia ter apresentado o 3,35 como geral.
+
+O que sobrevive a qualquer distribuição são dois fatos: o **ponto fixo psicrométrico** (a 30 °C/60%, Stull erra 0,10 °C e o `tnw` do R erra 5,12) e a **consequência no limiar** (acima de 31 °C o `wbgt_c` marca 207 linhas e o `wbgt_stull_c` marca 449, mais que o dobro).
+
+**Efeito colateral da paridade:** `wbgt_c` agora exige os quatro insumos (T, RH, SR, WS) onde antes bastavam T e RH. Em série sem radiação solar ele deixa de sair, e o `wbgt_stull_c` passa a ser o único disponível — o que na prática o torna o mais útil nas séries curtas do INMET.

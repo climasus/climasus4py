@@ -14,6 +14,12 @@ venv/
 output/
 dados/
 *.parquet
+# ...except test fixtures. The blanket *.parquet rule silently kept the
+# frozen R reference for the indicator parity tests out of the repo, so
+# those tests passed locally and would fail on a fresh clone with a
+# FileNotFoundError. Parquet is the right format here: it preserves the
+# exact float bytes the parity assertions compare at zero tolerance.
+!tests/fixtures/**/*.parquet
 
 # Local config
 config.yaml

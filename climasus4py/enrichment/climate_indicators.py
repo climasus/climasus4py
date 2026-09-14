@@ -133,15 +133,84 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
     # ------------------------------------------------------------------
     "wbgt": (
         "wbgt_c",
+        ("T", "RH", "SR", "WS"),
+        (
+            # PARITY WITH R, INCLUDING WHAT LOOKS WRONG ABOUT IT (M71).
+            #
+            # R averages two wet-bulb estimates and the documentation says
+            # so — that part is deliberate. What does not line up is the
+            # formulas: `tnw1` has the shape of Stull (2011),
+            # `T*atan(c*sqrt(RH + k))`, which expects RH as a PERCENTAGE,
+            # and R feeds it `e_a`, vapour pressure in kPa. At T=30/RH=60
+            # the atan receives 0.26 where the shape wants 1.26. `tnw2` has
+            # the shape of the Australian apparent temperature, not a wet
+            # bulb. Neither Stull nor Steadman is among the references the
+            # help page cites (Liljegren 2008; Bernard & Pourmoghani 1999).
+            #
+            # Measured against the psychrometric table at T=30 °C, RH=60%
+            # (reference ~23.9 °C): Stull gives 24.00 °C, R's tnw gives
+            # 18.78 °C. And the globe term moves only 0.84 °C as radiation
+            # goes from 0 to 1000 W/m², which is nearly inert for an index
+            # whose purpose is capturing solar load.
+            #
+            # Kept faithful by Andrey's decision of 14/09/2026 so the two
+            # packages agree. `wbgt_stull_c` below is the validated
+            # alternative, emitted as its own column so the divergence is
+            # visible in the same table rather than asserted in prose.
+            #
+            # The gap is not a constant bias, and an earlier note here
+            # claiming a mean of 3.35 °C was measured on too narrow a wind
+            # range. On the 4000-row fixture the two differ by a mean of
+            # only -0.36 °C but range from -7.98 to +8.07 — they diverge in
+            # *both* directions depending on conditions. What survives any
+            # distribution is the threshold consequence: above 31 °C (ISO
+            # 7243 extreme heat) this column flags 207 rows where
+            # `wbgt_stull_c` flags 449, more than double.
+            #
+            # R's dispatcher zeroes missing radiation and wind before
+            # calling, so only T and RH propagate a null — replicated here.
+            "CASE WHEN {T} IS NULL OR {RH} IS NULL THEN NULL ELSE ROUND("
+            "  0.7 * ("
+            "    ({T} * atan(0.16 * sqrt(GREATEST("
+            "       ({RH} / 100.0) * 0.6108 * EXP(17.27 * {T} / ({T} + 237.3))"
+            "       , 0.01) + 0.1)) + 3.0)"
+            "    + ({T} + 0.33 * ({RH} / 100.0) * EXP(0.0514 * {T}) - 4.0)"
+            "  ) / 2.0"
+            "  + 0.2 * ({T} + 0.0144 * POWER(GREATEST("
+            "       CASE WHEN {SR} IS NULL OR {SR} < 0 THEN 0.0"
+            "            ELSE {SR} / 3.6 END, 0.0), 0.6)"
+            "     / POWER(GREATEST(COALESCE({WS}, 0.0), 0.1), 0.2) - 2.0)"
+            "  + 0.1 * {T}"
+            ", 2) END AS wbgt_c"
+        ),
+    ),
+    # ------------------------------------------------------------------
+    # WBGT from the Stull (2011) wet bulb — the formula this package used
+    # before parity with R was adopted, kept as its own column.
+    #
+    # Shade/indoor form: 0.67 * Twb + 0.33 * Tdb, with Twb from Stull
+    # (2011), J. Appl. Meteorol. Climatol. 50:2267-2269. No globe term, so
+    # it needs only T and RH — which also makes it the one that still
+    # works on data without solar radiation or wind.
+    #
+    # Why it is here rather than in a note: this is the estimate that
+    # reproduces the psychrometric table (24.00 °C against ~23.9 at
+    # T=30/RH=60), and keeping it as live, tested code means it cannot be
+    # quietly lost or drift. Compare it with `wbgt_c` on the same rows to
+    # see M71 as data.
+    # ------------------------------------------------------------------
+    "wbgt_stull": (
+        "wbgt_stull_c",
         ("T", "RH"),
         (
+            "CASE WHEN {T} IS NULL OR {RH} IS NULL THEN NULL ELSE "
             "(0.67 * "
             "  ({T} * atan(0.151977 * sqrt({RH} + 8.313659)) "
             "   + atan({T} + {RH}) "
             "   - atan({RH} - 1.676331) "
             "   + 0.00391838 * power({RH}, 1.5) * atan(0.023101 * {RH}) "
             "   - 4.686035) "
-            " + 0.33 * {T}) AS wbgt_c"
+            " + 0.33 * {T}) END AS wbgt_stull_c"
         ),
     ),
     # ------------------------------------------------------------------
@@ -221,13 +290,27 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
     ),
     # ------------------------------------------------------------------
     # Koppen humidity class — four bands on relative humidity.
+    #
+    # PARITY WITH A DEFECT IN R, DELIBERATE. R's case_when ends in
+    # `TRUE ~ "Perhumid"`, and that final arm also catches NA: with the
+    # humidity missing, the three preceding conditions evaluate to NA,
+    # none matches, and the row is labelled "Perhumid" — the *wettest*
+    # of the four bands. Measured on the 4000-row fixture: 40 of 40 rows
+    # with null humidity come back "Perhumid" in R.
+    #
+    # So a count by humidity class silently files every missing reading
+    # under the wettest band. The Python side used to return NULL, which
+    # is the defensible behaviour; it now matches R by Andrey's decision
+    # of 14/09/2026, so the presentation to the coordinator stays
+    # consistent, with the treatment to be settled afterwards. See M70 —
+    # and note this is a *fabricated category*, a different class of
+    # problem from the wrong number in M69.
     # ------------------------------------------------------------------
     "koppen_humidity": (
         "koppen_humidity",
         ("RH",),
         (
             "CASE"
-            "  WHEN {RH} IS NULL THEN NULL"
             "  WHEN {RH} < 30.0 THEN 'Arid'"
             "  WHEN {RH} < 50.0 THEN 'Semi-arid'"
             "  WHEN {RH} < 70.0 THEN 'Humid'"
