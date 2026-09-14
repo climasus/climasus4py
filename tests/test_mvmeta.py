@@ -10,6 +10,9 @@ de satisfazer por construcao.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -65,6 +68,17 @@ def estudos(p: int, m: int, seed: int = 3) -> tuple[np.ndarray, list[np.ndarray]
         efeito = beta + r.multivariate_normal(np.zeros(p), psi)
         y.append(r.multivariate_normal(efeito, s))
     return np.array(y), S, beta
+
+
+FIXTURES = Path(__file__).parent / "fixtures" / "mvmeta"
+
+
+@pytest.fixture(scope="module")
+def referencia():
+    """Casos de teste e a saida do mvmeta 1.0.3 do R sobre eles."""
+    casos = json.loads((FIXTURES / "casos.json").read_text(encoding="utf-8"))
+    ref = json.loads((FIXTURES / "referencia_r.json").read_text(encoding="utf-8"))
+    return casos, ref
 
 
 Y_HET = np.array([0.30, 0.12, 0.55, 0.21, 0.42, -0.05, 0.33, 0.60])
@@ -214,6 +228,16 @@ class TestMultivariado:
         assert np.linalg.eigvalsh(f.psi).min() > -1e-10
 
     def test_meta_regressao_recupera_o_moderador(self):
+        """Os coeficientes saem em ordem OUTCOME-MAJOR, como no R.
+
+        Isto e, ``[y1.intercepto, y1.inclinacao, y2.intercepto,
+        y2.inclinacao]`` -- nao todos os interceptos seguidos de todas as
+        inclinacoes. Trocar as duas ordens passa despercebido no
+        agrupamento simples, onde ha um unico intercepto e os dois
+        arranjos coincidem, mas permuta a ``vcov`` na meta-regressao: na
+        comparacao contra o R os coeficientes batiam a 6e-08 enquanto a
+        ``vcov`` errava por 82%.
+        """
         p, m = 2, 80
         r = np.random.default_rng(31)
         x = r.normal(0, 1, m)
@@ -224,8 +248,10 @@ class TestMultivariado:
 
         f = mvmeta_fit(y, S, X=np.column_stack([np.ones(m), x]), method="reml")
 
+        esperado = np.array([intercepto[0], inclinacao[0],
+                             intercepto[1], inclinacao[1]])
         assert f.n_coef == 4  # q * p
-        assert np.allclose(f.coef, np.concatenate([intercepto, inclinacao]), atol=0.12)
+        assert np.allclose(f.coef, esperado, atol=0.12)
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +297,104 @@ class TestBlup:
 # ---------------------------------------------------------------------------
 # Validacao de entrada
 # ---------------------------------------------------------------------------
+
+class TestParidadeComR:
+    """Compara numero a numero contra o mvmeta 1.0.3 do R.
+
+    A referencia esta congelada em ``fixtures/mvmeta/referencia_r.json``,
+    gerada rodando ``mvmeta(y, S=Slist, method="reml")`` sobre os mesmos
+    sete casos de ``casos.json``. Fica no repositorio para a paridade
+    continuar verificavel em maquina sem R instalado.
+
+    O caso ``cb16`` (p=16, m=14, 136 parametros) tem a dimensao de um
+    crossbasis 4x4, que e o que o ``sus_mod_pool()`` de fato agrupa. Ali a
+    tolerancia e mais larga, e por um motivo que vale registrar: a
+    log-verossimilhanca do Python fica 2,3e-04 ACIMA da do R, ou seja o
+    otimo encontrado aqui e ligeiramente melhor -- a diferenca e o R
+    parando cedo, nao erro deste codigo.
+    """
+
+    @staticmethod
+    def _lista(v):
+        """jsonlite serializa lista nomeada como objeto; iterar daria as chaves."""
+        return list(v.values()) if isinstance(v, dict) else list(v)
+
+    @staticmethod
+    def _ajusta(caso):
+        y = np.array(caso["y"], dtype=float)
+        S = [np.array(s, dtype=float) for s in caso["S"]]
+        X = (None if caso["x"] is None
+             else np.column_stack([np.ones(caso["m"]), np.array(caso["x"], dtype=float)]))
+        return mvmeta_fit(y, S, X=X, method="reml")
+
+    @staticmethod
+    def _rel(a, b):
+        a = np.atleast_1d(np.asarray(a, dtype=float)).ravel()
+        b = np.atleast_1d(np.asarray(b, dtype=float)).ravel()
+        assert a.shape == b.shape, f"formas diferentes: {a.shape} vs {b.shape}"
+        return float(np.abs(a - b).max() / max(1e-12, float(np.abs(b).max())))
+
+    CASOS = ["uni_het", "biv_het", "tri_het", "quad_het", "cb16", "homogeneo", "metareg"]
+
+    @pytest.mark.parametrize("nome", CASOS)
+    def test_coeficientes_e_covariancia(self, referencia, nome):
+        casos, ref = referencia
+        caso, R = casos[nome], ref[nome]
+        f = self._ajusta(caso)
+        tol = 2e-3 if nome == "cb16" else 1e-4
+
+        assert self._rel(f.coef, R["coef"]) < tol
+        vcov_r = np.array(R["vcov"], dtype=float).reshape(f.vcov.shape, order="F")
+        assert self._rel(f.vcov, vcov_r) < tol
+
+    @pytest.mark.parametrize("nome", CASOS)
+    def test_psi_e_verossimilhanca(self, referencia, nome):
+        casos, ref = referencia
+        caso, R = casos[nome], ref[nome]
+        p = caso["p"]
+        f = self._ajusta(caso)
+        tol = 2e-3 if nome == "cb16" else 1e-4
+
+        psi_r = np.array(R["psi"], dtype=float).reshape(p, p, order="F")
+        assert self._rel(f.psi, psi_r) < tol
+        # A verossimilhanca do Python nunca pode ficar ABAIXO da do R: se
+        # ficar, o otimizador daqui parou antes do otimo.
+        assert f.loglik >= float(R["logLik"]) - 1e-6
+
+    @pytest.mark.parametrize("nome", CASOS)
+    def test_heterogeneidade(self, referencia, nome):
+        casos, ref = referencia
+        caso, R = casos[nome], ref[nome]
+        if "Q" not in R:
+            pytest.skip("R nao reportou qtest neste caso")
+        het = qtest(self._ajusta(caso))
+
+        assert het["df"] == R["df"]
+        assert self._rel(het["Q"], R["Q"]) < 1e-8
+
+    @pytest.mark.parametrize("nome", CASOS)
+    def test_blup_e_sua_covariancia(self, referencia, nome):
+        casos, ref = referencia
+        caso, R = casos[nome], ref[nome]
+        if "blup" not in R:
+            pytest.skip("R nao reportou blup neste caso")
+        f = self._ajusta(caso)
+        bs = blup(f)
+        tol = 2e-3 if nome == "cb16" else 1e-4
+
+        esperado = np.array([np.atleast_1d(v) for v in self._lista(R["blup"])], dtype=float)
+        assert self._rel(np.array([b["blup"] for b in bs]), esperado) < tol
+
+        if "blup_vcov" in R:
+            # Formula do mvmeta: X V X' + Psi - Psi Sigma^-1 Psi. NAO e a
+            # MSE de Henderson, que encolhe o primeiro termo -- medido, a
+            # do mvmeta sai de 15% a 38% mais larga. Paridade vence aqui
+            # porque estes sao os intervalos por cidade publicados.
+            esperado_v = np.array(
+                [np.atleast_1d(v) for v in self._lista(R["blup_vcov"])], dtype=float)
+            obtido_v = np.array([b["vcov"].ravel(order="F") for b in bs])
+            assert self._rel(obtido_v, esperado_v) < tol
+
 
 class TestValidacao:
     def test_y_precisa_ser_bidimensional(self):
