@@ -848,6 +848,8 @@ class TestVariantesCorretas:
             "diurnal_range_station": "diurnal_range",
             "wct_ms": "wct",
             "wbgt_stull": "wbgt",
+            "et_calm": "et",
+            "heat_stress_risk_strict": "heat_stress_risk",
         }
         for variante, base in CORRECTED_INDICATORS.items():
             assert variante in _INDICATOR_DEFS
@@ -1035,3 +1037,124 @@ class TestDiurnalRangeSegueOR:
         # E sempre na mesma direcao: misturar estacoes so pode AUMENTAR.
         assert (j.loc[dif, "diurnal_range_c"]
                 > j.loc[dif, "diurnal_range_station_c"]).all()
+
+
+# ---------------------------------------------------------------------------
+# et e heat_stress_risk (M78, M79)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def saida_et(entrada) -> pd.DataFrame:
+    rel = get_connection().from_df(entrada)
+    return cs.sus_climate_compute_indicators(
+        rel, indicators=["et", "heat_stress_risk", "et_calm",
+                         "heat_stress_risk_strict", "wbgt"],
+        station_col="station_code", date_col="datetime",
+        confidence_flags=False, verbose=False,
+    ).df()
+
+
+class TestTemperaturaEfetiva:
+    """O et_c do R e NA para vento abaixo de 0,2 m/s (M78).
+
+    R poe um piso de 0,04 m/s com pmax(ws, 0.04) e em seguida tira
+    (ws_safe - 0.2)^0.5 -- o piso e anulado pela subtracao que vem depois,
+    e abaixo de 0,2 o radicando fica negativo. Verificado no R: 0, 0.04,
+    0.10 e 0.19 dao NA; 0.20 da valor.
+    """
+
+    def test_paridade_exata_com_o_r(self, saida_et, referencia_r):
+        py = saida_et["et_c"].astype(float)
+        r = referencia_r["et_c"].astype(float)
+        ambos = py.notna() & r.notna()
+
+        assert (py.isna() != r.isna()).sum() == 0
+        assert ambos.sum() > 3000
+        assert np.abs(py[ambos].to_numpy() - r[ambos].to_numpy()).max() == 0.0
+
+    def test_calma_nao_produz_valor(self, entrada, saida_et):
+        """76 linhas da fixture tem vento abaixo de 0,2 m/s.
+
+        Noite de calma e exatamente quando uma temperatura efetiva
+        importaria, entao isto nao e canto raro.
+        """
+        calmo = entrada["ws_2_m_s"].fillna(0) < 0.2
+
+        assert int(calmo.sum()) == 76
+        assert saida_et.loc[calmo, "et_c"].isna().all()
+
+    def test_a_variante_recupera_a_calma(self, entrada, saida_et):
+        """O et_calm poe o piso no RADICANDO, nao no vento."""
+        calmo = entrada["ws_2_m_s"].fillna(0) < 0.2
+        com_dado = calmo & entrada["tair_dry_bulb_c"].notna() & entrada["rh_mean_porc"].notna()
+
+        assert saida_et.loc[com_dado, "et_calm_c"].notna().all()
+        assert int(com_dado.sum()) == 74
+
+    def test_as_duas_batem_onde_ha_vento(self, entrada, saida_et):
+        """Acima de 0,2 m/s a variante nao muda nada."""
+        com_vento = entrada["ws_2_m_s"].fillna(0) >= 0.2
+        a = saida_et.loc[com_vento, "et_c"]
+        b = saida_et.loc[com_vento, "et_calm_c"]
+        m = a.notna() & b.notna()
+
+        assert m.sum() > 3000
+        assert np.abs(a[m] - b[m]).max() == 0.0
+
+
+class TestRiscoDeEstresseTermico:
+    """O heat_stress_risk do R rotula dado ausente como "None" (M79).
+
+    Mesma forma do koppen -- o case_when termina em TRUE ~ "None" -- mas
+    pior, porque "None" e tambem a resposta legitima para tempo frio: as
+    duas situacoes ficam indistinguiveis.
+    """
+
+    def test_paridade_exata_com_o_r(self, saida_et, referencia_r):
+        py, r = saida_et["heat_stress_risk"], referencia_r["heat_stress_risk"]
+        assert ((py == r) | (py.isna() & r.isna())).all()
+
+    def test_classifica_o_wbgt_ARREDONDADO(self, saida_et):
+        """Tres linhas dependiam disso, e foi defeito meu.
+
+        O .compute_heat_stress_risk do R classifica o que o
+        .compute_wbgt DEVOLVE, que ja vem arredondado em duas casas.
+        Substituir a expressao crua punha tres linhas da fixture uma faixa
+        acima -- cada uma delas exatamente sobre um limiar (20,00, 28,00 e
+        30,00).
+        """
+        no_limiar = saida_et["wbgt_c"].isin([20.0, 28.0, 30.0])
+
+        assert int(no_limiar.sum()) >= 3
+        # Sobre o limiar, o `>` e falso: a faixa e a de BAIXO.
+        assert (saida_et.loc[saida_et["wbgt_c"] == 20.0,
+                             "heat_stress_risk"] == "None").all()
+        assert (saida_et.loc[saida_et["wbgt_c"] == 28.0,
+                             "heat_stress_risk"] == "Moderate").all()
+
+    def test_dado_ausente_vira_None_como_no_r(self, entrada, saida_et):
+        sem_dado = entrada["tair_dry_bulb_c"].isna() | entrada["rh_mean_porc"].isna()
+
+        assert int(sem_dado.sum()) == 80
+        assert (saida_et.loc[sem_dado, "heat_stress_risk"] == "None").all()
+
+    def test_a_variante_estrita_devolve_nulo(self, entrada, saida_et):
+        """Separa "sem risco" de "sem dado", que o R funde."""
+        sem_dado = entrada["tair_dry_bulb_c"].isna() | entrada["rh_mean_porc"].isna()
+
+        assert saida_et.loc[sem_dado, "heat_stress_risk_strict"].isna().all()
+        # E fora dessas linhas as duas concordam.
+        resto = ~sem_dado
+        assert (saida_et.loc[resto, "heat_stress_risk"]
+                == saida_et.loc[resto, "heat_stress_risk_strict"]).all()
+
+    def test_quantos_None_o_r_conta_a_mais(self, saida_et):
+        """A medida do problema: 80 linhas sem dado escondidas no "None"."""
+        do_r = int((saida_et["heat_stress_risk"] == "None").sum())
+        estrito = int((saida_et["heat_stress_risk_strict"] == "None").sum())
+
+        assert do_r - estrito == 80
+
+    def test_as_seis_faixas(self, saida_et):
+        assert set(saida_et["heat_stress_risk"].unique()) <= {
+            "Extreme", "Very High", "High", "Moderate", "Low", "None"}

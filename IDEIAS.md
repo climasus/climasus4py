@@ -145,3 +145,19 @@ Agora existe mecanismo nomeado: `CORRECTED_INDICATORS`. Cada divergência em que
 **A armadilha de método, que vale além deste módulo.** Eu havia medido que as duas formas do `diurnal_range` divergem em "3.936 de 4.000 linhas". Errado: eu comparava arrays **por posição**, e a função de **janela** do DuckDB **reordena** as linhas de saída — ao contrário dos indicadores escalares, que preservam a ordem da entrada. Verificado nos dois casos. Medido com junção pela chave `(estação, datetime)`: **2.896 de 4.000 (72,4%)**, diferença média 4,118 °C, e sempre na mesma direção — misturar estações só pode aumentar a amplitude.
 
 As comparações de fixture deste módulo estão a salvo porque usam apenas indicadores escalares. Mas qualquer teste futuro que compare um indicador de janela posicionalmente cai na mesma armadilha, e há agora um teste que registra explicitamente a diferença de comportamento.
+
+## 2026-09-14 — `et_c` do R é NA para vento abaixo de 0,2 m/s  ·  **M78**
+
+- **Onde:** `climasus4r:::.compute_et()` — lado R.
+- **O quê:** põe um piso no vento com `ws_safe <- pmax(ws, 0.04)` e em seguida calcula `1.1 * (ws_safe - 0.2)^0.5`. Abaixo de 0,2 m/s o radicando fica **negativo** e o R devolve `NaN` — o piso de 0,04 é anulado pela subtração de 0,2 que vem depois. Parece intenção frustrada, não decisão.
+- **Medido no R** (T=30, RH=60): vento de 0, 0.04, 0.10 e 0.19 **todos** dão NA; 0.20 dá 26,8. E o dispatcher zera vento ausente antes de chamar, então vento faltante cai no mesmo ramo.
+- **Não é canto raro:** 76 das 4.000 linhas da fixture ficam abaixo de 0,2 m/s — e noite de calma é exatamente quando uma temperatura *efetiva* importaria, porque com ar parado a sensação se afasta **mais** da temperatura seca, não menos.
+- **No Python:** `et_c` replica o R (paridade exata, nulos 154/154). A variante `et_calm` põe o piso no **radicando**, recuperando 74 das 76 linhas de calma; acima de 0,2 m/s as duas batem exato.
+
+## 2026-09-14 — `heat_stress_risk` do R rotula ausência como `"None"`, igual ao frio  ·  **M79**
+
+- **Onde:** `climasus4r:::.compute_heat_stress_risk()` — lado R.
+- **O quê:** mesma forma do M70 — o `case_when` termina em `TRUE ~ "None"` e esse ramo captura o `NA`. Verificado: T ausente → `"None"`, RH ausente → `"None"`.
+- **Pior que o M70, por uma razão específica:** `"None"` é **também** a resposta legítima para tempo frio — um WBGT de 15 °C é corretamente `"None"`. Então "sem risco" e "sem dado" viram a mesma string. No koppen o rótulo fabricado era `"Perhumid"`, que chama atenção; aqui ele se esconde no **valor mais comum da coluna**: 3.049 de 4.000 linhas saem `"None"`, e 80 delas não têm dado.
+- **No Python:** paridade de 4.000/4.000. A variante `heat_stress_risk_strict` devolve `NULL` quando falta T ou RH; fora dessas linhas concorda com a do R, e a diferença na contagem de `"None"` é exatamente 80.
+- **Defeito meu corrigido no caminho, e o mecanismo vale registrar:** eu substituía a expressão **crua** do WBGT na classificação, e o R classifica o que `.compute_wbgt()` **devolve** — já arredondado em duas casas. Três linhas caíram uma faixa acima, cada uma exatamente sobre um limiar (20,00, 28,00, 30,00), porque um WBGT de 19,997 cru é `"Low"` e arredondado é `"None"`. O arredondamento passou para dentro do fragmento `_WBGT_EXPR`, e o `wbgt_c` reusa o mesmo fragmento — então as faixas de risco não podem mais divergir da coluna que classificam.

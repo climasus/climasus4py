@@ -183,62 +183,45 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
         ),
     ),
     # ------------------------------------------------------------------
-    # Wet-Bulb Globe Temperature (WBGT) — simplified outdoor form,
-    # 0.67 * Twb + 0.33 * Tdb, with Twb estimated from T and RH using
-    # Stull (2011), J. Appl. Meteorol. Climatol. 50:2267-2269.
-    # No globe sensor input — this is the field-research approximation.
+    # Wet-Bulb Globe Temperature (WBGT), as climasus4r computes it.
     # ------------------------------------------------------------------
     "wbgt": (
         "wbgt_c",
         ("T", "RH", "SR", "WS"),
         (
             # PARITY WITH R, INCLUDING WHAT LOOKS WRONG ABOUT IT (M71).
+            # The formula itself lives in `_WBGT_EXPR`, shared with
+            # `heat_stress_risk`, which classifies this same value.
             #
-            # R averages two wet-bulb estimates and the documentation says
-            # so — that part is deliberate. What does not line up is the
+            # R averages two wet-bulb estimates and its documentation says
+            # so -- that part is deliberate. What does not line up is the
             # formulas: `tnw1` has the shape of Stull (2011),
             # `T*atan(c*sqrt(RH + k))`, which expects RH as a PERCENTAGE,
-            # and R feeds it `e_a`, vapour pressure in kPa. At T=30/RH=60
-            # the atan receives 0.26 where the shape wants 1.26. `tnw2` has
-            # the shape of the Australian apparent temperature, not a wet
-            # bulb. Neither Stull nor Steadman is among the references the
-            # help page cites (Liljegren 2008; Bernard & Pourmoghani 1999).
+            # and R feeds it vapour pressure in kPa. At T=30/RH=60 the atan
+            # receives 0.26 where the shape wants 1.26. `tnw2` has the
+            # shape of the Australian apparent temperature, not a wet bulb.
+            # Neither Stull nor Steadman is among the references the help
+            # page cites (Liljegren 2008; Bernard & Pourmoghani 1999).
             #
-            # Measured against the psychrometric table at T=30 °C, RH=60%
-            # (reference ~23.9 °C): Stull gives 24.00 °C, R's tnw gives
-            # 18.78 °C. And the globe term moves only 0.84 °C as radiation
-            # goes from 0 to 1000 W/m², which is nearly inert for an index
-            # whose purpose is capturing solar load.
+            # Measured against the psychrometric table at T=30 C, RH=60%
+            # (reference ~23.9 C): Stull gives 24.00 C, R's tnw gives
+            # 18.78 C. The globe term moves only 0.84 C as radiation goes
+            # from 0 to 1000 W/m2, nearly inert for an index whose purpose
+            # is capturing solar load.
             #
-            # Kept faithful by Andrey's decision of 14/09/2026 so the two
-            # packages agree. `wbgt_stull_c` below is the validated
-            # alternative, emitted as its own column so the divergence is
-            # visible in the same table rather than asserted in prose.
-            #
-            # The gap is not a constant bias, and an earlier note here
-            # claiming a mean of 3.35 °C was measured on too narrow a wind
-            # range. On the 4000-row fixture the two differ by a mean of
-            # only -0.36 °C but range from -7.98 to +8.07 — they diverge in
-            # *both* directions depending on conditions. What survives any
-            # distribution is the threshold consequence: above 31 °C (ISO
+            # Kept faithful by Andrey's decision of 14/09/2026.
+            # `wbgt_stull` is the validated alternative, emitted as its own
+            # column so the divergence shows up as data. The gap is not a
+            # constant bias: on the fixture the two differ by a mean of
+            # only -0.36 C but range from -7.98 to +8.07. What survives any
+            # distribution is the threshold consequence -- above 31 C (ISO
             # 7243 extreme heat) this column flags 207 rows where
-            # `wbgt_stull_c` flags 449, more than double.
+            # `wbgt_stull_c` flags 449.
             #
             # R's dispatcher zeroes missing radiation and wind before
-            # calling, so only T and RH propagate a null — replicated here.
-            "CASE WHEN {T} IS NULL OR {RH} IS NULL THEN NULL ELSE ROUND_EVEN("
-            "  0.7 * ("
-            "    ({T} * atan(0.16 * sqrt(GREATEST("
-            "       ({RH} / 100.0) * 0.6108 * EXP(17.27 * {T} / ({T} + 237.3))"
-            "       , 0.01) + 0.1)) + 3.0)"
-            "    + ({T} + 0.33 * ({RH} / 100.0) * EXP(0.0514 * {T}) - 4.0)"
-            "  ) / 2.0"
-            "  + 0.2 * ({T} + 0.0144 * POWER(GREATEST("
-            "       CASE WHEN {SR} IS NULL OR {SR} < 0 THEN 0.0"
-            "            ELSE {SR} / 3.6 END, 0.0), 0.6)"
-            "     / POWER(GREATEST(COALESCE({WS}, 0.0), 0.1), 0.2) - 2.0)"
-            "  + 0.1 * {T}"
-            ", 2) END AS wbgt_c"
+            # calling, so only T and RH propagate a null.
+            "CASE WHEN {T} IS NULL OR {RH} IS NULL THEN NULL"
+            "  ELSE {WBGT} END AS wbgt_c"
         ),
     ),
     # ------------------------------------------------------------------
@@ -452,6 +435,62 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
         ),
     ),
     # ------------------------------------------------------------------
+    # Effective Temperature (ET) — Missenard-style form as R writes it.
+    #
+    # PARITY WITH A LATENT DEFECT (M78). R floors the wind at 0.04 m/s
+    # with `pmax(ws, 0.04)` and then takes `(ws_safe - 0.2)^0.5`. Below
+    # 0.2 m/s the radicand is negative, so R returns NaN — the floor is
+    # defeated by the subtraction that follows it. Verified in R: ws of
+    # 0, 0.04, 0.10 and 0.19 all give NA; 0.20 gives a value.
+    #
+    # Calm air is not a corner case — 76 of the 4000 fixture rows sit
+    # below 0.2 m/s, and a still night is exactly when an effective
+    # temperature matters. See `et_calm` for the variant that floors the
+    # radicand instead.
+    #
+    # R's dispatcher zeroes a missing wind before calling, which lands in
+    # the same NaN branch, so a missing wind also yields no value.
+    # ------------------------------------------------------------------
+    "et": (
+        "et_c",
+        ("T", "RH", "WS"),
+        (
+            "CASE WHEN {T} IS NULL OR {RH} IS NULL THEN NULL"
+            "  WHEN GREATEST(COALESCE({WS}, 0.0), 0.04) < 0.2 THEN NULL"
+            "  ELSE ROUND_EVEN(GREATEST("
+            "    {T} - 0.4 * ({T} - 10.0) * (1.0 - {RH} / 100.0)"
+            "    - 1.1 * SQRT(GREATEST(COALESCE({WS}, 0.0), 0.04) - 0.2)"
+            "  , -273.15), 2) END AS et_c"
+        ),
+    ),
+    # ------------------------------------------------------------------
+    # Heat stress risk — six bands on the WBGT.
+    #
+    # PARITY WITH A DEFECT (M79), the same shape as koppen_humidity: the
+    # `case_when` ends in `TRUE ~ "None"`, so a null WBGT is reported as
+    # "None" — no heat stress. Verified in R: a missing temperature or
+    # humidity both come back "None".
+    #
+    # Worse than koppen's, because "None" is also the legitimate answer
+    # for cold weather: the two become indistinguishable. On the fixture
+    # 3049 of 4000 rows read "None" and nothing says which of those had
+    # no data. See `heat_stress_risk_strict`.
+    # ------------------------------------------------------------------
+    "heat_stress_risk": (
+        "heat_stress_risk",
+        ("T", "RH", "WS", "SR"),
+        (
+            "CASE"
+            "  WHEN {WBGT} > 33.0 THEN 'Extreme'"
+            "  WHEN {WBGT} > 30.0 THEN 'Very High'"
+            "  WHEN {WBGT} > 28.0 THEN 'High'"
+            "  WHEN {WBGT} > 25.0 THEN 'Moderate'"
+            "  WHEN {WBGT} > 20.0 THEN 'Low'"
+            "  ELSE 'None'"
+            " END AS heat_stress_risk"
+        ),
+    ),
+    # ------------------------------------------------------------------
     # Consecutive Hot Days (CHD) — sentinel; rendered against the
     # gaps-and-islands run CTE built in sus_climate_compute_indicators.
     # ------------------------------------------------------------------
@@ -541,6 +580,47 @@ _CORRECTED_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
         ),
     ),
     # ------------------------------------------------------------------
+    # Effective temperature that survives calm air.
+    # `et_c` follows R, where `pmax(ws, 0.04)` is defeated by the
+    # `- 0.2` that follows: below 0.2 m/s the radicand goes negative and
+    # the result is NaN. Here the *radicand* is floored at zero instead,
+    # so a still hour yields the still-air effective temperature rather
+    # than nothing. At ws >= 0.2 the two agree exactly.
+    # ------------------------------------------------------------------
+    "et_calm": (
+        "et_calm_c",
+        ("T", "RH", "WS"),
+        (
+            "CASE WHEN {T} IS NULL OR {RH} IS NULL THEN NULL ELSE "
+            "ROUND_EVEN(GREATEST("
+            "  {T} - 0.4 * ({T} - 10.0) * (1.0 - {RH} / 100.0)"
+            "  - 1.1 * SQRT(GREATEST(COALESCE({WS}, 0.0) - 0.2, 0.0))"
+            ", -273.15), 2) END AS et_calm_c"
+        ),
+    ),
+    # ------------------------------------------------------------------
+    # Heat stress risk that reports missing data as missing.
+    # `heat_stress_risk` follows R, whose `case_when` ends in
+    # `TRUE ~ "None"` and so labels a null WBGT "None" — the same string
+    # cold weather legitimately gets. This one returns NULL instead, so
+    # "no risk" and "no data" stop being the same answer.
+    # ------------------------------------------------------------------
+    "heat_stress_risk_strict": (
+        "heat_stress_risk_strict",
+        ("T", "RH", "WS", "SR"),
+        (
+            "CASE"
+            "  WHEN {T} IS NULL OR {RH} IS NULL THEN NULL"
+            "  WHEN {WBGT} > 33.0 THEN 'Extreme'"
+            "  WHEN {WBGT} > 30.0 THEN 'Very High'"
+            "  WHEN {WBGT} > 28.0 THEN 'High'"
+            "  WHEN {WBGT} > 25.0 THEN 'Moderate'"
+            "  WHEN {WBGT} > 20.0 THEN 'Low'"
+            "  ELSE 'None'"
+            " END AS heat_stress_risk_strict"
+        ),
+    ),
+    # ------------------------------------------------------------------
     # NWS wind chill with the wind converted from m/s correctly.
     # `wct_c` follows R, which applies the km/h -> mph factor (0.621371)
     # to a column measured in m/s; the right factor is 2.23694. Promoted
@@ -583,6 +663,8 @@ CORRECTED_INDICATORS: dict[str, str] = {
     "diurnal_range_station": "diurnal_range",
     "wct_ms": "wct",
     "wbgt_stull": "wbgt",
+    "et_calm": "et",
+    "heat_stress_risk_strict": "heat_stress_risk",
 }
 
 #: R's indicator code -> this package's code, where the two disagree.
@@ -650,6 +732,8 @@ _INDICATOR_THRESHOLDS: dict[str, dict[str, float]] = {
     "diurnal_range_station": {"high": 15, "moderate": 10, "low": 5},
     "wct_ms": {"high_risk": -35, "moderate_risk": -20, "low_risk": -10},
     "koppen_humidity_strict": {},
+    "et_calm": {"hot": 35, "warm": 30, "cool": 20, "cold": 15},
+    "heat_stress_risk_strict": {},
 }
 
 #: Priority chains R uses to pick which declared threshold drives each flag.
@@ -816,9 +900,38 @@ def _check_required_cols(
         )
 
 
+#: What R's `.compute_wbgt()` RETURNS — rounded to two decimals.
+#:
+#: The rounding belongs in here, not at the call site, and getting that
+#: wrong cost three rows: `.compute_heat_stress_risk()` classifies the
+#: value `.compute_wbgt()` gives it, which is already rounded, so a WBGT
+#: of 19.997 is classified as 20.00 and falls on the "not greater than 20"
+#: side. Substituting the raw expression instead put three fixture rows
+#: one band too high, each of them sitting exactly on a threshold
+#: (20.00, 28.00, 30.00).
+#:
+#: One fragment also means the risk bands can never drift from the
+#: `wbgt_c` column they classify.
+_WBGT_EXPR = (
+    "ROUND_EVEN(0.7 * ("
+    "  ({T} * atan(0.16 * sqrt(GREATEST("
+    "     ({RH} / 100.0) * 0.6108 * EXP(17.27 * {T} / ({T} + 237.3))"
+    "     , 0.01) + 0.1)) + 3.0)"
+    "  + ({T} + 0.33 * ({RH} / 100.0) * EXP(0.0514 * {T}) - 4.0)"
+    ") / 2.0"
+    " + 0.2 * ({T} + 0.0144 * POWER(GREATEST("
+    "     CASE WHEN {SR} IS NULL OR {SR} < 0 THEN 0.0"
+    "          ELSE {SR} / 3.6 END, 0.0), 0.6)"
+    "   / POWER(GREATEST(COALESCE({WS}, 0.0), 0.1), 0.2) - 2.0)"
+    " + 0.1 * {T}, 2)"
+)
+
+
 def _substitute_inmet_cols(template: str, station_col: str, date_col: str) -> str:
-    """Replace {T}, {Tmax}, {STATION_COL}, {DATE_COL} placeholders."""
-    out = template
+    """Replace {T}, {Tmax}, {WBGT}, {STATION_COL}, {DATE_COL} placeholders."""
+    # {WBGT} first: the fragment itself contains {T}/{RH}/{SR}/{WS}, which
+    # the column loop below then resolves.
+    out = template.replace("{WBGT}", _WBGT_EXPR)
     for key, col in _INMET_COLS.items():
         out = out.replace("{" + key + "}", col)
     out = out.replace("{STATION_COL}", station_col)
