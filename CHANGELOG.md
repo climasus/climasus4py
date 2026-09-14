@@ -2,6 +2,43 @@
 
 ## [Unreleased]
 
+### Added — `sus_mod_pool()` deixa de ser stub: agrupamento multi-cidade de DLNM
+
+O stub recusava rodar alegando depender de `dlnm::crosspred()` e `mvmeta`, "nenhum com
+equivalente em Python". Metade disso já estava desatualizada: o `crosspred` foi portado há tempos.
+Restava o `mvmeta`, agora em `climasus4py/enrichment/_mvmeta.py`.
+
+**Verificado contra o R.** Com `mvmeta 1.0.3` instalado do CRAN, sete casos de `p=1` a `p=16`:
+`coef`, `vcov`, `Psi`, `logLik`, `Q`, `df`, `blup` e a covariância do BLUP batem. Ponta a ponta com
+coeficientes reais de DLNM, `method="fixed"` bate **exato** (coef 9e-13, vcov 4e-13) e o Q de
+Cochran bate exato (4e-12) também no REML. A referência do R está congelada em
+`tests/fixtures/mvmeta/`, para a paridade seguir verificável em máquina sem R.
+
+**Duas armadilhas que o R não sinaliza passaram a ser avisadas.**
+
+A primeira é mais séria do que parece. O agrupamento só faz sentido se as cidades compartilharem a
+**mesma base de exposição** — o coeficiente *k* do crossbasis é o peso da *k*-ésima função daquela
+base, e com nós diferentes a *k*-ésima função é outra coisa em cada cidade. Agrupar assim não dá um
+número aproximado, dá um número **sem sentido**. E isso acontece **por padrão**: os nós saem dos
+quantis da exposição de cada cidade, então duas cidades de climas distintos recebem bases distintas
+automaticamente. Verificado com três cidades sintéticas de 21, 24 e 27 °C — as três bases saem
+diferentes. O caso correto é o que exige esforço deliberado; o caso errado é o comportamento padrão.
+O R valida `lag_max` e `climate_col`, e não valida a base.
+
+A segunda é de identificabilidade. `Psi` é irrestrita, logo custa `p(p+1)/2` parâmetros, enquanto
+*m* cidades de *p* coeficientes fornecem `m*p` números. Um crossbasis padrão dá `p=12`, então `Psi`
+quer **78 parâmetros** e três cidades fornecem **36**. Medido: nem o R nem o Python convergem, os
+dois avisando iterações esgotadas; a verossimilhança fica achatada e segue subindo sem estabilizar
+(178,7 com 300 iterações, 180,1 com 3.000, 181,2 com 20.000; o R parou em 181,3). São pontos de um
+platô, não estimativas — e os coeficientes diferem 13% entre os dois só por onde cada otimizador
+parou. Reinícios aleatórios pioram muito, confirmando que o problema é a superfície e não a semente.
+
+Nenhuma das duas impede o resultado de sair, por paridade. O que muda é deixarem de ser silenciosas.
+Registradas como M65 e M66; corrigir a primeira de verdade exige que `sus_mod_dlnm()` aceite nós
+explícitos, o que mexe em API pública e precisa do coordenador.
+
+23 testes para o `sus_mod_pool`, 54 para o `_mvmeta`.
+
 ### Fixed — nulo de texto era gravado no Parquet como a string `"None"` (M63)
 
 Achado enquanto eu auditava outra coisa — o metadado do `climasus-data` — e maior que o que eu

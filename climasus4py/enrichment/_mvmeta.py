@@ -260,6 +260,31 @@ class MvmetaFit:
     S: list[np.ndarray] = field(repr=False)
     X: list[np.ndarray] = field(repr=False)
 
+    @property
+    def n_par_psi(self) -> int:
+        """Free parameters in the unstructured between-study covariance."""
+        return 0 if self.method == "fixed" else _n_par(self.n_outcomes)
+
+    @property
+    def overparametrised(self) -> bool:
+        """Whether ``Psi`` has more free parameters than there are data.
+
+        With ``m`` studies of ``p`` outcomes there are ``m * p`` numbers to
+        learn from, while an unstructured ``Psi`` costs ``p(p+1)/2``. Pooling
+        a default DLNM cross-basis is exactly where this bites: a 4x3 basis
+        gives ``p = 12``, so ``Psi`` wants 78 parameters, and three cities
+        supply 36 numbers.
+
+        The consequence is not a failure but something quieter: the
+        restricted likelihood goes nearly flat, no optimiser converges, and
+        where each one stops is arbitrary. Measured on three synthetic
+        cities, this code reached a log-likelihood of 178.7 after 300
+        iterations, 180.1 after 3000 and 181.2 after 20000, still climbing;
+        R's ``mvmeta`` stopped at 181.3, also reporting non-convergence.
+        Both answers are points on a plateau, not estimates.
+        """
+        return self.n_par_psi > self.n_studies * self.n_outcomes
+
 
 def mvmeta_fit(
     y: np.ndarray,
