@@ -10,6 +10,7 @@ import sys
 import urllib.request
 from unittest.mock import MagicMock
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -103,6 +104,61 @@ class TestCoerceTypes:
         df = pd.DataFrame({"CAUSABAS": ["nan"]})
         result = _coerce_datasus_types(df)
         assert result["CAUSABAS"].iloc[0] is None
+
+    def test_real_none_does_not_become_the_string_none(self):
+        """None de verdade deve continuar nulo, e nao virar a string 'None'.
+
+        Regressao: ``astype(str)`` renderiza cada ausente como texto --
+        None vira "None", NaN vira "nan", NaT vira "NaT". O codigo antigo
+        so devolvia "" e "nan" para nulo, entao "None" e "NaT" sobreviviam
+        ate o Parquet como texto comum. Medido no cache real: 54 das 63
+        colunas de texto do SIM-DO SP 2023 afetadas, cinco delas em 100%
+        das linhas (ESTABDESCR, CB_PRE, NUDIASOBIN, NUDIASINF, FONTESINF).
+        """
+        from climasus4py.core.importer import _coerce_datasus_types
+
+        df = pd.DataFrame({"CAUSABAS": ["J189", None, np.nan, pd.NaT, "I219"]})
+        result = _coerce_datasus_types(df)["CAUSABAS"]
+
+        assert result.tolist() == ["J189", None, None, None, "I219"]
+        assert result.isna().sum() == 3
+
+    def test_all_null_text_column_reports_full_missingness(self):
+        """Coluna inteiramente vazia deve reportar 100% de ausencia.
+
+        E a consequencia pratica do bug: com "None" gravado como texto,
+        ``isna()`` devolvia zero e um relatorio de qualidade diria 0% de
+        ausencia para uma coluna que nao tem um unico valor.
+        """
+        from climasus4py.core.importer import _coerce_datasus_types
+
+        df = pd.DataFrame({"ESTABDESCR": [None] * 20})
+        result = _coerce_datasus_types(df)["ESTABDESCR"]
+
+        assert result.isna().all()
+        assert result.nunique(dropna=True) == 0
+
+    def test_nulls_survive_the_parquet_round_trip(self, tmp_path):
+        """O nulo tem de chegar nulo no Parquet, nao so no DataFrame.
+
+        Percorre o caminho real do importador (coerce -> Table -> escrita)
+        e le de volta, porque e o arquivo em cache que todo o resto do
+        pacote consulta depois.
+        """
+        from climasus4py.core.importer import (
+            _coerce_datasus_types,
+            _write_parquet_atomic,
+        )
+
+        df = _coerce_datasus_types(
+            pd.DataFrame({"CAUSABAS": ["J189", None, "I219"]})
+        )
+        alvo = tmp_path / "round_trip.parquet"
+        _write_parquet_atomic(pa.Table.from_pandas(df, preserve_index=False), alvo)
+
+        coluna = pq.read_table(alvo).column("CAUSABAS")
+        assert coluna.null_count == 1
+        assert coluna.to_pylist() == ["J189", None, "I219"]
 
     def test_mixed_df_all_columns_processed(self):
         """DataFrame com data, numérico e string: todos processados."""

@@ -68,6 +68,11 @@ def _datasus_numeric_cols() -> frozenset[str]:
     return frozenset(load_datasus_columns_spec()["all_numeric_columns"])
 
 
+#: Textual renderings of a missing value. Not data — if one of these
+#: reaches a DATASUS text column it is an artefact of stringification.
+_NULL_LITERALS: frozenset[str] = frozenset({"None", "nan", "NaN", "NaT", "<NA>"})
+
+
 def _coerce_datasus_types(df: pd.DataFrame) -> pd.DataFrame:
     """Coerce DATASUS columns to proper types before writing to Parquet."""
     date_cols = _datasus_date_cols()
@@ -78,8 +83,33 @@ def _coerce_datasus_types(df: pd.DataFrame) -> pd.DataFrame:
         elif col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors="coerce")
         elif df[col].dtype == object or pd.api.types.is_string_dtype(df[col]):
-            df[col] = df[col].astype(str).str.strip().replace({"": None, "nan": None})
+            df[col] = _strip_preserving_nulls(df[col])
     return df
+
+
+def _strip_preserving_nulls(col: pd.Series) -> pd.Series:
+    """Trim whitespace in a text column without turning nulls into text.
+
+    ``Series.astype(str)`` renders every missing value as a *string*:
+    ``None`` becomes ``"None"``, ``NaN`` becomes ``"nan"`` and ``NaT``
+    becomes ``"NaT"``. The previous implementation stripped and then
+    replaced only ``""`` and ``"nan"``, so ``"None"`` and ``"NaT"``
+    survived into the Parquet cache as ordinary text. That is silent
+    corruption rather than cosmetics: ``IS NULL`` misses those rows, a
+    completeness report shows 0% missing for a column that is entirely
+    empty, and a GROUP BY treats ``"None"`` as a real category.
+
+    Stringify only the values that are actually present, and restore
+    blanks to null alongside them.
+
+    The literal tokens are *also* nullified, so this stays a superset of
+    the previous behaviour: a DATASUS text column never legitimately
+    holds ``"nan"`` or ``"None"``, and a raw file that already carried
+    the artefact from somewhere upstream is cleaned on the way in.
+    """
+    text = col.astype(str).str.strip()
+    blank = col.isna() | text.eq("") | text.isin(_NULL_LITERALS)
+    return text.mask(blank, None)
 
 
 # ---------------------------------------------------------------------------

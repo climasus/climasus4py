@@ -2,6 +2,45 @@
 
 ## [Unreleased]
 
+### Fixed — nulo de texto era gravado no Parquet como a string `"None"` (M63)
+
+Achado enquanto eu auditava outra coisa — o metadado do `climasus-data` — e maior que o que eu
+estava auditando.
+
+`_coerce_datasus_types` limpava as colunas de texto assim:
+
+```python
+df[col].astype(str).str.strip().replace({"": None, "nan": None})
+```
+
+`astype(str)` renderiza **cada ausente como texto**: `None` vira `"None"`, `NaN` vira `"nan"`, `NaT`
+vira `"NaT"`. O `replace` devolvia ao nulo apenas `""` e `"nan"` — então `"None"` e `"NaT"`
+sobreviviam até o Parquet como texto comum. Verificado isolado: a entrada
+`['J189', None, '', nan, 'I219']` saía `['J189', 'None', None, None, 'I219']`.
+
+**Escala medida no cache real:** SIM-DO SP 2023, **54 das 63** colunas de texto afetadas; SIM-DO MG
+2025, **50 de 63**. Nos dois arquivos juntos, **104 colunas e 16.009.675 valores** literais onde
+deveria haver `NULL`. Cinco colunas em **100% das linhas** nos dois arquivos: `ESTABDESCR`,
+`CB_PRE`, `NUDIASOBIN`, `NUDIASINF`, `FONTESINF`.
+
+**Por que isso é pior que um incômodo cosmético:** `IS NULL` não encontra essas linhas,
+`COUNT(coluna)` devolve 334.303 onde o certo é 0, um `GROUP BY` trata `"None"` como categoria real —
+e um relatório de qualidade mostraria **0% de ausência para uma coluna que não tem um único valor**.
+Nada disso levanta erro. O número sai errado e parece certo.
+
+A correção converte para texto **só os valores presentes**. A neutralização dos tokens literais
+ficou, para ser um superset do comportamento antigo: `test_nan_string_becomes_none` fixava que a
+string `"nan"` virasse `None`, e uma coluna de texto do DATASUS não carrega `"nan"` nem `"None"`
+como dado legítimo.
+
+3 testes novos, os três falhando sem o fix. O terceiro percorre o caminho real do importador
+(`coerce` → `pa.Table` → `_write_parquet_atomic` → leitura) e checa `null_count` no arquivo, porque
+é o Parquet em cache que todo o resto do pacote consulta — sem o fix, `null_count` era `0` com
+`"None"` gravado.
+
+**Os parquets já em disco continuam sujos.** O cache reusa por `target.is_file()`, sem versão, então
+o fix vale só para importação nova; os 16 milhões de valores existentes precisam de reescrita local.
+
 ### Fixed — a data de recebimento original volta a ser data (M4)
 
 `original_receipt_date` (`DTRECORIGA`) saía como a string `"05012023"` em todos os 334.303
