@@ -30,6 +30,7 @@ import pytest
 
 import climasus4py as cs
 from climasus4py.core.engine import get_connection
+from climasus4py.enrichment import climate_indicators as mod
 from climasus4py.enrichment.climate_indicators import (
     ALL_INDICATORS,
     REGIONS,
@@ -1342,38 +1343,91 @@ def referencia_sudeste() -> pd.DataFrame:
     return pd.read_parquet(REF_SUDESTE)
 
 
-@pytest.fixture(scope="module")
-def saida_padrao(entrada) -> pd.DataFrame:
-    """O Python com os defaults, que agora sao os do R."""
+INDICADORES_TODOS = [
+    "hi", "wcet", "wct", "cdd", "hdd", "gdd", "utci", "pet", "et",
+    "wbgt", "thi", "vapor_pressure", "koppen_humidity", "heat_stress_risk",
+]
+
+
+def _indicadores(entrada, **kw) -> pd.DataFrame:
     rel = get_connection().from_df(entrada)
     return cs.sus_climate_compute_indicators(
-        rel, indicators=["hi", "wcet", "wct", "cdd", "hdd", "gdd", "utci",
-                         "pet", "et", "wbgt", "thi", "vapor_pressure",
-                         "koppen_humidity", "heat_stress_risk"],
-        station_col="station_code", date_col="datetime",
-        confidence_flags=False, verbose=False,
+        rel, indicators=INDICADORES_TODOS, station_col="station_code",
+        date_col="datetime", confidence_flags=False, verbose=False, **kw
     ).df()
 
 
+@pytest.fixture(scope="module")
+def saida_como_o_r(entrada) -> pd.DataFrame:
+    """O Python reproduzindo o caminho padrao do R: mascara acoplada ao region.
+
+    Precisa pedir R_COUPLES_MASK_TO_REGION explicitamente porque o default
+    do Python deixou de replicar esse acoplamento em 15/09/2026 (M83).
+
+    Restaura na mao em vez de usar monkeypatch: uma fixture de escopo de
+    modulo com monkeypatch de modulo so desfaz no teardown do arquivo, e a
+    chave ficaria ligada para as classes seguintes -- que e exatamente o
+    que testam o default oposto.
+    """
+    anterior = mod.R_COUPLES_MASK_TO_REGION
+    mod.R_COUPLES_MASK_TO_REGION = True
+    try:
+        return _indicadores(entrada)
+    finally:
+        mod.R_COUPLES_MASK_TO_REGION = anterior
+
+
+@pytest.fixture(scope="module")
+def saida_padrao_python(entrada) -> pd.DataFrame:
+    """O Python com os SEUS defaults: mascara ligada de verdade."""
+    return _indicadores(entrada)
+
+
+def _nulos_wcet(entrada, **kw) -> int:
+    """Quantos wcet_c saem NULL -- a medida direta de a mascara ter atuado."""
+    rel = get_connection().from_df(entrada)
+    return int(cs.sus_climate_compute_indicators(
+        rel, indicators=["wcet"], station_col="station_code",
+        date_col="datetime", confidence_flags=False, verbose=False, **kw
+    ).df()["wcet_c"].isna().sum())
+
+
+def _indicadores_cdd(entrada, **kw):
+    rel = get_connection().from_df(entrada)
+    return cs.sus_climate_compute_indicators(
+        rel, indicators=["cdd"], station_col="station_code",
+        date_col="datetime", confidence_flags=False, verbose=False, **kw
+    ).df()["cdd_c"]
+
+
 class TestCaminhoPadraoDoR:
-    """Com os defaults, R desliga a mascara de validade (M83).
+    """O caminho padrao do R, que o Python deixou de seguir (M83).
 
-    `apply_mask = apply_validity_mask && !use_region`, e `use_region` e
-    `region != "none"`. Como o default e region="auto", a mascara sai
-    DESLIGADA -- e os indices extrapolam para fora do dominio em que
-    foram ajustados.
+    R computa `apply_mask = apply_validity_mask && !use_region`, com
+    `use_region <- region != "none"`. Como o default dele e region="auto",
+    o segundo termo e FALSE e a mascara sai DESLIGADA: passar
+    apply_validity_mask=TRUE sozinho nunca a liga.
 
-    Esta e a configuracao que um usuario obtem sem pedir nada, entao e a
-    que precisa de fixture propria. A outra fixture deste arquivo, a
-    nao-regionalizada, so e alcancada com region="none".
+    O que esse caminho produz nao e arredondamento. Nesta fixture de
+    4.000 linhas o `hi_c` -- um indice de CALOR -- desce a -16,38 C, e o
+    `wcet_c` -- formula de sensacao termica de FRIO -- sobe a +53,39 C.
+    Sao as regressoes extrapolando muito fora do dominio em que foram
+    ajustadas.
+
+    Em 15/09/2026 o Python passou a DESACOPLAR os dois: o
+    apply_validity_mask governa a mascara por conta propria, que e o que
+    o nome do parametro e a propria documentacao do R descrevem. Os
+    testes de paridade abaixo pedem R_COUPLES_MASK_TO_REGION=True para
+    alcancar o comportamento do R; os do default do Python estao na
+    classe seguinte.
     """
 
     @pytest.mark.parametrize("coluna", [
         "hi_c", "wcet_c", "wct_c", "cdd_c", "hdd_c", "gdd_c",
         "utci_c", "et_c", "wbgt_c", "vapor_pressure_kpa",
     ])
-    def test_paridade_com_o_caminho_padrao(self, saida_padrao, referencia_sudeste, coluna):
-        py = saida_padrao[coluna].astype(float)
+    def test_paridade_com_o_caminho_padrao(self, saida_como_o_r, referencia_sudeste, coluna):
+        py = saida_como_o_r[coluna].astype(float)
         r = referencia_sudeste[coluna].astype(float)
         ambos = py.notna() & r.notna()
 
@@ -1382,9 +1436,9 @@ class TestCaminhoPadraoDoR:
         assert np.abs(py[ambos].to_numpy() - r[ambos].to_numpy()).max() == 0.0
 
     @pytest.mark.parametrize("coluna", ["thi_c", "pet_c"])
-    def test_paridade_a_menos_do_desempate(self, saida_padrao, referencia_sudeste, coluna):
+    def test_paridade_a_menos_do_desempate(self, saida_como_o_r, referencia_sudeste, coluna):
         """Os dois que dependem do arredondamento do R."""
-        py = saida_padrao[coluna].astype(float)
+        py = saida_como_o_r[coluna].astype(float)
         r = referencia_sudeste[coluna].astype(float)
         ambos = py.notna() & r.notna()
         d = np.abs(py[ambos].to_numpy() - r[ambos].to_numpy())
@@ -1393,34 +1447,71 @@ class TestCaminhoPadraoDoR:
         assert (d < 1e-9).sum() / len(d) > 0.99
 
     @pytest.mark.parametrize("coluna", ["koppen_humidity", "heat_stress_risk"])
-    def test_as_categoricas(self, saida_padrao, referencia_sudeste, coluna):
-        py, r = saida_padrao[coluna], referencia_sudeste[coluna]
+    def test_as_categoricas(self, saida_como_o_r, referencia_sudeste, coluna):
+        py, r = saida_como_o_r[coluna], referencia_sudeste[coluna]
         assert ((py == r) | (py.isna() & r.isna())).all()
 
-    def test_o_indice_de_calor_extrapola_por_padrao(self, saida_padrao):
+    def test_o_indice_de_calor_extrapola_no_caminho_do_r(self, saida_como_o_r):
         """Sem a mascara, hi_c desce abaixo de zero -- num indice de CALOR."""
-        assert saida_padrao["hi_c"].min() < 0
-        assert saida_padrao["hi_c"].min() == pytest.approx(-16.38, abs=0.01)
+        assert saida_como_o_r["hi_c"].min() < 0
+        assert saida_como_o_r["hi_c"].min() == pytest.approx(-16.38, abs=0.01)
 
-    def test_a_sensacao_de_frio_extrapola_para_o_calor(self, saida_padrao):
+    def test_a_sensacao_de_frio_extrapola_para_o_calor(self, saida_como_o_r):
         """wcet_c chega a +53 C, numa formula de sensacao termica de FRIO."""
-        assert saida_padrao["wcet_c"].max() > 50.0
-        assert saida_padrao["wcet_c"].max() == pytest.approx(53.39, abs=0.01)
+        assert saida_como_o_r["wcet_c"].max() > 50.0
+        assert saida_como_o_r["wcet_c"].max() == pytest.approx(53.39, abs=0.01)
 
-    def test_a_mascara_so_atua_com_region_none(self, entrada):
-        rel = get_connection().from_df(entrada)
-        def nulos(**kw):
-            return int(cs.sus_climate_compute_indicators(
-                rel, indicators=["wcet"], station_col="station_code",
-                date_col="datetime", confidence_flags=False, verbose=False,
-                **kw).df()["wcet_c"].isna().sum())
+    def test_no_r_o_apply_validity_mask_sozinho_nao_basta(self, entrada, monkeypatch):
+        """A propriedade que define o defeito, com a chave ligada."""
+        monkeypatch.setattr(mod, "R_COUPLES_MASK_TO_REGION", True)
 
-        assert nulos(region="none") == 2162                    # mascara ativa
-        assert nulos(region="southeast") == 40                 # desligada
-        assert nulos() == 40                                   # default = auto
-        # apply_validity_mask sozinho nao basta: o R exige region="none".
-        assert nulos(region="southeast", apply_validity_mask=True) == 40
-        assert nulos(region="none", apply_validity_mask=False) == 40
+        assert _nulos_wcet(entrada, region="none") == 2162      # mascara ativa
+        assert _nulos_wcet(entrada, region="southeast") == 40   # desligada
+        assert _nulos_wcet(entrada) == 40                       # default = auto
+        # pedir a mascara explicitamente nao muda nada: o R exige region="none"
+        assert _nulos_wcet(entrada, region="southeast",
+                           apply_validity_mask=True) == 40
+        assert _nulos_wcet(entrada, region="none",
+                           apply_validity_mask=False) == 40
+
+
+class TestDefaultDoPython:
+    """No default do Python a mascara atua, independente do region (M83).
+
+    Divergencia deliberada, decidida em 15/09/2026: os valores que o
+    caminho do R produz -- indice de calor negativo, sensacao de frio de
+    +53 C -- nao tem significado fisico, entao replica-los fielmente
+    significaria entregar um default sabidamente ruim. A chave de modulo
+    R_COUPLES_MASK_TO_REGION continua permitindo reproduzir o R exato, e
+    e o que os testes de paridade usam.
+    """
+
+    def test_a_mascara_atua_sem_pedir_nada(self, entrada):
+        """Com region="auto" (o default), a mascara ainda corta."""
+        assert _nulos_wcet(entrada) == 2162
+
+    def test_e_atua_com_qualquer_region(self, entrada):
+        for regiao in ("none", "southeast", "amazon", "south"):
+            assert _nulos_wcet(entrada, region=regiao) == 2162, regiao
+
+    def test_desligar_explicitamente_funciona(self, entrada):
+        """apply_validity_mask=False passa a ser o unico jeito de desligar."""
+        assert _nulos_wcet(entrada, apply_validity_mask=False) == 40
+        assert _nulos_wcet(entrada, region="southeast",
+                           apply_validity_mask=False) == 40
+
+    def test_os_indices_nao_extrapolam_mais(self, saida_padrao_python):
+        """O que o M83 media, agora ausente no default."""
+        assert saida_padrao_python["hi_c"].min() >= 0
+        assert saida_padrao_python["wcet_c"].max() <= 50.0
+
+    def test_a_regiao_segue_valendo_para_as_constantes(self, entrada):
+        """Desacoplar a mascara nao desacoplou os parametros de bioma."""
+        t = entrada["tair_dry_bulb_c"]
+        for regiao, base in (("amazon", 20.0), ("south", 18.0)):
+            out = _indicadores_cdd(entrada, region=regiao)
+            assert np.allclose(out, np.maximum(t - base, 0).round(1),
+                               equal_nan=True), regiao
 
 
 class TestRegiao:

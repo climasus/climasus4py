@@ -26,9 +26,11 @@ Scientific references:
 from __future__ import annotations
 
 import uuid
+import warnings
 from collections.abc import Sequence
 
 import duckdb
+import numpy as np
 import pandas as pd
 
 from ..core.engine import get_connection
@@ -1180,6 +1182,34 @@ _MASK_HI = "  WHEN {T} < {P:hi_min_temp} OR {RH} < {P:hi_min_rh} THEN NULL"
 _MASK_WIND = "  WHEN {T} > 10.0 OR COALESCE({WS}, 0.0) <= 1.3 THEN NULL"
 
 
+#: Whether to reproduce R's coupling of the validity mask to ``region``.
+#:
+#: R computes ``apply_mask = apply_validity_mask && !use_region`` with
+#: ``use_region <- region != "none"``. Its own default is ``region="auto"``,
+#: so the second term is ``FALSE`` and the mask is **off** on the default
+#: path — ``apply_validity_mask=TRUE`` alone never switches it on. The
+#: parameter therefore does the opposite of what its name promises unless
+#: the caller also passes ``region="none"``, which most callers will not.
+#:
+#: What the unmasked path produces is not a rounding difference. Measured
+#: on a 4.000-row fixture: ``hi_c`` — a HEAT index — reaches **-16,38 °C**,
+#: and ``wcet_c`` — a wind-chill formula, for COLD — reaches **+53,39 °C**
+#: (with T=25 and wind 5 m/s it returns 26,34 instead of NA). Those are
+#: the regressions extrapolating far outside the domains they were fitted
+#: on, published with no warning.
+#:
+#: ``False`` (the default here) decouples them: ``apply_validity_mask``
+#: governs the mask on its own, which is what the parameter's name and R's
+#: own documentation describe. This is a DELIBERATE divergence from R's
+#: behaviour on the default path, decided on 15/09/2026 — the numbers above
+#: have no physical meaning, so replicating them faithfully would ship a
+#: known-bad default. Recorded as **M83**.
+#:
+#: ``True`` reproduces R exactly, and is what the parity fixtures are
+#: compared against.
+R_COUPLES_MASK_TO_REGION: bool = False
+
+
 def _mask_clauses(apply_mask: bool) -> tuple[str, str]:
     """The two mask clauses, or empty strings when the mask is off.
 
@@ -1308,6 +1338,356 @@ def _build_runs_cte(
     return cte, cte_name, helpers
 
 
+_SOLAR_CONSTANT = 1361.0  # W/m2, R's .SUS_PHYSICS$solar_constant
+
+# The 13 columns R appends by joining the station table, in R's order.
+_STATION_META_COLS = (
+    "region", "federal_unit", "station_name", "latitude", "longitude",
+    "altitude", "foundation_date", "id_link", "zona_climatica",
+    "tipo_umidade", "distr_umidade", "temperatura_id", "descricao",
+)
+
+
+def _join_station_meta(
+    rel: duckdb.DuckDBPyRelation,
+    verbose: bool,
+) -> duckdb.DuckDBPyRelation:
+    """Attach the station metadata, as R's unconditional left join does.
+
+    R ends the function with::
+
+        station_meta <- get_spatial_station_cache(...) %>% sf::st_drop_geometry()
+        result <- dplyr::left_join(result, station_meta, by = c("station_code"))
+
+    That accounts for 13 of the 60 columns R returns by default - the
+    station's identity plus five climate classifications. It is
+    unconditional: ``use_cache`` and ``cache_dir`` only decide whether the
+    downloaded table is cached, never whether the join happens. The key is
+    the literal name ``station_code``, not the ``station_col`` argument.
+
+    Two divergences from R, both forced and both deliberate:
+
+    **Row multiplication refused (M107).** R's source table has 636 rows for
+    609 stations, and none of the 26 repeated codes is a true duplicate -
+    each pair disagrees about the climate classification, because the
+    station point fell on a polygon boundary. R's left join therefore
+    doubles every observation row for those stations; measured in R, 100
+    rows of input for A134 come back as 200, and any count, mean or sum over
+    them is silently doubled. ``climasus-data`` ships the table collapsed to
+    one row per station, nulling only the fields whose source contradicts
+    itself, so the join here cannot multiply rows.
+
+    **Columns the input already has are kept.** In R ``result`` holds only
+    the id columns and the indicators by this point, so all 13 arrive
+    cleanly. Here the input's own columns survive (M105), and
+    ``sus_climate_inmet`` already emits ``region``, ``station_name``,
+    ``latitude``, ``longitude`` and ``altitude``. Those five are left alone
+    - the INMET file's own header is at least as authoritative as the
+    station table - and only the absent names are added.
+    """
+    cols = rel.limit(0).df().columns.tolist()
+    if "station_code" not in cols:
+        return rel
+
+    from ..utils.data import data_path
+
+    caminho = data_path("assets/climate/inmet_station_meta.parquet")
+    if not caminho.is_file():
+        if verbose:
+            warnings.warn(
+                "station metadata not found in climasus-data "
+                f"({caminho.name}); the 13 station columns R appends will be "
+                "absent. Update climasus-data to get them.",
+                UserWarning, stacklevel=3,
+            )
+        return rel
+
+    faltando = [c for c in _STATION_META_COLS if c not in cols]
+    if not faltando:
+        return rel
+
+    escolhidas = ", ".join(f"m.{c}" for c in faltando)
+    view = f"_station_meta_{uuid.uuid4().hex[:12]}"
+    ordem = f"__ord_{uuid.uuid4().hex[:8]}"
+    # DuckDB's hash join does not preserve row order; dplyr's left_join keeps
+    # the left table's. Without this the observations come back scrambled,
+    # which for an hourly series is worse than a missing column - measured on
+    # a 4-row input that came back as [1200, 0, 500, 0] instead of
+    # [0, 500, 0, 1200]. A row number carried across the join pins it.
+    return rel.query(
+        view,
+        f"WITH t AS (SELECT *, row_number() OVER () AS {ordem} FROM {view}) "
+        f"SELECT t.* EXCLUDE ({ordem}), {escolhidas} FROM t "
+        f"LEFT JOIN read_parquet('{caminho.as_posix()}') AS m "
+        f"ON t.station_code = m.station_code "
+        f"ORDER BY t.{ordem}",
+    )
+
+
+def _verify_physics(
+    rel: duckdb.DuckDBPyRelation,
+    date_col: str,
+    verbose: bool,
+    lang: str,
+) -> duckdb.DuckDBPyRelation:
+    """Physical consistency check on solar radiation, as R's helper does.
+
+    Mirrors ``.verify_solar_radiation``, which does **two** things - and the
+    first one edits the data, which the M28 note originally got wrong:
+
+    1. Negative ``sr_kj_m2`` is clamped to ``0``. Nulls are preserved.
+    2. Values above 110% of the extraterrestrial irradiance are **counted and
+       warned about**, never altered.
+
+    The clamp is the reason ``verify_physics`` is not merely cosmetic. It is
+    also the divergence recorded as latent in M28: without it Python sends a
+    negative reading to ``NULL`` via the physical-range filter, while R sends
+    it to ``0``.
+
+    The irradiance follows R exactly, including the bias recorded in M28:
+    ``ha_rad`` is built from the timestamp's hour as if it were solar time,
+    when INMET timestamps are UTC. That misplaces the hour angle by three
+    hours for Brazil. Since the value only drives a warning count, the
+    consequence is a miscounted warning rather than corrupted data - so it is
+    replicated rather than corrected.
+
+    DuckDB's ``GREATEST`` ignores NULL where R's ``pmax`` propagates it, which
+    is the trap that produced two defects in this module already. Hence the
+    explicit ``CASE`` around ``sin_elev`` instead of ``GREATEST(sin_elev, 0)``:
+    with a null latitude, ``GREATEST`` would return 0, making ``G0`` zero and
+    every reading count as an exceedance.
+    """
+    sr = _INMET_COLS.get("SR", "sr_kj_m2")
+    cols = rel.limit(0).df().columns.tolist()
+    if sr not in cols:
+        return rel
+
+    clamp = (
+        f"CASE WHEN {sr} IS NOT NULL AND {sr} < 0 THEN 0 ELSE {sr} END AS {sr}"
+    )
+    view = f"_verify_physics_{uuid.uuid4().hex[:12]}"
+    rel = rel.query(view, f"SELECT * REPLACE ({clamp}) FROM {view}")
+
+    if not (verbose and "latitude" in cols and date_col in cols):
+        return rel
+
+    doy = f"CAST(strftime({date_col}, '%j') AS INTEGER)"
+    hour = f"CAST(strftime({date_col}, '%H') AS INTEGER)"
+    lat_rad = "latitude * pi() / 180"
+    dec_rad = f"(23.45 * sin(2 * pi() * (284 + {doy}) / 365)) * pi() / 180"
+    ha_rad = f"(({hour} - 12) * 15) * pi() / 180"
+    sin_elev = (
+        f"(sin({lat_rad}) * sin({dec_rad}) "
+        f"+ cos({lat_rad}) * cos({dec_rad}) * cos({ha_rad}))"
+    )
+    # pmax(sin_elev, 0) with R's NA propagation, not DuckDB's NULL-skipping
+    sin_pos = (
+        f"CASE WHEN {sin_elev} IS NULL THEN NULL "
+        f"WHEN {sin_elev} > 0 THEN {sin_elev} ELSE 0 END"
+    )
+    g0 = (
+        f"{_SOLAR_CONSTANT} * (1 + 0.033 * cos(2 * pi() * {doy} / 365)) "
+        f"* ({sin_pos}) * 3.6"
+    )
+    count_view = f"_verify_count_{uuid.uuid4().hex[:12]}"
+    n_flag = rel.query(
+        count_view,
+        f"SELECT count(*) FROM {count_view} "
+        f"WHERE {sr} IS NOT NULL AND {sr} > ({g0}) * 1.1",
+    ).fetchone()[0]
+
+    if n_flag:
+        msgs = {
+            "pt": (f"Consistencia fisica: {n_flag} valores de SR > 110% da "
+                   f"irradiancia extraterrestre."),
+            "es": (f"Consistencia fisica: {n_flag} valores de SR > 110% de la "
+                   f"irradiancia extraterrestre."),
+            "en": (f"Physical consistency: {n_flag} SR values exceed 110% of "
+                   f"extraterrestrial irradiance."),
+        }
+        warnings.warn(msgs.get(lang, msgs["en"]), UserWarning, stacklevel=3)
+    return rel
+
+
+
+# ---------------------------------------------------------------------------
+# Monte Carlo uncertainty (compute_uncertainty)
+# ---------------------------------------------------------------------------
+
+#: Input uncertainty per indicator, exactly as R's indicator registry
+#: declares it in ``reg$uncertainty_sd``. Thirteen of the fifteen have it;
+#: ``heat_stress_risk`` and ``koppen_humidity`` are classifications and
+#: declare none, so they get no interval — which is why
+#: ``compute_uncertainty=True`` adds 26 columns and not 30.
+#:
+#: ``sr_frac`` is a *fractional* uncertainty: R perturbs solar radiation
+#: multiplicatively, ``sr * (1 + rnorm(n, 0, sr_frac))``, while the other
+#: three are additive.
+_UNCERTAINTY_SD: dict[str, dict[str, float]] = {
+    "wbgt": {"temp": 0.5, "rh": 3.0, "ws": 0.3, "sr_frac": 0.1},
+    "heat_index": {"temp": 0.5, "rh": 3.0},
+    "thi": {"temp": 0.5, "rh": 3.0},
+    "wcet": {"temp": 0.5, "ws": 0.3},
+    "wct": {"temp": 0.5, "ws": 0.3},
+    "et": {"temp": 0.5, "rh": 3.0, "ws": 0.3},
+    "utci": {"temp": 0.5, "rh": 3.0, "ws": 0.3, "sr_frac": 0.1},
+    "pet": {"temp": 0.5, "rh": 3.0, "ws": 0.3, "sr_frac": 0.1},
+    "cdd": {"temp": 0.5},
+    "hdd": {"temp": 0.5},
+    "gdd": {"temp": 0.5},
+    "diurnal_range": {"temp": 0.5},
+    "vapor_pressure": {"temp": 0.5, "rh": 3.0},
+}
+
+#: The order R draws in. It matters: each ``rnorm(n, 0, sd)`` consumes n
+#: values from one stream, so a different order gives different (still
+#: valid, but non-matching) perturbations.
+_UNCERTAINTY_ORDER = ("temp", "rh", "ws", "sr_frac")
+_UNCERTAINTY_COLS = {"temp": "T", "rh": "RH", "ws": "WS", "sr_frac": "SR"}
+
+#: R's ``set.seed(2024L)``, called once per indicator inside
+#: ``.compute_mc_uncertainty`` — so every indicator restarts the stream.
+_MC_SEED = 2024
+_MC_N_SIM = 200
+
+
+def _mc_interval(
+    rel: duckdb.DuckDBPyRelation,
+    ind: str,
+    station_col: str,
+    date_col: str,
+    month_expr: str,
+    params: dict[str, float],
+    n_sim: int = _MC_N_SIM,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """95% interval for one indicator, by Monte Carlo over input error.
+
+    Reproduces ``.compute_mc_uncertainty`` term for term: ``set.seed(2024)``
+    at the start, then ``n_sim`` perturbed evaluations, then the 2.5% and
+    97.5% percentiles per row, rounded to two decimals.
+
+    Matching R here is exact, not statistical, because
+    :mod:`climasus4py.utils.r_random` reproduces R's stream bit for bit.
+    Verified on the reference input: ``wbgt`` gives lower
+    ``[20.70, 2.64, 25.96]`` and upper ``[22.28, 3.91, 27.89]`` on both
+    sides, with mean widths agreeing to four decimals.
+
+    Two properties inherited from R on purpose:
+
+    - the indicator is dispatched with ``apply_mask=False``, so **an
+      interval can exist where the point estimate is NULL**. On the
+      reference input ``hi_c`` is NULL on row 2 while its interval reads
+      38.10 to 46.76. Replicated, and recorded as M111.
+    - a row whose every simulation is NULL yields NULL bounds, as R's
+      ``quantile(..., na.rm = TRUE)`` on an all-NA slice does.
+
+    Returns ``None`` for indicators that declare no input uncertainty.
+    """
+    unc = _UNCERTAINTY_SD.get(ind)
+    if not unc:
+        return None
+
+    from ..utils.r_random import RRandom
+
+    colunas = rel.limit(0).df().columns.tolist()
+    # only the perturbations whose column is actually present, and in R's
+    # order, because the order is what fixes the random stream
+    ativos = [
+        (chave, _INMET_COLS[_UNCERTAINTY_COLS[chave]])
+        for chave in _UNCERTAINTY_ORDER
+        if chave in unc and _INMET_COLS[_UNCERTAINTY_COLS[chave]] in colunas
+    ]
+    if not ativos:
+        return None
+
+    base = rel.df()
+    n = len(base)
+    originais = {col: base[col].to_numpy(dtype=float) for _, col in ativos}
+    rng = RRandom(_MC_SEED)
+    sql_ind = _render_indicator_sql(ind, station_col, date_col, month_expr,
+                                    params, apply_mask=False)
+    sims = np.empty((n, n_sim), dtype=float)
+
+    for s in range(n_sim):
+        perturbado = base.copy()
+        for chave, col in ativos:
+            ruido = rng.rnorm(n, 0.0, float(unc[chave]))
+            if chave == "temp":
+                perturbado[col] = originais[col] + ruido
+            elif chave == "rh":
+                perturbado[col] = np.clip(originais[col] + ruido, 0.0, 100.0)
+            elif chave == "ws":
+                perturbado[col] = np.maximum(originais[col] + ruido, 0.0)
+            else:  # sr_frac: multiplicative
+                perturbado[col] = np.maximum(originais[col] * (1.0 + ruido),
+                                             0.0)
+        alias = f"_mc_{uuid.uuid4().hex[:12]}"
+        conexao = get_connection()
+        conexao.register(alias, perturbado)
+        try:
+            sims[:, s] = (conexao.sql(f"SELECT {sql_ind} FROM {alias}")
+                          .df().iloc[:, 0].to_numpy(dtype=float))
+        finally:
+            conexao.unregister(alias)
+
+    # all-NULL rows give NULL bounds, as R's na.rm quantile does; numpy
+    # warns on an all-NaN slice, and that warning is not news
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        baixo = np.nanquantile(sims, 0.025, axis=1)
+        alto = np.nanquantile(sims, 0.975, axis=1)
+    return np.round(baixo, 2), np.round(alto, 2)
+
+
+def _attach_uncertainty(
+    saida: duckdb.DuckDBPyRelation,
+    entrada: duckdb.DuckDBPyRelation,
+    ind_list: list[str],
+    station_col: str,
+    date_col: str,
+    month_expr: str,
+    params: dict[str, float],
+    verbose: bool,
+) -> duckdb.DuckDBPyRelation:
+    """Append ``<col>_ci_low`` / ``<col>_ci_high`` for every eligible indicator.
+
+    The bounds are computed in Python, not in SQL, so they are joined back
+    by row position. **This materialises the relation**, which is the one
+    place in this function where laziness is given up — a Monte Carlo over
+    200 evaluations cannot be expressed as a lazy projection, and pretending
+    otherwise would only hide the cost.
+
+    Column order differs from R's, which interleaves each interval right
+    after its indicator and before that indicator's flags. Here they are
+    appended. Column order carries no meaning, and matching R's would mean
+    rebuilding the single SELECT this function is built around.
+    """
+    colunas: dict[str, np.ndarray] = {}
+    for ind in ind_list:
+        faixa = _mc_interval(entrada, ind, station_col, date_col, month_expr,
+                             params)
+        if faixa is None:
+            continue
+        col = _INDICATOR_DEFS[ind][0]
+        colunas[f"{col}_ci_low"], colunas[f"{col}_ci_high"] = faixa
+
+    if not colunas:
+        if verbose:
+            warnings.warn(
+                "compute_uncertainty=True but none of the requested "
+                "indicators declares input uncertainty, so no interval was "
+                "added. heat_stress_risk and koppen_humidity are "
+                "classifications and have none.",
+                UserWarning, stacklevel=3,
+            )
+        return saida
+
+    base = saida.df()
+    for nome, valores in colunas.items():
+        base[nome] = valores
+    return get_connection().from_df(base)
+
+
 # ---------------------------------------------------------------------------
 # Public function
 # ---------------------------------------------------------------------------
@@ -1323,6 +1703,9 @@ def sus_climate_compute_indicators(
     apply_validity_mask: bool = True,
     custom_thresholds: dict[str, float] | None = None,
     confidence_flags: bool = True,
+    verify_physics: bool = True,
+    keep_source_vars: bool = True,
+    compute_uncertainty: bool = False,
     lang: str = "pt",
     verbose: bool = True,
 ) -> duckdb.DuckDBPyRelation:
@@ -1374,12 +1757,54 @@ def sus_climate_compute_indicators(
             biomes: ``"amazon"``, ``"cerrado"``, ``"caatinga"``,
             ``"atlantic_forest"``, ``"pampa"``, ``"pantanal"``,
             ``"southeast"``, ``"south"``.
+        keep_source_vars: Whether the input's own columns survive into the
+            result. Defaults to ``True``, which is this port's historical
+            behaviour and matches R's ``keep_source_vars=TRUE``, **not**
+            R's default of ``FALSE`` (M105).
+
+            R builds its result from the id columns alone, so its default
+            output carries no input column at all. Here the ``SELECT`` has
+            always opened with ``*``. Flipping the default would stop
+            returning columns callers already receive, so ``False`` is
+            offered as the opt-in that reproduces R's shape: id columns,
+            indicators, flags and station metadata, and nothing of the
+            input.
+
+            Verified against R on the same input with one indicator:
+            ``False`` gives the same 19 columns on both sides, in the same
+            order. With ``True`` R returns 23 and this returns 24 - R adds
+            back only the variables the requested indicators consume, while
+            this keeps every input column, so the Python result is a
+            superset.
+        verify_physics: Run the solar-radiation consistency check before
+            computing anything, as R does. Defaults to ``True``.
+
+            It does two things, and the first one **edits the data**:
+            negative ``sr_kj_m2`` is clamped to ``0`` (nulls preserved),
+            and readings above 110% of the extraterrestrial irradiance are
+            counted and warned about but left alone. Turning it off leaves
+            negative readings untouched, which then reach the physical-range
+            filter and become ``NULL``. That is the divergence recorded as
+            latent in M28; this parameter is where it lives.
+
+            Verified against R on 4.000 rows with 39 negatives, 25 nulls
+            and 30 impossible readings: clamping identical on both sides,
+            and the warning count identical at 2.347.
+
+            The irradiance replicates R's bias (M28): the hour angle is
+            built from the timestamp's hour as if it were solar time, while
+            INMET timestamps are UTC - a three-hour misplacement. Since it
+            only drives a warning count, it is replicated, not corrected.
         apply_validity_mask: Mask HI, WCET and WCT to ``NULL`` outside
-            their meteorological domains. Only takes effect when
-            ``region="none"``, because R computes
-            ``apply_validity_mask && !use_region`` — so with the defaults
-            here, as in R, the mask is **off** and those columns
-            extrapolate. See M83 for what that produces.
+            their meteorological domains. Defaults to ``True`` and, here,
+            actually takes effect on its own.
+
+            This is a deliberate divergence from R, which couples the mask
+            to *region* — ``apply_validity_mask && !use_region`` — and so
+            leaves it **off** on its own default path, where ``hi_c``
+            reaches −16,38 °C and ``wcet_c`` reaches +53,39 °C. Set
+            :data:`R_COUPLES_MASK_TO_REGION` to ``True`` to reproduce that.
+            See M83.
         custom_thresholds: Overrides for individual region constants,
             applied after the biome table (R's ``modifyList``).
         confidence_flags: Emit ``{col}_flag_extreme``, ``{col}_flag_high``
@@ -1431,17 +1856,24 @@ def sus_climate_compute_indicators(
     # Validate required columns are present
     _check_required_cols(_rel, ind_list)
 
+    # R runs this before computing anything, and it EDITS the data: negative
+    # solar radiation is clamped to 0. See _verify_physics.
+    if verify_physics:
+        _rel = _verify_physics(_rel, _date_col, verbose, lang)
+
     # PET's clothing adjustment keys off a column literally named `date`,
     # because that is the name R hardcodes; anything else falls back to
     # month 6 (M81).
     _month_expr = _pet_month_expr(_rel.limit(0).df().columns.tolist())
 
-    # Region decides the constants AND whether the validity mask applies:
-    # R computes `apply_mask = apply_validity_mask && !use_region`, and
-    # `use_region` is `region != "none"`. So with R's own defaults the mask
-    # is OFF (M83).
+    # Region decides the constants. Whether it ALSO decides the validity
+    # mask is the M83 divergence — see R_COUPLES_MASK_TO_REGION.
     _region, _params = resolve_region_params(region, _rel, custom_thresholds)
-    _apply_mask = apply_validity_mask and _region == "none"
+    _apply_mask = (
+        apply_validity_mask and _region == "none"
+        if R_COUPLES_MASK_TO_REGION
+        else apply_validity_mask
+    )
 
     # Build the query against a local relation alias via rel.query() —
     # this avoids any global view registration on the singleton connection.
@@ -1459,7 +1891,20 @@ def sus_climate_compute_indicators(
     )
 
     # SELECT: original columns first (excluding helper run-id columns), then indicators
-    select_head = f"* EXCLUDE ({', '.join(helpers)})" if helpers else "*"
+    # R builds `result` from the id columns alone and only adds the source
+    # variables back when keep_source_vars=TRUE, so its default output has no
+    # input columns at all. Here the SELECT has always opened with `*`, which
+    # means this port's default matches R's keep_source_vars=TRUE. Changing
+    # that default would stop returning columns callers already receive
+    # (M105), so the default stays and `keep_source_vars=False` is the opt-in
+    # that reproduces R's shape: id columns, indicators, flags, station
+    # metadata, and nothing of the input.
+    if keep_source_vars:
+        select_head = f"* EXCLUDE ({', '.join(helpers)})" if helpers else "*"
+    else:
+        id_cols = [c for c in (_date_col, _station_col)
+                   if c != "1" and c in _rel.limit(0).df().columns.tolist()]
+        select_head = ", ".join(id_cols) if id_cols else "NULL AS __no_id"
 
     indicator_exprs: list[str] = []
     flag_exprs: list[str] = []
@@ -1495,4 +1940,13 @@ def sus_climate_compute_indicators(
 
     # rel.query(alias, sql) makes `alias` resolve to *this* relation only,
     # leaving the connection's global namespace untouched between calls.
-    return _rel.query(input_view, sql)
+    saida = _rel.query(input_view, sql)
+
+    # R closes with an unconditional left join onto the station table; that
+    # is where 13 of its 60 default columns come from. See _join_station_meta.
+    saida = _join_station_meta(saida, verbose)
+
+    if compute_uncertainty:
+        saida = _attach_uncertainty(saida, _rel, ind_list, _station_col,
+                                    _date_col, _month_expr, _params, verbose)
+    return saida
