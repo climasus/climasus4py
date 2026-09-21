@@ -29,6 +29,7 @@ def sus_export(
     overwrite: bool = False,
     compress: str = "snappy",
     compression_level: int | None = None,
+    include_metadata: bool = False,
     lang: Literal["pt", "en", "es"] = "pt",
     verbose: bool = False,
 ) -> Path:
@@ -39,8 +40,7 @@ def sus_export(
     faster than ``write_parquet`` / ``write_csv``). A
     ``pandas.DataFrame`` is refused: the docstring used to promise it was
     accepted while the code raised ``TypeError``, which is half of M19.
-    The refusal now names the call that does work, since the package
-    exports no DataFrame-to-relation function (M115).
+    Wrap one with :func:`sus_as_relation` — the refusal says so.
 
     Args:
         data: Data to export — a lazy ``DuckDBPyRelation``.
@@ -78,6 +78,29 @@ def sus_export(
             non-monotonic shape appears with random data, so it is not a
             property of one dataset. Recorded as M116; measure before
             choosing a level.
+        include_metadata: Whether to carry the relation's ``sus_meta``
+            into the file. Defaults to ``False``, and that default is the
+            decision recorded as M19.
+
+            ``False`` keeps the fast path: DuckDB ``COPY TO``, no
+            Python-side materialisation, data only. ``True`` routes the
+            write through ``sus_meta(rel, to_parquet=...)``, which embeds
+            the metadata as JSON in the Parquet schema at the cost of
+            going through Arrow — so it materialises, and on a large
+            relation that is the difference the flag buys or spends.
+
+            **Parquet only.** CSV and Excel have nowhere to put it, and
+            asking for metadata in those formats warns rather than
+            failing, because the data still writes correctly.
+
+            R spells this ``include_metadata = TRUE`` and writes a
+            separate ``<base>_metadata.txt`` beside the file. That
+            sidecar is **not** written here: it would be a third
+            mechanism alongside the embedded schema, and the schema is
+            the one ``sus_meta(from_parquet=...)`` and
+            ``sus_data_read(read_metadata=True)`` already read. A sidecar
+            produced by R *is* read back, so files cross the boundary in
+            that direction.
         lang: Message language — ``"pt"`` (default), ``"en"`` or
             ``"es"``.
         verbose: Whether to print what was written. Defaults to
@@ -118,14 +141,13 @@ def sus_export(
         # called .df() to inspect the data and then trying to export it
         # (M19). Name the way out.
         # Not sus_as_duckdb: that one takes a relation and materialises it
-        # as a named table, so it cannot start from a DataFrame. The
-        # package exports no DataFrame-to-relation function at all, which
-        # is why this trap exists (M115) -- so name the working call.
+        # as a named table, so it cannot start from a DataFrame. Until
+        # sus_as_relation existed (M115) this message had to quote an
+        # internal call, get_connection().from_df, which was the sign that
+        # a public function was missing.
         dica = (
-            " Convert it first: "
-            "from climasus4py.core.engine import get_connection; "
-            "sus_export(get_connection().from_df(df), path)."
-            if type(data).__name__ == "DataFrame" else ""
+            " Convert it first: sus_export(sus_as_relation(df), path)."
+            if type(data).__name__ in ("DataFrame", "Table") else ""
         )
         raise TypeError(
             f"Expected DuckDBPyRelation but got {type(data).__name__}. "
@@ -157,21 +179,38 @@ def sus_export(
             f"Pass overwrite=True to replace it on purpose."
         )
 
+    if include_metadata and fmt not in ("parquet",):
+        warnings.warn(
+            f"sus_export: include_metadata=True was ignored for {fmt!r} — "
+            f"only Parquet can carry the metadata, which goes in its "
+            f"schema. The data itself is written normally.",
+            UserWarning,
+            stacklevel=2,
+        )
+
     # ``COPY TO`` is what makes this fast — no Python-side materialisation —
     # but it writes only the data, so any pipeline history the relation
-    # carries is dropped. Say so instead of losing provenance in silence;
-    # ``sus_meta(rel, to_parquet=...)`` keeps it, at the cost of going
-    # through Arrow. Which of the two should be the default is an API
-    # question, recorded as M19.
+    # carries is dropped. With include_metadata the write goes through
+    # ``sus_meta(rel, to_parquet=...)`` instead, which embeds it in the
+    # schema and pays for that with an Arrow materialisation. Default is
+    # off so the fast path stays the fast path: the decision is M19.
     if fmt == "parquet":
         from ..core.meta import sus_meta
+
+        if include_metadata:
+            sus_meta(data, to_parquet=path)
+            if verbose:
+                tam = path.stat().st_size if path.is_file() else 0
+                print(_MESSAGES[lang]["written"].format(
+                    path=path.name, fmt=fmt, kb=tam / 1024))
+            return path
 
         if sus_meta(data):
             warnings.warn(
                 f"sus_export: {path.name} is being written without its "
                 f"sus_meta — COPY TO carries data only, so the pipeline "
-                f"history is lost. Use sus_meta(rel, to_parquet=...) to "
-                f"embed it in the Parquet schema.",
+                f"history is lost. Pass include_metadata=True to embed it "
+                f"in the Parquet schema.",
                 UserWarning,
                 stacklevel=2,
             )

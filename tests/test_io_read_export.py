@@ -4,24 +4,26 @@ O que cada um cobria, e onde este arquivo para:
 
 * **M18** -- o `sus_data_read` do Python lia UM arquivo, e o do R le
   varios, de diretorio, glob ou lista, com sete parametros. Seis
-  faltavam. Fechado aqui, menos o `read_metadata`.
+  faltavam. Fechado em 21/09/2026.
 * **M17** -- a parte que destruia dado (o `overwrite` invertido) foi
   corrigida em 09/09/2026 e esta coberta em `test_export.py`. Ficavam de
-  fora `compression_level`, `lang` e `verbose`, implementados aqui, e
-  `include_metadata`/`metadata`, que NAO foram.
+  fora `compression_level`, `lang` e `verbose`.
 * **M19** -- ha dois caminhos de gravacao de parquet e o mais obvio perde
-  a metadata. O aviso ja existia; aqui entra a metade que era promessa
-  falsa: a docstring dizia aceitar `pandas.DataFrame` e o codigo
-  levantava `TypeError`.
+  a metadata. Entrou aqui tambem a metade que era promessa falsa: a
+  docstring dizia aceitar `pandas.DataFrame` e o codigo levantava
+  `TypeError`.
+* **M115** -- nao havia funcao publica de DataFrame para relacao, e por
+  isso a mensagem de erro do `sus_export` tinha de citar modulo interno.
 
-**O que segue em aberto de proposito** e o par
-`include_metadata`/`read_metadata`. O R grava e le um arquivo
-`<base>_metadata.txt` ao lado; este pacote embute a metadata no schema do
-Parquet, via `sus_meta(to_parquet=)`. Honrar as bandeiras do R sobre o
-sidecar criaria um TERCEIRO mecanismo de metadata no pacote, e escolher
-qual vale e decisao de API -- paragrafo 8 do CLAUDE.md. O
-`read_metadata=True` portanto LEVANTA, em vez de devolver nada em
-silencio, e os testes fixam isso.
+**A DECISAO DE METADATA foi tomada em 21/09/2026** (D1), pelo Andrey, a
+quem o Marlon repassou as decisoes de coordenacao. Havia tres mecanismos
+possiveis: o `COPY TO` do `sus_export`, que nao leva nada; o
+`sus_meta(to_parquet=)`, que embute no schema do Parquet; e o sidecar
+`<base>_metadata.txt` do R. A escolha: **opt-in, pelo embutido**. O
+default segue rapido e sem metadata, o `include_metadata=True` desvia
+pelo caminho embutido, e o sidecar do R e **lido e nunca escrito** --
+ler custa pouco e e o unico jeito de nao perder o historico de quem
+exportou no R; escrever seria o terceiro mecanismo.
 """
 
 from __future__ import annotations
@@ -197,16 +199,21 @@ class TestLeituraDeVariosArquivos:
             "SELECT current_setting('threads')").fetchone()[0]
         assert depois == antes, f"threads ficou em {depois}, era {antes}"
 
-    def test_read_metadata_levanta_em_vez_de_devolver_nada(self, pasta):
-        """M17/M19: a decisao do mecanismo de metadata esta aberta.
+    def test_read_metadata_le_o_sidecar_da_pasta(self, pasta):
+        """Este teste cobrava o NotImplementedError, e a D1 o resolveu.
 
-        Aceitar a bandeira e devolver relacao sem metadata nenhuma seria
-        o pior dos mundos: o chamador pediu provenancia e recebeu
-        silencio.
+        Enquanto a decisao de mecanismo estava aberta, a bandeira
+        LEVANTAVA de proposito -- aceitar e devolver relacao sem metadata
+        nenhuma seria o pior dos mundos, porque o chamador pediu
+        provenancia e receberia silencio. Decidido em 21/09/2026: le o
+        embutido e cai para o sidecar do R.
+
+        A fixture tem `f1_metadata.txt` com `stage: raw`, que e sidecar do
+        R -- excluido da varredura de DADOS e lido como metadata.
         """
-        with pytest.raises(NotImplementedError, match="sus_meta"):
-            cs.sus_data_read(pasta / "f1.parquet", read_metadata=True,
-                             verbose=False)
+        rel = cs.sus_data_read(pasta / "f1.parquet", read_metadata=True,
+                               verbose=False)
+        assert cs.sus_meta(rel)["stage"] == "raw"
 
 
 # --------------------------------------------------------------------------
@@ -318,15 +325,17 @@ class TestPromessaDoDataFrame:
         with pytest.raises(TypeError) as exc:
             cs.sus_export(pd.DataFrame({"a": [1]}), tmp_path / "df.parquet")
         msg = str(exc.value)
-        assert "get_connection().from_df" in msg
+        assert "sus_as_relation" in msg
         assert "sus_as_duckdb" not in msg, (
             "sus_as_duckdb recebe relacao, nao DataFrame -- nao serve de dica")
+        assert "get_connection" not in msg, (
+            "a dica citava modulo interno enquanto faltava a funcao publica "
+            "(M115); agora existe sus_as_relation")
 
     def test_a_dica_funciona_de_verdade(self, tmp_path):
         """O caminho que a mensagem indica tem de gravar."""
         df = pd.DataFrame({"a": [1, 2], "b": ["x", "y"]})
-        p = cs.sus_export(get_connection().from_df(df),
-                          tmp_path / "ok.parquet")
+        p = cs.sus_export(cs.sus_as_relation(df), tmp_path / "ok.parquet")
         assert cs.sus_data_read(p, verbose=False).count(
             "*").fetchone()[0] == 2
 
@@ -358,3 +367,231 @@ class TestIdaEVolta:
         rel = cs.sus_data_read(tmp_path / "d.csv", verbose=False)
         assert rel.count("*").fetchone()[0] == 2
         assert set(rel.columns) == {"a", "b"}
+
+
+# --------------------------------------------------------------------------
+# D1 -- um mecanismo de metadata, e o sidecar do R lido mas nunca escrito
+# --------------------------------------------------------------------------
+
+META = {"system": "SIM-DO", "stage": "stand", "type": "stand",
+        "history": ["importado no teste"]}
+
+
+def _com_meta():
+    return cs.sus_as_relation(pd.DataFrame({"a": [1, 2, 3]}), meta=META)
+
+
+class TestMetadataNoExport:
+    """M17/M19: a decisao foi opt-in, com o mecanismo EMBUTIDO.
+
+    Havia tres mecanismos possiveis -- o COPY TO do sus_export, que nao
+    leva nada; o sus_meta(to_parquet=), que embute no schema do Parquet; e
+    o sidecar <base>_metadata.txt do R. A escolha, de 21/09/2026: o
+    default segue rapido e sem metadata, o include_metadata=True desvia
+    pelo caminho embutido, e o sidecar do R e LIDO e nunca escrito.
+
+    Gravar metadata por default custaria a materializacao via Arrow, que e
+    exatamente a vantagem pela qual o sus_export existe.
+    """
+
+    def test_o_default_e_falso_e_continua_avisando(self, tmp_path):
+        with pytest.warns(UserWarning, match="without its sus_meta"):
+            p = cs.sus_export(_com_meta(), tmp_path / "sem.parquet")
+        volta = cs.sus_data_read(p, read_metadata=True, verbose=False)
+        assert cs.sus_meta(volta) is None
+
+    def test_o_aviso_aponta_o_parametro_e_nao_outra_funcao(self, tmp_path):
+        """Antes mandava usar sus_meta(to_parquet=), que e outra chamada.
+
+        Com o parametro existindo, a saida acionavel e o parametro.
+        """
+        with pytest.warns(UserWarning) as rec:
+            cs.sus_export(_com_meta(), tmp_path / "sem.parquet")
+        assert "include_metadata=True" in str(rec[0].message)
+
+    def test_include_metadata_embute_e_volta(self, tmp_path):
+        p = cs.sus_export(_com_meta(), tmp_path / "com.parquet",
+                          include_metadata=True)
+        m = cs.sus_meta(cs.sus_data_read(p, read_metadata=True,
+                                         verbose=False))
+        assert m is not None
+        assert m["system"] == "SIM-DO"
+        assert m["stage"] == "stand"
+
+    def test_include_metadata_nao_avisa_de_perda(self, tmp_path):
+        """Nao pode avisar que perdeu o que acabou de gravar."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            cs.sus_export(_com_meta(), tmp_path / "com.parquet",
+                          include_metadata=True)
+
+    def test_o_dado_e_o_mesmo_pelos_dois_caminhos(self, tmp_path):
+        """A contrapartida: o caminho lento nao pode mudar o dado.
+
+        Um desvia pelo COPY TO e o outro pelo Arrow -- se divergissem no
+        conteudo, o parametro estaria trocando metadata por dado.
+        """
+        rel = cs.sus_as_relation(
+            pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]}), meta=META)
+        rapido = cs.sus_export(rel, tmp_path / "r.parquet")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            lento = cs.sus_export(rel, tmp_path / "l.parquet",
+                                  include_metadata=True)
+        pd.testing.assert_frame_equal(
+            cs.sus_data_read(rapido, verbose=False).df(),
+            cs.sus_data_read(lento, verbose=False).df())
+
+    def test_csv_avisa_e_grava_o_dado(self, tmp_path):
+        """Formato sem lugar para metadata nao pode falhar a gravacao."""
+        with pytest.warns(UserWarning, match="only Parquet"):
+            p = cs.sus_export(_com_meta(), tmp_path / "x.csv",
+                              include_metadata=True)
+        assert cs.sus_data_read(p, verbose=False).count("*").fetchone()[0] == 3
+
+    def test_relacao_sem_meta_nao_avisa(self, tmp_path):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            cs.sus_export(_rel(a=[1]), tmp_path / "q.parquet")
+
+
+class TestMetadataNaLeitura:
+
+    def test_read_metadata_falso_nao_anexa(self, tmp_path):
+        p = cs.sus_export(_com_meta(), tmp_path / "c.parquet",
+                          include_metadata=True)
+        assert cs.sus_meta(cs.sus_data_read(p, verbose=False)) is None
+
+    def test_o_sidecar_do_r_e_lido(self, tmp_path):
+        """A ponte que faz o arquivo do R chegar aqui com procedencia.
+
+        O climasus4r grava <base>_metadata.txt com "chave: valor" por
+        linha. Nao escrevemos esse arquivo -- seria o terceiro mecanismo
+        -- mas ler custa pouco, e e o unico jeito de nao perder o
+        historico de quem exportou no R.
+        """
+        p = tmp_path / "doR.parquet"
+        pd.DataFrame({"a": [1, 2]}).to_parquet(p)
+        (tmp_path / "doR_metadata.txt").write_text(
+            "system: SIM-DO\nstage: stand\nrows: 2\n", encoding="utf-8")
+        m = cs.sus_meta(cs.sus_data_read(p, read_metadata=True,
+                                         verbose=False))
+        assert m["system"] == "SIM-DO"
+        assert m["rows"] == "2"
+
+    def test_linha_torta_no_sidecar_nao_derruba_a_leitura(self, tmp_path):
+        p = tmp_path / "t.parquet"
+        pd.DataFrame({"a": [1]}).to_parquet(p)
+        (tmp_path / "t_metadata.txt").write_text(
+            "system: SIM-DO\nlinha sem dois pontos\n: chave vazia\n",
+            encoding="utf-8")
+        m = cs.sus_meta(cs.sus_data_read(p, read_metadata=True,
+                                         verbose=False))
+        assert m["system"] == "SIM-DO"
+        assert "" not in m, "chave vazia nao entra"
+
+    def test_o_embutido_vence_o_sidecar(self, tmp_path):
+        """Os dois presentes: o schema e a fonte deste pacote."""
+        p = cs.sus_export(_com_meta(), tmp_path / "dois.parquet",
+                          include_metadata=True)
+        (tmp_path / "dois_metadata.txt").write_text(
+            "system: OUTRO\n", encoding="utf-8")
+        m = cs.sus_meta(cs.sus_data_read(p, read_metadata=True,
+                                         verbose=False))
+        assert m["system"] == "SIM-DO", "o sidecar sobrepujou o schema"
+
+    def test_o_sidecar_nunca_e_escrito(self, tmp_path):
+        """A regra que evita o terceiro mecanismo."""
+        cs.sus_export(_com_meta(), tmp_path / "e.parquet",
+                      include_metadata=True)
+        assert not list(tmp_path.glob("*_metadata.txt"))
+
+    def test_registra_no_historico_de_onde_veio(self, tmp_path):
+        p = cs.sus_export(_com_meta(), tmp_path / "h.parquet",
+                          include_metadata=True)
+        m = cs.sus_meta(cs.sus_data_read(p, read_metadata=True,
+                                         verbose=False))
+        assert any("read_metadata" in h for h in m["history"])
+
+    def test_varios_arquivos_com_meta_avisam_e_usam_o_primeiro(self, tmp_path):
+        """Metadata descreve UM pipeline; fundir descreveria nenhum."""
+        for i, sistema in enumerate(("SIM-DO", "SIH-RD")):
+            rel = cs.sus_as_relation(pd.DataFrame({"a": [i]}),
+                                     meta={**META, "system": sistema})
+            cs.sus_export(rel, tmp_path / f"{i}_f.parquet",
+                          include_metadata=True)
+        with pytest.warns(UserWarning, match="carry metadata"):
+            rel = cs.sus_data_read(tmp_path, read_metadata=True,
+                                   verbose=False)
+        assert cs.sus_meta(rel)["system"] == "SIM-DO", "o primeiro vence"
+
+    def test_sem_metadata_nenhuma_nao_avisa(self, tmp_path):
+        pd.DataFrame({"a": [1]}).to_parquet(tmp_path / "puro.parquet")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            rel = cs.sus_data_read(tmp_path / "puro.parquet",
+                                   read_metadata=True, verbose=False)
+        assert cs.sus_meta(rel) is None
+
+    def test_read_metadata_nao_levanta_mais(self, tmp_path):
+        """Fixa a mudanca: antes era NotImplementedError de proposito."""
+        pd.DataFrame({"a": [1]}).to_parquet(tmp_path / "x.parquet")
+        cs.sus_data_read(tmp_path / "x.parquet", read_metadata=True,
+                         verbose=False)
+
+
+# --------------------------------------------------------------------------
+# D8 / M115 -- a funcao publica que faltava
+# --------------------------------------------------------------------------
+
+class TestSusAsRelation:
+    """M115: a familia sus_as_* so saia de relacao, nunca entrava.
+
+    Conferido percorrendo as entradas do __all__: sus_as_arrow e
+    sus_as_duckdb recebem relacao, e o sus_sql recusa DataFrame no
+    primeiro argumento. O unico caminho era get_connection().from_df(df),
+    de um modulo interno -- tanto que a mensagem de erro do sus_export
+    precisava cita-lo para ser acionavel.
+    """
+
+    def test_esta_exportada(self):
+        assert hasattr(cs, "sus_as_relation")
+        assert "sus_as_relation" in cs.__all__
+
+    def test_dataframe_vira_relacao_preguicosa(self):
+        rel = cs.sus_as_relation(pd.DataFrame({"a": [1, 2]}))
+        assert type(rel).__name__ == "DuckDBPyRelation"
+        assert rel.count("*").fetchone()[0] == 2
+
+    def test_relacao_passa_direto(self):
+        rel = _rel(a=[1])
+        assert cs.sus_as_relation(rel) is rel
+
+    def test_arrow_vira_relacao(self):
+        import pyarrow as pa
+
+        rel = cs.sus_as_relation(pa.table({"b": [1, 2, 3]}))
+        assert rel.count("*").fetchone()[0] == 3
+
+    def test_fecha_o_ciclo_com_sus_as_arrow(self):
+        """A metadata do schema do Arrow volta na relacao."""
+        rel = cs.sus_as_relation(cs.sus_as_arrow(_com_meta()))
+        m = cs.sus_meta(rel)
+        assert m is not None and m["system"] == "SIM-DO"
+
+    def test_meta_explicita_sobrepoe_a_do_arrow(self):
+        rel = cs.sus_as_relation(cs.sus_as_arrow(_com_meta()),
+                                 meta={**META, "system": "SIH-RD"})
+        assert cs.sus_meta(rel)["system"] == "SIH-RD"
+
+    def test_tipo_impossivel_diz_o_que_aceita(self):
+        with pytest.raises(TypeError, match="pandas.DataFrame"):
+            cs.sus_as_relation(42)
+
+    def test_e_o_caminho_que_o_sus_export_indica(self, tmp_path):
+        df = pd.DataFrame({"a": [1, 2]})
+        with pytest.raises(TypeError) as exc:
+            cs.sus_export(df, tmp_path / "x.parquet")
+        assert "sus_as_relation" in str(exc.value)
+        p = cs.sus_export(cs.sus_as_relation(df), tmp_path / "x.parquet")
+        assert cs.sus_data_read(p, verbose=False).count("*").fetchone()[0] == 2

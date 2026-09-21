@@ -15,11 +15,12 @@ Two deliberate divergences from R, both recorded:
   encontrado para leitura". Not replicated: an abort carries no
   information at all, and the documented headline feature is precisely
   reading a directory.
-* **``read_metadata`` refuses instead of returning nothing** (M17/M19).
-  R reads a ``<base>_metadata.txt`` sidecar; this package embeds metadata
-  in the Parquet schema via ``sus_meta(rel, to_parquet=...)``. Honouring
-  the flag over the sidecar would add a third metadata mechanism, so the
-  parameter exists for signature parity and raises with a pointer.
+* **``read_metadata`` reads the embedded metadata first, and R's sidecar
+  only as a fallback** (M17/M19, decided 21/09/2026). R writes and reads a
+  ``<base>_metadata.txt`` beside the file; this package embeds it in the
+  Parquet schema. Writing the sidecar *too* would make a third mechanism,
+  so it is read and never written — which is what lets a file written in
+  R keep its provenance when it is read here.
 """
 
 from __future__ import annotations
@@ -62,6 +63,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "parallel": "DuckDB le em paralelo por conta propria; threads={n}",
         "reading": "Lendo {n} arquivo(s)...",
         "done": "Carregados {n_cols} colunas de {n} arquivo(s)",
+        "no_meta": "Nenhum arquivo carrega metadata",
     },
     "en": {
         "title": "climasus4py: Data Reader",
@@ -70,6 +72,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "parallel": "DuckDB reads in parallel on its own; threads={n}",
         "reading": "Reading {n} file(s)...",
         "done": "Loaded {n_cols} columns from {n} file(s)",
+        "no_meta": "No file carries metadata",
     },
     "es": {
         "title": "climasus4py: Lector de Datos",
@@ -78,6 +81,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "parallel": "DuckDB lee en paralelo por su cuenta; threads={n}",
         "reading": "Leyendo {n} archivo(s)...",
         "done": "Cargadas {n_cols} columnas de {n} archivo(s)",
+        "no_meta": "Ningun archivo lleva metadata",
     },
 }
 
@@ -119,24 +123,32 @@ def sus_data_read(
             ``lapply`` for ``future.apply``.
         workers: Thread count used when *parallel*. Defaults to ``4``, as
             in R. Restored afterwards.
-        read_metadata: **Not implemented**, and raises. R reads a
-            ``<base>_metadata.txt`` sidecar; this package embeds metadata
-            in the Parquet schema instead — see
-            ``sus_meta(rel, from_parquet=...)``. Wiring the flag to the
-            sidecar would make a third metadata mechanism, which is the
-            open decision in M17/M19.
+        read_metadata: Whether to restore the pipeline metadata onto the
+            relation. Defaults to ``False``, as in R.
+
+            Looked for in two places, in order: the Parquet schema, under
+            ``climasus_meta``, where ``sus_meta(rel, to_parquet=...)`` and
+            ``sus_export(include_metadata=True)`` put it; then a
+            ``<base>_metadata.txt`` sidecar, which is what
+            ``climasus4r::sus_data_export(include_metadata = TRUE)``
+            writes. The sidecar is **read and never written** — see M19.
+
+            With several files, the metadata of the **first** that carries
+            any is used, and a warning names it when more than one does.
+            Metadata describes one pipeline, and merging several would
+            describe none of them.
         lang: Message language — ``"pt"`` (default), ``"en"`` or
             ``"es"``.
         verbose: Whether to print progress. Defaults to ``True``, as in
             R.
 
     Returns:
-        Lazy ``duckdb.DuckDBPyRelation`` over every file read.
+        Lazy ``duckdb.DuckDBPyRelation`` over every file read, carrying
+        ``sus_meta`` when *read_metadata* found any.
 
     Raises:
         ValueError: If no file is found, if *format* is not supported, or
             if a file's extension is one only R reads.
-        NotImplementedError: If *read_metadata* is ``True``.
 
     Example:
         >>> import climasus4py as cs
@@ -151,17 +163,6 @@ def sus_data_read(
         )
         lang = "pt"
     msg = _MESSAGES[lang]
-
-    if read_metadata:
-        raise NotImplementedError(
-            "sus_data_read(read_metadata=True) is not implemented. R reads "
-            "a '<base>_metadata.txt' sidecar written by "
-            "sus_data_export(include_metadata=TRUE); this package embeds "
-            "metadata in the Parquet schema instead, so read it with "
-            "sus_meta(from_parquet=path). Which mechanism should win is an "
-            "open API decision (M17/M19) and not something this reader "
-            "settles on its own."
-        )
 
     fmt = _normalise_format(format)
     arquivos = _collect(path, fmt, msg, verbose)
@@ -189,10 +190,103 @@ def sus_data_read(
         if anterior is not None:
             conn.execute(f"SET threads={int(anterior)}")
 
+    if read_metadata:
+        rel = _anexar_metadata(rel, arquivos, msg, verbose)
+
     if verbose:
         print("  " + msg["done"].format(n_cols=len(rel.columns),
                                         n=len(arquivos)))
     return rel
+
+
+def _anexar_metadata(
+    rel: duckdb.DuckDBPyRelation,
+    arquivos: list[Path],
+    msg: dict[str, str],
+    verbose: bool,
+) -> duckdb.DuckDBPyRelation:
+    """Attach the metadata of the first file that carries any.
+
+    Two places are looked at, in this order:
+
+    1. the Parquet schema, under ``climasus_meta`` — where
+       ``sus_meta(rel, to_parquet=...)`` and
+       ``sus_export(include_metadata=True)`` put it;
+    2. a ``<base>_metadata.txt`` sidecar, which is what
+       ``climasus4r::sus_data_export(include_metadata = TRUE)`` writes.
+
+    The sidecar is **read** and never written (M17/M19): writing it too
+    would make a third mechanism, while reading it is what lets a file
+    written in R keep its provenance when it is read here.
+
+    The *first* file wins. Metadata describes a pipeline, and several
+    files read together may come from several pipelines; merging them
+    would fabricate a history that produced none of the data. When more
+    than one file carries metadata that is said out loud rather than
+    resolved quietly.
+    """
+    from ..core._stage import add_history
+    from ..core.meta import _attach_meta, sus_meta
+
+    achados: list[tuple[Path, dict]] = []
+    for f in arquivos:
+        meta: dict | None = None
+        if f.suffix.lower() == ".parquet":
+            try:
+                lido = sus_meta(from_parquet=f)
+                meta = sus_meta(lido) if lido is not None else None
+            except Exception:
+                meta = None
+        if not meta:
+            meta = _ler_sidecar(f)
+        if meta:
+            achados.append((f, meta))
+
+    if not achados:
+        if verbose:
+            print("  " + msg["no_meta"])
+        return rel
+
+    if len(achados) > 1:
+        warnings.warn(
+            f"sus_data_read: {len(achados)} of the {len(arquivos)} files "
+            f"carry metadata, and it is taken from the first, "
+            f"{achados[0][0].name}. Metadata describes one pipeline, and "
+            f"merging several would describe none of them; read the files "
+            f"separately if their provenance matters.",
+            UserWarning,
+            stacklevel=3,
+        )
+
+    origem, meta = achados[0]
+    rel = _attach_meta(rel, dict(meta))
+    return add_history(rel, f"sus_data_read(read_metadata from {origem.name})")
+
+
+def _ler_sidecar(caminho: Path) -> dict[str, str] | None:
+    """Read R's ``<base>_metadata.txt``: one ``chave: valor`` per line.
+
+    Same shape R parses on the way in — ``readLines``, then split on the
+    first colon. A line with no colon is skipped rather than failing the
+    read: the file is a convenience, and half of it is worth more than an
+    exception.
+    """
+    lado = caminho.with_name(caminho.stem + "_metadata.txt")
+    if not lado.is_file():
+        return None
+    try:
+        texto = lado.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    saida: dict[str, str] = {}
+    for linha in texto.splitlines():
+        if ":" not in linha:
+            continue
+        chave, valor = linha.split(":", 1)
+        chave = chave.strip()
+        if chave:
+            saida[chave] = valor.strip()
+    return saida or None
 
 
 def _normalise_format(format: str | None) -> str | None:

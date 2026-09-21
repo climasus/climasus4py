@@ -173,3 +173,80 @@ def sus_as_duckdb(
         _attach_meta(out, meta)
         add_history(out, f"Materialised as DuckDB table: {name}")
     return out
+
+
+def sus_as_relation(
+    data: Any,
+    *,
+    meta: dict[str, Any] | None = None,
+) -> duckdb.DuckDBPyRelation:
+    """Turn a DataFrame or Arrow table into a lazy DuckDB relation.
+
+    The way *into* the package, closing a family that until now only went
+    out: :func:`sus_as_arrow` and :func:`sus_as_duckdb` both take a
+    relation, and nothing took one back. The only route was
+    ``get_connection().from_df(df)``, from ``climasus4py.core.engine`` —
+    an internal module that is not in ``__all__``, which is why
+    :func:`sus_export`'s refusal had to quote an internal call to be
+    useful at all (M115).
+
+    Every entry point in this package is lazy on purpose, so a
+    ``pandas.DataFrame`` is refused at the door rather than converted
+    behind the caller's back. That is the right boundary; it was just
+    missing a gate. The conversion here is explicit — the caller says
+    "make this a relation" and then works lazily from there.
+
+    An Arrow table carrying ``climasus_meta`` in its schema, as
+    :func:`sus_as_arrow` writes it, comes back with that metadata
+    attached, so ``sus_as_arrow`` and this function round-trip.
+
+    Args:
+        data: A ``pandas.DataFrame``, a ``pyarrow.Table``, or an object
+            DuckDB can register directly. A relation is returned
+            unchanged, so this is safe to call on input of either kind.
+        meta: Metadata to attach to the result. Overrides anything read
+            from an Arrow schema.
+
+    Returns:
+        Lazy ``duckdb.DuckDBPyRelation`` over *data*.
+
+    Raises:
+        TypeError: If *data* is not something DuckDB can read.
+
+    Example:
+        >>> import climasus4py as cs
+        >>> df = rel.df()                      # materialise to inspect
+        >>> cs.sus_export(cs.sus_as_relation(df), "out.parquet")
+    """
+    if is_relation(data):
+        return data
+
+    conn = get_connection()
+    embutida: dict[str, Any] | None = None
+
+    tipo = type(data).__name__
+    if tipo == "Table" and hasattr(data, "schema"):
+        # pyarrow.Table — read the metadata sus_as_arrow left in the
+        # schema before handing the table to DuckDB, which drops it.
+        bruto = (data.schema.metadata or {}).get(META_SCHEMA_KEY.encode())
+        if bruto:
+            try:
+                embutida = json.loads(bruto.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                embutida = None
+        rel = conn.from_arrow(data)
+    elif hasattr(data, "columns") and hasattr(data, "to_dict"):
+        rel = conn.from_df(data)
+    else:
+        try:
+            rel = conn.from_arrow(data)
+        except Exception as err:
+            raise TypeError(
+                f"sus_as_relation() cannot read {tipo}. Pass a "
+                f"pandas.DataFrame, a pyarrow.Table, or a DuckDB relation."
+            ) from err
+
+    final = meta if meta is not None else embutida
+    if final:
+        rel = _attach_meta(rel, final)
+    return rel

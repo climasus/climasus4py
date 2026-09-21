@@ -86,7 +86,7 @@ from .enrichment.socio_indicators import (
 )
 from .enrichment.spatial import sus_spatial_join
 from .io.cache import sus_cache_clear, sus_cache_info
-from .io.convert import sus_as_arrow, sus_as_duckdb
+from .io.convert import sus_as_arrow, sus_as_duckdb, sus_as_relation
 from .io.export import sus_export
 from .io.materialize import materialize
 from .io.read import sus_data_read
@@ -151,6 +151,7 @@ __all__ = [
     # sus_meta(rel, to_parquet=...) / sus_meta(rel, to_duckdb=...).
     "sus_as_arrow",
     "sus_as_duckdb",
+    "sus_as_relation",
     "sus_cache_info",
     "sus_cache_clear",
     "materialize",
