@@ -2,6 +2,165 @@
 
 ## [Unreleased]
 
+### Changed — **quebra de contrato** no `sus_pipeline`: as colunas de saída mudaram de nome
+
+**Leia se você consome a saída do `sus_pipeline` pelo nome das colunas.** O caminho rápido devolvia
+`time_group` / `state` / `count`; passou a devolver `date` / a coluna geográfica / a contagem nomeada
+por sistema e idioma (`n_obitos`, `n_deaths`, `n_muertes`). Código que indexa por `df["count"]` ou
+`df["time_group"]` para de funcionar.
+
+A migração é renomear na leitura, e vale conferir mais duas coisas junto: a **coluna de data virou
+`DATE`** — era a string `"2023-01"` — e o **total mudou**, para cima.
+
+Por que mexer: qual dos dois caminhos roda é decidido pelos argumentos, não por você, e enquanto as
+saídas diferiam cair no fallback quebrava o código a jusante. O aviso de fallback chegou a dizer
+"Results should be equivalent but slower", o que era falso em **quatro** dimensões medidas — o
+registro (M52) listava três, e a quarta só apareceu depois de fechar as outras.
+
+O caminho staged foi o alvo da convergência porque é ele que bate com o R. Medido no `climasus4r`: o
+`.data_aggregate_tibble_internal` renomeia a data para `date`, nomeia a contagem com
+`get_smart_column_name(system, "count", lang)` e escolhe a coluna geográfica por prioridade **por
+sistema** — `system_priority$SIM` é `c("ocorrencia", "residencia", ...)`, então série de mortalidade
+se agrega por local de **ocorrência**.
+
+Conferido célula a célula em SIM-DO SP 2023, para `year`, `month`, `week` e `day`.
+
+**O que não convergiu, e está dito:** `geo="state"` existe só no caminho rápido, porque o
+`sus_data_aggregate` não tem `geo` — igual ao R. O *recorte* ali também foi alinhado (o dígito de UF
+passa a vir do mesmo município que o staged usaria), e a função continua avisando quando o fallback
+não consegue honrar o nível.
+
+### Fixed — 335 óbitos voltaram para a contagem: "idade desconhecida" não é 999 anos
+
+O `sus_data_clean_encoding` carregava a **própria cópia** do decodificador de idade do DATASUS,
+escrita antes de a função compartilhada existir. As duas concordavam em tudo menos num código: `999`,
+o sentinela de **idade desconhecida**. A cópia caía no `TRY_CAST` e obtinha **999 anos**, fora da
+faixa plausível de 0 a 120 que o próprio `clean` aplica por default — e a linha era descartada.
+
+Em SIM-DO SP 2023 são **335 registros de óbito** perdidos de qualquer contagem de mortalidade, por
+não declararem a idade da pessoa. Silencioso: o `clean` não diz quantas linhas a faixa removeu.
+
+Foi encontrado medindo de onde vinha a diferença de 335 linhas entre os dois caminhos do
+`sus_pipeline` — que o M52 atribuía a deduplicação. Não era: o `CONTADOR` tem 334.303 valores
+distintos em 334.303 linhas, então a dedup não remove nada ali.
+
+Corrigido chamando o `decode_age_sql` compartilhado, que devolve `NULL` para `999` — o que o R
+devolve. Há teste de que idade desconhecida sobrevive e, como contrapartida, de que idade
+implausível de verdade (código `599`, ou seja 199 anos) continua sendo cortada. Registrado como
+**M119**.
+
+### Fixed — `wct_c` subestimava o vento por 3,6× e as flags de frio disparavam no lado ameno
+
+Duas correções nos indicadores climáticos, as duas revertendo decisões anteriores de replicar o R.
+
+**`wct_c` (M69).** O R converte o vento com `ws * 0.621371`, que é o fator **km/h → mph**, aplicado a
+uma coluna em **m/s**. A prova não precisa de referência externa: o R implementa a mesma grandeza
+física duas vezes — `wcet_c` (Environment Canada, conversão correta) e `wct_c` (NWS) — e as duas
+regressões publicadas concordam entre si a ~0,03 °C. Medido em 4.000 linhas no domínio válido:
+`|wct_c − wcet_c|` caiu de **5,83 °C** de média (máx. 10,31) para **0,0297 °C** (máx. 0,05). O erro
+corria **sempre** para o lado quente, em 100% das linhas, que é o lado perigoso numa análise de onda
+de frio.
+
+**As flags de frio (M72).** `wcet` e `wct` declaram `high_risk = -35`, que cai na cadeia do *extreme*,
+e essa flag disparava em `valor > limiar`. Para sensação térmica de frio, mais frio é pior — então a
+flag era `TRUE` em quase todo lugar e `FALSE` exatamente nos casos perigosos. No valor mais frio da
+amostra ela passou de `FALSE` para `TRUE`, e a fração de `TRUE` caiu de mais de 80% para menos de 20%.
+
+Quatro das 16 flags que o R emite como constante `FALSE` voltaram a disparar, e **só** aquelas em que
+o nome declarado resolve a questão sozinho. Das 30 colunas de flag dos 10 indicadores do R: eram 16
+constantes, 2 invertidas e 12 com informação; são **12, 0 e 18**.
+
+`R_WCT_USES_KMH_FACTOR` e `R_COLD_FLAGS_INVERTED` reproduzem o R exatamente, e é o que as fixturas de
+paridade pedem.
+
+A fórmula do **WBGT (M71)** não foi mexida: a média dos dois termos é deliberada e está na
+documentação do R. O que está errado ali é a documentação **citar** Liljegren (2008) e Bernard &
+Pourmoghani (1999) para uma fórmula que não implementa nenhum dos dois — então o conserto pedido é na
+documentação do `climasus4r`, e está anotado no código para ninguém "consertar" a fórmula.
+
+### Changed — tradução de valor por sistema: dado de SINAN saía com a escala do SIH
+
+O `categories.json` era **plano**, uma entrada por nome de coluna traduzido, enquanto o `climasus4r`
+mantém um dicionário **por sistema**. Onde dois sistemas alimentam a mesma coluna com livros de código
+diferentes, o arquivo plano só cabia um — e os dois acabaram misturados na mesma entrada.
+
+O caso concreto: `education_level` recebe `INSTRU` do **SIH** (`1` Analfabeto, `2` 1º Grau) e
+`CS_ESCOL_N` do **SINAN** (`1` "1 a 4 série incompleta EF", `2` "4 série completa EF"). A entrada
+plana tinha os códigos 1–4 com os rótulos do SIH e 0, 5–10 com os do SINAN, então **dado de SINAN saía
+rotulado com a escala do SIH**. Segunda colisão, achada no caminho: o **SIH codifica feminino como
+`3`**, não `2`.
+
+O arquivo passou a ter `_meta` + `COMMON` + dez seções por sistema, espelhando o `columns.json`. O
+conteúdo plano virou `COMMON` **na íntegra**, e há teste comparando com o arquivo de antes: sem
+`system`, o resultado é byte a byte o que era. `sus_data_standardize` repassa o `system` que já tinha
+resolvido para o passo de valor.
+
+Entrou também o que faltava no `columns.json` de `pt-es` e `pt-pt`: as seções `SIA-AD`, `SIA-AM`,
+`SIA-AQ`, `SIA-AR` e `SIA-PS`, sem as quais 62 campos do SIA não tinham nome traduzido.
+
+### Fixed — `CODESTAB` perdia o zero à esquerda em 5% das linhas
+
+O metadado publicava **uma** lista `all_numeric_columns` com 23 entradas e o importador passava
+`pd.to_numeric` em todas. As 23 eram **três** coisas: quantidade, código identificador de largura fixa
+e código categórico. Medido em SIM-DO SP 2023: **13.294 das 262.909 linhas** com `CODESTAB` (5,1%)
+saíam curtas — `10049` onde o CNES é `0010049`.
+
+A lista virou três (`schema_version` 2), com largura declarada para cada identificador. O importador
+passou a tratar as quatro famílias diferente, e o padding **só preenche, nunca corta** — truncar um
+código para caber numa largura declarada transformaria erro de metadado em perda de dado.
+
+Quatro dos categóricos — `GESTACAO`, `OBITOGRAV`, `LOCOCOR`, `ESCMAE` — **têm livro de rótulos no R** e
+estavam sendo convertidos a número. `GRAESSION`, que não é coluna de nada, saiu da lista.
+
+**Caches gravados antes desta correção têm o dano em disco.** Os quatro em uso foram reimportados:
+**40.134 códigos recuperados**, e a fração varia muito por UF — 17,6% em Sergipe contra os 5,1% de São
+Paulo. Um `climasus-data` anterior ao `schema_version` 2 faz o pacote **avisar** e usar as listas
+corrigidas embutidas, em vez de voltar a corromper calado.
+
+### Added — `sus_as_relation()`, `include_metadata` e `read_metadata`
+
+`sus_as_relation(df)` fecha a família `sus_as_*`, que só saía de relação e nunca entrava: o
+`sus_as_duckdb` e o `sus_as_arrow` recebem relação, e o único caminho de `DataFrame` para relação era
+`get_connection().from_df`, de módulo interno — tanto que a mensagem de erro do `sus_export` tinha de
+citá-lo para ser acionável.
+
+`sus_export(include_metadata=True)` embute o `sus_meta` no schema do Parquet, desviando pelo
+`sus_meta(to_parquet=)`. Default `False`, porque gravar por default custaria a materialização via
+Arrow — que é a vantagem pela qual o `sus_export` existe. Verificado que o dado gravado pelos dois
+caminhos é **idêntico**: o parâmetro troca desempenho por metadata, não por dado.
+
+`sus_data_read(read_metadata=True)` lê o embutido e cai para o sidecar `<base>_metadata.txt` do R
+quando existe. O sidecar é **lido e nunca escrito** — escrever seria um terceiro mecanismo; ler é o
+que deixa um arquivo exportado no R chegar aqui com procedência.
+
+### Added — `sus_data_read()` lê vários arquivos, e `geo_basis` diz qual recorte você quer
+
+O `sus_data_read` lia **um** arquivo; passou a aceitar arquivo, diretório recursivo, glob e lista,
+devolvendo **uma** relação preguiçosa sobre todos. Os arquivos são unidos **por nome de coluna**, como
+o `bind_rows` do R: o `read_parquet` do DuckDB une por *posição* no default, o que despejaria a coluna
+de um arquivo na do outro quando a ordem do esquema difere.
+
+`sus_climate_aggregate(geo_basis=...)` diz qual recorte geográfico usar — `"residence"`,
+`"occurrence"`, `"notification"`. Residência e ocorrência são recortes epidemiológicos **diferentes**,
+e a ordem de uma lista não deveria decidir isso em silêncio. Havia **cinco** listas de coluna de
+município no pacote, divergindo também na ordem; todas passaram a ler uma declaração única no
+`climasus-data`, então validação e detecção não podem mais discordar.
+
+### Added — o `manifest.json` do `climasus-data` é conferido na carga
+
+Era gerado e nunca verificado. Agora o `get_path` compara o md5 do arquivo pedido com o do manifest e
+**avisa** na divergência, nomeando o arquivo e dizendo o conserto. Avisa uma vez por arquivo por
+processo: aviso repetido em laço é ruído, e ruído é como um aviso de verdade passa batido.
+
+**Não aborta.** Um `climasus-data` que se recusa a carregar porque um checksum está velho transforma
+problema de inventário em pacote quebrado, e quem sente é o usuário final que não editou nada.
+`CLIMASUS_DATA_STRICT=1` eleva a erro, para CI. `verify_integrity()` confere tudo e **devolve** as
+listas, porque quem quer falhar uma build precisa delas.
+
+O diretório `viz/` entrou no manifest: o `climasus4py` lê `viz_labels.json` e `viz_config.json` em
+tempo de execução, então deixá-los fora punha dois arquivos que o pacote lê fora do contrato.
+
+
 ### Added — `sus_mod_plot_pool()` deixa de ser stub
 
 O stub dizia que **não havia `x` válido que a função pudesse receber**, porque o `sus_mod_pool` era

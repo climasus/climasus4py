@@ -131,25 +131,20 @@ def sus_data_clean_encoding(
         lo, hi = age_range
         conn = get_connection()
 
-        decoded_expr = (
-            f'CASE '
-            f'  WHEN LENGTH(TRIM("{age_col}")) = 3'
-            f'   AND SUBSTR(TRIM("{age_col}"), 1, 1) = \'5\''
-            f'    THEN 100 + TRY_CAST(SUBSTR(TRIM("{age_col}"), 2) AS INTEGER) '
-            f'  WHEN LENGTH(TRIM("{age_col}")) = 3'
-            f'   AND SUBSTR(TRIM("{age_col}"), 1, 1) = \'4\''
-            f'    THEN TRY_CAST(SUBSTR(TRIM("{age_col}"), 2) AS INTEGER) '
-            f'  WHEN LENGTH(TRIM("{age_col}")) = 3'
-            f'   AND SUBSTR(TRIM("{age_col}"), 1, 1) = \'3\''
-            f'    THEN 0 '
-            f'  WHEN LENGTH(TRIM("{age_col}")) = 3'
-            f'   AND SUBSTR(TRIM("{age_col}"), 1, 1) IN (\'0\', \'1\', \'2\')'
-            f'    THEN 0 '
-            f'  ELSE TRY_CAST("{age_col}" AS INTEGER) '
-            f'END'
-        )
+        # The SHARED decoder, and not a copy of it (M119).
+        #
+        # This used to hold its own inline CASE, written before
+        # `decode_age_sql` existed, and the two disagreed on exactly one
+        # code: `999`, the DATASUS sentinel for *unknown age*. The copy
+        # here fell through to `TRY_CAST` and got **999 years**, which is
+        # outside any plausible range, so the row was dropped — 335 real
+        # death records on SIM-DO SP 2023, discarded for not saying how
+        # old the person was. The shared function returns NULL for it,
+        # which is what R returns and what the filter below keeps.
+        from ..utils.data import decode_age_sql
 
-        rel = conn.sql(f'SELECT *, ({decoded_expr}) AS __age_years FROM rel')
+        rel = conn.sql(
+            f"SELECT *, ({decode_age_sql(age_col)}) AS __age_years FROM rel")
         rel = rel.filter(
             f'__age_years IS NULL OR (__age_years >= {lo} AND __age_years <= {hi})'
         )

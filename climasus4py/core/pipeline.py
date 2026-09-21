@@ -27,13 +27,37 @@ from .variables import _age_breaks_for_preset, sus_data_create_variables
 # Fast path helpers (mirrors R pipeline-fast.R)
 # ---------------------------------------------------------------------------
 
-_TIME_EXPR = {
-    "year": "EXTRACT(YEAR FROM __date)",
-    "quarter": "EXTRACT(YEAR FROM __date) || '-Q' || EXTRACT(QUARTER FROM __date)",
-    "month": "STRFTIME(__date, '%Y-%m')",
-    "week": "STRFTIME(__date, '%Y-W%W')",
-    "day": "CAST(__date AS VARCHAR)",
-}
+#: Time units the fast path can serve, mapped to the SAME truncation
+#: ``sus_data_aggregate`` uses (D3).
+#:
+#: This used to hold its own expressions, and they produced a *label*
+#: rather than a date: ``STRFTIME(__date, '%Y-%m')`` gave the string
+#: ``"2023-01"`` where the staged path gave the DATE ``2023-01-01``. A
+#: fourth difference between the two paths, and one M52 did not list —
+#: measured after the other three were closed. It matters downstream:
+#: date arithmetic, resampling and plotting all work on one and not the
+#: other.
+#:
+#: The staged path is the one that matches R, whose ``agg_date`` comes
+#: from ``lubridate::floor_date()`` and is a Date. Reusing
+#: ``AGG_TIME_EXPRS`` rather than writing a third copy of the truncation
+#: also inherits its Sunday-week fix (M95), which a copy would have
+#: missed.
+def _time_expr(time: str) -> str | None:
+    """The truncation for *time*, in terms of the ``__date`` alias."""
+    from .aggregate import AGG_TIME_EXPRS
+
+    modelo = AGG_TIME_EXPRS.get(time)
+    if modelo is None:
+        return None
+    return modelo.replace("{date}", "__date")
+
+
+#: Which units the fast path handles. A unit ``sus_data_aggregate``
+#: supports but that needs more than a truncation (``season``) is left to
+#: the staged path.
+_FAST_TIME_UNITS = ("year", "quarter", "month", "week", "day",
+                    "5 days", "14 days")
 
 
 def _can_fast_path(
@@ -45,7 +69,7 @@ def _can_fast_path(
     """Check if fast path is usable (same constraints as R)."""
     if age_group is not None or epi_week:
         return False
-    if time not in _TIME_EXPR:
+    if time not in _FAST_TIME_UNITS:
         return False
     return geo in ("state", "municipality")
 
@@ -70,6 +94,22 @@ def _date_parse_sql(col: str) -> str:
     )
 
 
+#: Key columns the fast path deduplicates on — the same candidates
+#: ``sus_data_clean_encoding`` uses, so the two paths remove the same rows.
+#:
+#: Removes nothing on the data measured (SIM-DO SP 2023 has 334,303
+#: distinct CONTADOR in 334,303 rows). Applied anyway because the staged
+#: path applies it, and a total that depends on which path ran is the
+#: defect being fixed — not because it is known to matter here.
+_DEDUP_KEYS = ("CONTADOR", "NUMERODO", "NUMERODN", "N_AIH", "NU_NOTIFIC",
+               "counter", "record_id")
+
+#: The plausibility range ``sus_data_clean_encoding`` applies by default,
+#: and therefore what the staged path applies whether or not the caller
+#: asked for an age filter.
+_AGE_PLAUSIBLE = (0, 120)
+
+
 def _build_fast_sql(
     parquet_paths: list[Path],
     groups: list[str] | None,
@@ -77,8 +117,37 @@ def _build_fast_sql(
     age_max: int | None,
     time: str,
     geo: str,
+    system: str | None = None,
+    lang: str = "en",
 ) -> str | None:
     """Build a single CTE query that does filter+aggregate in one shot.
+
+    Emits the **same schema, the same geographic cut and the same totals**
+    as the staged path since 21/09/2026 (D3). The three used to differ,
+    all three measured on SIM-DO SP 2023:
+
+    * schema — ``time_group``/``state``/``count`` against
+      ``date``/``occurrence_municipality_code``/``n_deaths``, so anything
+      downstream broke the moment the pipeline fell back;
+    * geography — this path derived the state from the *residence*
+      municipality while the staged path used *occurrence*;
+    * totals — 334,303 against 333,968. M52 recorded that gap as what
+      deduplication removes; it is not. ``CONTADOR`` has 334,303 distinct
+      values in 334,303 rows on that data, so dedup removes nothing, and
+      the 335 rows come entirely from ``sus_data_clean_encoding``'s
+      default ``age_range=(0, 120)``. Both are applied here now, dedup
+      because the staged path applies it and not because it is known to
+      bite.
+
+    The staged path is the one that matches R, which is why it is the
+    target rather than the other way round. R's
+    ``.data_aggregate_tibble_internal`` renames its date column to
+    ``date``, names the count with
+    ``get_smart_column_name(system, "count", lang)`` — ``n_obitos`` in pt,
+    ``n_deaths`` in en, ``n_muertes`` in es — and picks the geographic
+    column from a **per-system** priority: ``system_priority$SIM`` is
+    ``c("ocorrencia", "residencia", ...)``, so a mortality series is
+    aggregated by place of occurrence.
 
     Returns the SQL string, or None if required columns are missing.
     """
@@ -87,8 +156,9 @@ def _build_fast_sql(
         detect_age_column,
         detect_cause_column,
         detect_date_column,
-        detect_geo_column,
     )
+    from .aggregate import _agg_detect_geo_col, _agg_smart_name
+    from .standardize import _load_column_dict
 
     conn = get_connection()
 
@@ -97,24 +167,31 @@ def _build_fast_sql(
     columns = test_rel.columns
 
     date_col = detect_date_column(columns)
-    geo_col = detect_geo_column(columns, level=geo)
     if not date_col:
         return None
 
-    # Output column name is always ``geo`` ("state" / "municipality") so the
-    # fast path's schema is stable regardless of which DATASUS column was
-    # detected in the source — matches the staged pipeline's contract.
-    geo_alias = geo
-    if not geo_col and geo == "state":
-        muni_col = detect_geo_column(columns, level="municipality")
-        if muni_col:
-            geo_sql = f'SUBSTR(CAST("{muni_col}" AS VARCHAR), 1, 2)'
-        else:
+    # The SAME per-system priority the staged path uses, so the two agree
+    # on the epidemiological cut and not merely on a column name.
+    muni_col = _agg_detect_geo_col(list(columns), system)
+
+    if geo == "state":
+        # No staged equivalent: `sus_data_aggregate` has no `geo`, matching
+        # R, so a state level exists only here. Derived from whichever
+        # municipality column the staged path would have used, so at least
+        # the CUT agrees even though the level cannot.
+        if not muni_col:
             return None
-    elif geo_col:
-        geo_sql = f'CAST("{geo_col}" AS VARCHAR)'
+        geo_alias = "state"
+        geo_sql = f'SUBSTR(CAST("{muni_col}" AS VARCHAR), 1, 2)'
     else:
-        return None
+        if not muni_col:
+            return None
+        # Named as the staged path names it: the translated name, because
+        # the staged path standardises before aggregating and this path
+        # reads raw parquet.
+        traduzidos = _load_column_dict(lang, system=system)
+        geo_alias = traduzidos.get(muni_col, muni_col)
+        geo_sql = f'CAST("{muni_col}" AS VARCHAR)'
 
     # --- Build SELECT for base CTE (only needed columns) ---
     select_parts = [f'{_date_parse_sql(date_col)} AS __date']
@@ -139,17 +216,31 @@ def _build_fast_sql(
             codes_str = ", ".join(sql_string(c) for c in prefixes)
             where_parts.append(f"__cid IN ({codes_str})")
 
-    # Age filter
-    if age_min is not None or age_max is not None:
-        age_col = detect_age_column(columns)
-        if age_col:
-            from ..utils.data import decode_age_sql
-            decoded = decode_age_sql(age_col)
-            select_parts.append(f'({decoded}) AS __age')
-            if age_min is not None:
-                where_parts.append(f"__age >= {int(age_min)}")
-            if age_max is not None:
-                where_parts.append(f"__age <= {int(age_max)}")
+    # Age: the caller's filter, and the plausibility range the staged path
+    # applies whether or not the caller asked for one.
+    #
+    # THIS is what made the totals differ, and not deduplication as M52
+    # recorded. Measured on SIM-DO SP 2023: CONTADOR has 334,303 distinct
+    # values in 334,303 rows, so dedup removes NOTHING there; the 335-row
+    # gap comes entirely from `sus_data_clean_encoding`'s default
+    # `age_range=(0, 120)` dropping records whose decoded age falls
+    # outside it. Checked by running the clean step with dedup and the
+    # range switched on one at a time.
+    age_col = detect_age_column(columns)
+    if age_col:
+        from ..utils.data import decode_age_sql
+        decoded = decode_age_sql(age_col)
+        select_parts.append(f'({decoded}) AS __age')
+        # Nulls survive: the staged path's range filter drops a row whose
+        # age is out of range, not one whose age is unknown.
+        where_parts.append(
+            f"(__age IS NULL OR (__age >= {_AGE_PLAUSIBLE[0]} "
+            f"AND __age <= {_AGE_PLAUSIBLE[1]}))"
+        )
+        if age_min is not None:
+            where_parts.append(f"__age >= {int(age_min)}")
+        if age_max is not None:
+            where_parts.append(f"__age <= {int(age_max)}")
 
     # --- Assemble ---
     paths_sql = ", ".join(
@@ -157,14 +248,31 @@ def _build_fast_sql(
     )
     source = f"read_parquet([{paths_sql}], union_by_name=True)"
 
-    time_sql = _TIME_EXPR.get(time, "STRFTIME(__date, '%Y-%m')")
+    time_sql = _time_expr(time)
+    if time_sql is None:
+        return None
+    conta = _agg_smart_name(system, "count", lang)
+
+    # Deduplication, on the same keys `sus_data_clean_encoding` uses. The
+    # staged path deduplicates because it runs that function; this path,
+    # being one CTE over the parquet, did not — 335 rows of difference on
+    # SIM-DO SP 2023. Costs a window function, and a total that depends on
+    # which path happened to run costs more.
+    chaves = [c for c in _DEDUP_KEYS if c in columns]
+    if chaves:
+        particao = ", ".join(f'"{c}"' for c in chaves)
+        select_parts.append(
+            f"ROW_NUMBER() OVER (PARTITION BY {particao} "
+            f"ORDER BY {particao}) AS __rn"
+        )
+        where_parts.append("__rn = 1")
 
     sql = (
         f"WITH base AS ("
         f"  SELECT {', '.join(select_parts)}"
         f"  FROM {source}"
         f") "
-        f'SELECT {time_sql} AS time_group, "{geo_alias}", COUNT(*) AS count '
+        f'SELECT {time_sql} AS date, "{geo_alias}", COUNT(*) AS "{conta}" '
         f"FROM base "
         f"WHERE {' AND '.join(where_parts)} "
         f"GROUP BY 1, 2 ORDER BY 1, 2"
@@ -207,31 +315,41 @@ def sus_pipeline(
     falls back to the staged pipeline for complex operations such as
     custom age groups or epidemiological-week breakdowns.
 
-    The two paths do not produce the same table:
-        This matters because which one runs is decided for you, from the
-        arguments. All three differences are measured; see **M52**.
+    The two paths produce the same table:
+        Which one runs is decided for you, from the arguments, so they
+        had better agree. Until 21/09/2026 they did not, in four measured
+        ways (M52, and the fourth was not in the record). The staged path
+        was the one matching R, so it is what the fast path was brought
+        onto — D3.
 
-        * **Schema.** Fast returns ``time_group`` / ``state`` /
-          ``count``; staged returns ``date`` / the detected geographic
-          column / ``n_deaths``. The fast path kept the schema
-          ``sus_data_aggregate`` had before it was realigned to R, and
-          nobody migrated it — which is also why *geo* has nowhere to go
-          on the staged path.
-        * **Geography.** Fast derives the state from the first two digits
-          of the residence municipality code. Staged aggregates by
-          whichever geographic column it detects — for SIM-DO the
-          *occurrence* municipality. Residence and occurrence are
-          different epidemiological cuts, not different spellings.
-        * **Totals.** Staged runs :func:`sus_data_clean_encoding` and so
-          deduplicates; the fast path, being one CTE over the parquet,
-          does not. On SP 2023: 334,303 deaths against 333,968 — 335
-          rows, exactly what the deduplication removes.
+        * **Schema.** Both return ``date`` / the geographic column /
+          the count named per system and language: ``n_obitos`` in pt,
+          ``n_deaths`` in en, ``n_muertes`` in es, from R's
+          ``get_smart_column_name``. The fast path used to return
+          ``time_group`` / ``state`` / ``count``.
+        * **Geography.** Both use the per-system priority
+          ``sus_data_aggregate`` uses, which for SIM starts at
+          *occurrence* — R's ``system_priority$SIM`` is
+          ``c("ocorrencia", "residencia", ...)``. The fast path used to
+          derive the state from the *residence* municipality: a different
+          epidemiological cut, not a different spelling.
+        * **Totals.** Both return 334,303 on SIM-DO SP 2023. The staged
+          path used to return 333,968, and the 335-row gap was **not**
+          what M52 recorded. ``CONTADOR`` has no duplicates in that
+          file, so deduplication removes nothing; the rows were lost
+          because ``clean.py`` carried its own copy of the age decoder,
+          which read the *unknown-age* sentinel ``999`` as 999 years and
+          dropped the record. See M119.
+        * **Date type.** Both return a real ``DATE``. The fast path used
+          to return the label ``"2023-01"``, which no date arithmetic
+          accepts.
 
-        Deciding which behaviour is canonical means changing a public
-        signature (``sus_data_aggregate`` has no ``geo``, matching R), so
-        it is the coordinator's call. Until then this function warns on
-        fallback and on a *geo* it cannot honour, rather than returning a
-        differently shaped table in silence.
+        Verified cell by cell for year, month, week and day. What did
+        **not** converge is ``geo="state"``: ``sus_data_aggregate`` has no
+        ``geo``, matching R, so that level exists only on the fast path
+        and the function still warns when a fallback cannot honour it.
+        The *cut* agrees even there — the state digits come from the same
+        municipality column the staged path would have used.
 
     Args:
         system: SUS system identifier, e.g. ``"SIM-DO"`` or
@@ -311,7 +429,8 @@ def sus_pipeline(
 
         if parquet_paths:
             sql = _build_fast_sql(
-                parquet_paths, group_list, age_min, age_max, time, geo
+                parquet_paths, group_list, age_min, age_max, time, geo,
+                system=system, lang=lang,
             )
             if sql:
                 conn = get_connection()
@@ -328,28 +447,14 @@ def sus_pipeline(
                     # worse than no warning: the caller stops checking.
                     warnings.warn(
                         f"sus_pipeline: fast path failed ({exc!r}); falling "
-                        "back to the staged pipeline. The two paths are NOT "
-                        "equivalent — expect three differences (M52). "
-                        "(1) Schema: the fast path returns "
-                        "time_group/state/count, the staged path returns "
-                        "date/<detected geographic column>/n_deaths, so "
-                        "downstream code keyed on the fast path's names "
-                        "breaks here. "
-                        "(2) Geography: the fast path derives the state from "
-                        "the first two digits of the residence municipality "
-                        "code; the staged path aggregates by whichever "
-                        "geographic column it detects, which for SIM-DO is "
-                        "the occurrence municipality — a different "
-                        "epidemiological cut, not just a different name. "
-                        "(3) Totals: the staged path runs "
-                        "sus_data_clean_encoding and therefore deduplicates, "
-                        "while the fast path is a single CTE over the parquet "
-                        "and does not. On SP 2023 that is 334,303 deaths "
-                        "against 333,968 — 335 rows, exactly what the "
-                        "deduplication removes. "
-                        "Which behaviour is correct is an API decision for "
-                        "the coordinator; until then, compare before relying "
-                        "on a fallback result.",
+                        "back to the staged pipeline. The two paths now "
+                        "return the SAME table — schema, geographic cut, "
+                        "totals and the date column's type — verified "
+                        "cell by cell on SIM-DO SP 2023 for year, month, "
+                        "week and day (D3). The one thing the staged path "
+                        "cannot do is geo='state': sus_data_aggregate has "
+                        "no geo, matching R, so the fallback aggregates by "
+                        "municipality and warns separately about that.",
                         UserWarning,
                         stacklevel=2,
                     )

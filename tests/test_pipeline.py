@@ -655,7 +655,9 @@ class TestFastSqlRunsOnTypedDates:
         assert sql is not None
 
         df = get_connection().sql(sql).df()
-        assert df["count"].sum() == 3, (
+        # A contagem sai "n" e nao "count": sem `system`, o
+        # get_smart_column_name do R cai em "n" (D3/M52).
+        assert df["n"].sum() == 3, (
             "toda data virou NULL e o WHERE __date IS NOT NULL zerou o resultado"
         )
         assert set(df["state"]) == {"35", "33"}
@@ -769,7 +771,8 @@ class TestBuildFastSql:
         conn = get_connection()
         result_df = conn.sql(sql).df()
         assert len(result_df) > 0
-        assert "count" in result_df.columns
+        assert "n" in result_df.columns, (
+            "sem system, o nome da contagem e o fallback do R: n")
 
 
 # ---------------------------------------------------------------------------
@@ -831,22 +834,24 @@ class TestPipelineFastPath:
 
 
 class TestAvisoDeFallbackNaoPrometeEquivalencia:
-    """O aviso de fallback dizia que os caminhos sao equivalentes (M52).
+    """O aviso de fallback nao pode mentir sobre o que muda (M52).
 
-    A frase era, literal: "Results should be equivalent but slower". E
-    falsa em tres dimensoes medidas -- esquema de saida, dimensao
-    geografica e total de registros -- e prometer equivalencia num aviso
-    e pior que nao avisar, porque quem le para de conferir.
+    A frase original era, literal: "Results should be equivalent but
+    slower". Era falsa em QUATRO dimensoes medidas -- esquema de saida,
+    recorte geografico, total de registros e o TIPO da coluna de data --
+    e prometer equivalencia num aviso e pior que nao avisar, porque quem
+    le para de conferir.
 
-    O esquema divergiu por heranca: o fast path guarda o esquema que o
-    sus_data_aggregate tinha ANTES de ser realinhado ao R
-    (time_group/state/count), e ninguem migrou. O total difere por 335
-    linhas em SP 2023 porque o staged roda o sus_data_clean_encoding e
-    deduplica, e o fast, sendo um CTE unico sobre o parquet, nao.
+    Em 21/09/2026 a D3 convergiu os dois caminhos: as quatro diferencas
+    foram fechadas e ha teste comparando as tabelas celula a celula em
+    tests/test_pipeline_convergencia.py. Entao o aviso mudou de assunto
+    -- deixou de enumerar divergencias e passou a dizer que as saidas
+    coincidem, nomeando a UNICA coisa que nao converge: geo='state', que
+    o sus_data_aggregate nao tem porque o R nao tem.
 
-    Unificar o esquema muda assinatura publica -- o sus_data_aggregate
-    nao tem `geo`, igual ao R -- entao a decisao e do coordenador. O que
-    esta sob nosso controle e o aviso nao mentir.
+    Um aviso que enumerasse divergencias inexistentes seria tao ruim
+    quanto o que prometia equivalencia inexistente, e por isso esta
+    classe cobra o texto novo em vez de so proibir o antigo.
     """
 
     @staticmethod
@@ -895,31 +900,55 @@ class TestAvisoDeFallbackNaoPrometeEquivalencia:
         texto = " ".join(msgs)
 
         assert "should be equivalent" not in texto
-        assert "NOT" in texto and "equivalent" in texto
+        # Antes esta linha cobrava "NOT ... equivalent", porque o aviso
+        # enumerava divergencias. Fechadas as quatro (D3), o aviso passou
+        # a afirmar a coincidencia -- e afirmar isso e uma promessa tao
+        # forte quanto a antiga, entao o que a sustenta e o teste celula a
+        # celula em tests/test_pipeline_convergencia.py, citado aqui para
+        # que os dois nao se desencontrem.
+        assert "SAME table" in texto
+        assert "cell by cell" in texto
 
     @pytest.mark.parametrize("marca", [
-        "time_group",        # o esquema do fast
-        "n_deaths",          # o esquema do staged
-        "occurrence",        # residencia contra ocorrencia
-        "clean_encoding",    # a dedup ausente no fast
-        "334,303",           # o total medido nos dois
-        "333,968",
-        "M52",
+        "SAME table",        # o que o aviso afirma agora
+        "schema",            # as quatro dimensoes conferidas
+        "geographic cut",
+        "totals",
+        "type",
+        "cell by cell",      # como foi conferido
+        "geo='state'",       # a unica coisa que nao converge
+        "D3",
     ])
-    def test_o_aviso_nomeia_cada_diferenca(self, tmp_path, monkeypatch, marca):
-        """Um aviso util diz o que muda, nao so que algo muda."""
+    def test_o_aviso_nomeia_o_que_conferiu(self, tmp_path, monkeypatch, marca):
+        """Um aviso util diz o que sabe, e como sabe."""
         msgs, _ = self._dispara_fallback(tmp_path, monkeypatch)
 
         assert marca in " ".join(msgs)
 
-    def test_a_divergencia_esta_no_docstring(self):
+    @pytest.mark.parametrize("sumiu", ["time_group", "333,968",
+                                       "should be equivalent"])
+    def test_o_aviso_nao_enumera_mais_divergencia_que_nao_existe(
+            self, tmp_path, monkeypatch, sumiu):
+        """Divergencia fechada nao pode seguir sendo anunciada.
+
+        time_group era o nome antigo da coluna do fast path, e 333.968 o
+        total antigo do staged. Anunciar os dois faria quem le conferir
+        uma diferenca que nao existe mais -- o mesmo desperdicio de
+        atencao, na direcao oposta.
+        """
+        msgs, _ = self._dispara_fallback(tmp_path, monkeypatch)
+
+        assert sumiu not in " ".join(msgs)
+
+    def test_a_convergencia_esta_no_docstring(self):
         """Quem le a API descobre antes de cair no fallback."""
         from climasus4py.core.pipeline import sus_pipeline
 
         doc = sus_pipeline.__doc__ or ""
 
-        assert "do not produce the same table" in doc
-        assert "M52" in doc
+        assert "produce the same table" in doc
+        assert "do not produce the same table" not in doc
+        assert "M52" in doc and "M119" in doc
 
 
 class TestPipelineStagedOutput:
