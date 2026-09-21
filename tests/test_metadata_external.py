@@ -202,3 +202,114 @@ class TestSeasonalPatternsConfig:
 
         with pytest.raises(ValueError, match="hemisphere"):
             cs_vars(rel, hemisphere="hemisferio_inexistente", verbose=False)
+
+
+class TestCategoryKeysReachable:
+    """Nenhuma chave de categories.json pode ficar orfa (M7).
+
+    A traducao de valor e aplicada DEPOIS do rename de coluna, e a busca
+    e pelo nome JA TRADUZIDO. Uma chave cujo nome nenhuma coluna assume
+    depois do rename nunca e consultada: o codigo cru do DATASUS
+    (9, 4, 3) passa para o usuario em silencio, sem erro e sem aviso.
+
+    Foi assim que 39 chaves ficaram mudas nos tres dicionarios, entre
+    elas local_obito (LOCOCOR) e escolaridade_agregada_falecido
+    (ESCFALAGR1), cujos nomes corretos eram local_ocorrencia_obito e
+    escolaridade_falecido_agregada. Medido no SIM-DO de SP em 2023:
+    1.674.124 celulas passaram a traduzir depois da correcao.
+
+    Este teste tambem e o guarda que faltava quando eu renomeei
+    mother_education_level para mother_education: ESCMAE vira
+    mother_education no SIM e mother_education_level no SINASC, entao o
+    renome consertou um sistema e emudeceu o outro. As duas chaves
+    precisam existir, e e isso que o teste exige.
+
+    As excecoes sao chaves-fantasma que o PROPRIO R carrega: o dicionario
+    embutido do climasus4r tem entradas com nomes que nao existem no
+    DATASUS (TERCEIRO, YES_NO_FLAG, UNIDADE_IDADE, SI_NO_FLAG,
+    SIM_NAO_FLAG), inalcancaveis tambem la. Ficam replicadas de
+    proposito, e listadas aqui para que uma orfa NOVA apareca como falha.
+    """
+
+    FANTASMAS = {
+        "pt-en": {"age_unit", "terceiro", "yes_no_flag", "yes_no_ignored"},
+        "pt-es": {"age_unit", "gestor_tp", "si_no_flag", "terceiro",
+                  "vincprev", "yes_no_ignored"},
+        "pt-pt": {"sim_nao_flag", "sim_nao_ignorado", "terceiro",
+                  "unidade_idade"},
+    }
+
+    @staticmethod
+    def _alvos(lang):
+        """Todo nome de coluna que existe DEPOIS do rename, em qualquer sistema."""
+        from climasus4py.utils.data import load_json
+
+        cols = load_json(f"dictionaries/{lang}/columns.json")
+        nomes = set()
+        for secao, mapa in cols.items():
+            if secao.startswith("_") or not isinstance(mapa, dict):
+                continue
+            nomes.update(v for v in mapa.values() if isinstance(v, str))
+        return nomes
+
+    @staticmethod
+    def _categorias(lang):
+        from climasus4py.utils.data import load_json
+
+        cats = load_json(f"dictionaries/{lang}/categories.json")
+        return {k: v for k, v in cats.items() if not k.startswith("_")}
+
+    def test_toda_chave_de_categoria_e_nome_de_coluna(self):
+        import pytest
+
+        for lang, fantasmas in self.FANTASMAS.items():
+            try:
+                cats, alvos = self._categorias(lang), self._alvos(lang)
+            except FileNotFoundError:
+                pytest.skip(f"climasus-data sem dictionaries/{lang}")
+            orfas = sorted(set(cats) - alvos - fantasmas)
+            assert not orfas, (
+                f"{lang}: chave de categoria que nenhuma coluna alcanca, "
+                f"logo o codigo cru do DATASUS passa em silencio: {orfas}"
+            )
+
+    def test_fantasmas_declaradas_ainda_existem(self):
+        """A lista de excecoes nao pode envelhecer sem ninguem notar."""
+        import pytest
+
+        for lang, fantasmas in self.FANTASMAS.items():
+            try:
+                cats = self._categorias(lang)
+            except FileNotFoundError:
+                pytest.skip(f"climasus-data sem dictionaries/{lang}")
+            sumidas = sorted(fantasmas - set(cats))
+            assert not sumidas, (
+                f"{lang}: declarada como fantasma mas ja nao esta no "
+                f"dicionario -- tire da lista: {sumidas}"
+            )
+
+    def test_escmae_traduz_nos_dois_sistemas(self):
+        """ESCMAE vira nome diferente no SIM e no SINASC; os dois precisam.
+
+        Fixa o caso concreto que meu renome anterior quebrou.
+        """
+        import pytest
+
+        from climasus4py.utils.data import load_json
+
+        try:
+            cols = load_json("dictionaries/pt-en/columns.json")
+            cats = self._categorias("pt-en")
+        except FileNotFoundError:
+            pytest.skip("climasus-data sem dictionaries/pt-en")
+
+        destinos = {secao: mapa["ESCMAE"]
+                    for secao, mapa in cols.items()
+                    if isinstance(mapa, dict) and "ESCMAE" in mapa}
+        assert destinos, "ESCMAE saiu do columns.json"
+        for secao, destino in destinos.items():
+            assert destino in cats, (
+                f"ESCMAE vira {destino!r} no {secao} e nao ha dicionario de "
+                f"categoria com esse nome: a escolaridade da mae sairia como "
+                f"codigo cru nesse sistema"
+            )

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import duckdb
 import pandas as pd
+import pytest
 
 from climasus4py.utils.inmet_parser import (
     _build_select_clause,
@@ -229,12 +230,37 @@ class TestParseData:
         df = _parse_df(path)
         assert "sr_kj_m2" in df.columns
 
-    def test_qc_solar_nighttime_zero(self, tmp_path):
-        """Nighttime solar radiation is forced to zero in SQL."""
+    def test_nao_ha_regra_de_noite_para_radiacao(self, tmp_path):
+        """A radiacao medida e preservada, inclusive de madrugada (M28).
+
+        Este teste afirmava o oposto -- que o parser forca a zero toda
+        radiacao das 18h as 05h. A regra existia e estava errada: os
+        timestamps do INMET sao UTC (o docstring do modulo diz isso) e o
+        Brasil e UTC-3, entao a janela cobria 15h-02h LOCAL e jogava fora
+        a tarde inteira.
+
+        Medido em SP 2023 contra o R, com join por (station_code, date):
+        65.049 linhas em que o Python devolvia 0,0 e o R devolvia medicao
+        positiva, media 881 kJ/m2 e maximo 6471. A media da coluna dava
+        958,29 contra 1270,22 do R -- 33% -- enquanto contagem de
+        nao-nulos, minimo e maximo batiam, que e por que a divergencia
+        parecia inexplicavel.
+
+        O R nao tem regra equivalente: o .verify_solar_radiation calcula a
+        irradiancia extraterrestre por geometria solar e apenas AVISA
+        acima de 110% dela. Remover a regra e o que restaura a paridade.
+        """
         path = _write_csv(tmp_path, _MINIMAL_CSV)
         df = _parse_df(path)
+
         assert df["date"].iloc[0].hour == 0
-        assert df["sr_kj_m2"].iloc[0] == 0.0
+        assert df["sr_kj_m2"].iloc[0] == pytest.approx(125.5)
+
+    def test_os_limites_fisicos_seguem_valendo(self, tmp_path):
+        """Remover a regra de noite nao afrouxou a faixa 0-40000."""
+        from climasus4py.utils.inmet_parser import _PHYSICAL_LIMITS
+
+        assert _PHYSICAL_LIMITS["sr_kj_m2"] == (0.0, 40000.0)
 
     def test_rainfall_first_row_value(self, tmp_path):
         """Primeira linha: precipitação 0,4 → 0.4 float."""

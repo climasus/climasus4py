@@ -207,6 +207,32 @@ def sus_pipeline(
     falls back to the staged pipeline for complex operations such as
     custom age groups or epidemiological-week breakdowns.
 
+    The two paths do not produce the same table:
+        This matters because which one runs is decided for you, from the
+        arguments. All three differences are measured; see **M52**.
+
+        * **Schema.** Fast returns ``time_group`` / ``state`` /
+          ``count``; staged returns ``date`` / the detected geographic
+          column / ``n_deaths``. The fast path kept the schema
+          ``sus_data_aggregate`` had before it was realigned to R, and
+          nobody migrated it — which is also why *geo* has nowhere to go
+          on the staged path.
+        * **Geography.** Fast derives the state from the first two digits
+          of the residence municipality code. Staged aggregates by
+          whichever geographic column it detects — for SIM-DO the
+          *occurrence* municipality. Residence and occurrence are
+          different epidemiological cuts, not different spellings.
+        * **Totals.** Staged runs :func:`sus_data_clean_encoding` and so
+          deduplicates; the fast path, being one CTE over the parquet,
+          does not. On SP 2023: 334,303 deaths against 333,968 — 335
+          rows, exactly what the deduplication removes.
+
+        Deciding which behaviour is canonical means changing a public
+        signature (``sus_data_aggregate`` has no ``geo``, matching R), so
+        it is the coordinator's call. Until then this function warns on
+        fallback and on a *geo* it cannot honour, rather than returning a
+        differently shaped table in silence.
+
     Args:
         system: SUS system identifier, e.g. ``"SIM-DO"`` or
             ``"SINASC"``.
@@ -295,13 +321,35 @@ def sus_pipeline(
                         sus_export(result, output, overwrite=overwrite)
                     return result
                 except Exception as exc:
-                    # Fast path failed — warn the user before falling back so
-                    # silent divergence between fast and staged results does
-                    # not go unnoticed.
+                    # Fast path failed — say what the fallback actually
+                    # changes. This warning used to end with "Results should
+                    # be equivalent but slower", which is false in three
+                    # measured ways (M52). Promising equivalence here is
+                    # worse than no warning: the caller stops checking.
                     warnings.warn(
-                        f"sus_pipeline: fast path failed ({exc!r}); "
-                        "falling back to the staged pipeline. "
-                        "Results should be equivalent but slower.",
+                        f"sus_pipeline: fast path failed ({exc!r}); falling "
+                        "back to the staged pipeline. The two paths are NOT "
+                        "equivalent — expect three differences (M52). "
+                        "(1) Schema: the fast path returns "
+                        "time_group/state/count, the staged path returns "
+                        "date/<detected geographic column>/n_deaths, so "
+                        "downstream code keyed on the fast path's names "
+                        "breaks here. "
+                        "(2) Geography: the fast path derives the state from "
+                        "the first two digits of the residence municipality "
+                        "code; the staged path aggregates by whichever "
+                        "geographic column it detects, which for SIM-DO is "
+                        "the occurrence municipality — a different "
+                        "epidemiological cut, not just a different name. "
+                        "(3) Totals: the staged path runs "
+                        "sus_data_clean_encoding and therefore deduplicates, "
+                        "while the fast path is a single CTE over the parquet "
+                        "and does not. On SP 2023 that is 334,303 deaths "
+                        "against 333,968 — 335 rows, exactly what the "
+                        "deduplication removes. "
+                        "Which behaviour is correct is an API decision for "
+                        "the coordinator; until then, compare before relying "
+                        "on a fallback result.",
                         UserWarning,
                         stacklevel=2,
                     )

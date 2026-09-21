@@ -47,6 +47,7 @@ def set_stage(
     system: str | None = None,
     rel_type: str | None = None,
     _inherit_from: duckdb.DuckDBPyRelation | None = None,
+    extra: dict | None = None,
 ) -> duckdb.DuckDBPyRelation:
     """Record *stage* (and optional metadata) for *rel* and return it.
 
@@ -64,6 +65,10 @@ def set_stage(
         _inherit_from: Optional parent relation whose metadata should be
             inherited. Use when *rel* is a new object derived from the
             parent (e.g. after filter/project operations).
+        extra: Additional metadata keys to merge in, for the descriptive
+            fields R's ``sus_meta`` carries beyond the pipeline-stage
+            core — ``years``, ``n_stations``, ``temporal`` and so on.
+            Keys already present are overwritten; unrelated keys survive.
 
     Returns:
         The same *rel* (allows ``return set_stage(rel, "clean")``).
@@ -83,7 +88,17 @@ def set_stage(
     if not stages or stages[-1] != stage:
         stages.append(stage)
 
+    # Carry forward whatever else the metadata held. This used to rebuild
+    # the dict from the five core keys alone, so any descriptive field a
+    # reader function had attached was dropped the next time a pipeline
+    # stage was recorded.
+    merged = {k: v for k, v in existing.items()
+              if k not in ("stage", "system", "type", "stages", "history")}
+    if extra:
+        merged.update(extra)
+
     _stage_map[rel] = {
+        **merged,
         "stage":   stage,
         "system":  system    if system   is not None else existing.get("system"),
         "type":    rel_type  if rel_type is not None else existing.get("type"),

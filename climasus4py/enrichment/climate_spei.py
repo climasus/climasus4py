@@ -353,9 +353,26 @@ def _spei_transform(x_full: np.ndarray, x_calib: np.ndarray) -> np.ndarray:
         return spei
 
     xv = x_full[non_na]
-    # findInterval(x, sorted_calib, rightmost.closed = TRUE): count of
-    # calibration values <= x (numpy searchsorted, side="right").
+    # findInterval(x, sorted_calib, rightmost.closed = TRUE).
+    #
+    # searchsorted(side="right") alone is NOT that function. It counts
+    # calibration values <= x, which matches R everywhere except at the
+    # single point the flag exists for: when x equals the largest
+    # calibration value, `rightmost.closed = TRUE` treats the last
+    # interval as closed and returns n - 1, not n. Verified against R,
+    # including the tie case -- for vec = c(1,2,3,4,4), x = 4 gives 4
+    # with the flag and 5 without, and x > vec[n] gives n either way.
+    #
+    # The consequence of missing it was not subtle: the wettest month of
+    # every municipality got rank n, so p = (n - 0.5) / n, which is the
+    # exact mirror of the minimum's 0.5 / n. Every group's maximum came
+    # out at -(global minimum) -- one identical number, 2.561682 on a
+    # 96-month series, where R gives 2.153875. The mean landed on
+    # exactly 0.0000 and the range was perfectly symmetric, which is the
+    # tell. Only the upper extreme was affected; the dry side, which is
+    # what a drought index is read for, matched all along. See M43.
     ranks = np.searchsorted(calib_sorted, xv, side="right")
+    ranks = np.where(xv == calib_sorted[-1], n - 1, ranks)
     p_hazen = (ranks - 0.5) / n
     p_hazen = np.clip(p_hazen, 1e-6, 1 - 1e-6)
 

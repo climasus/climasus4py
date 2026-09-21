@@ -1,9 +1,14 @@
-"""P6 Sprint 2 — Coverage tests for sus_climate_inmet (climate_inmet.py target ≥ 50%).
+"""Coverage tests for sus_climate_inmet.
 
-Strategy: monkeypatch _download_inmet to return a synthetic DataFrame so that
-the public API body (parameter validation, station_code filter, metadata) is
-fully exercised without actual network I/O.
-Additional tests cover _download_robust with mocked requests.
+Monkeypatcha o _download_inmet para devolver um DataFrame sintetico, e assim
+exercita o corpo da API publica -- validacao de parametros, filtro por
+station_code, metadados -- sem nenhum I/O de rede.
+
+MIGRADOS em 15/09/2026. Estes testes foram escritos quando a funcao devolvia
+um pandas.DataFrame com os metadados em `df.attrs["sus_meta"]`. Hoje ela
+devolve uma RELACAO DuckDB (a funcao virou lazy) e os metadados saem por
+`cs.sus_meta(rel)`. A migracao tambem expos que a funcao calculava
+n_stations e temporal e nao anexava nenhum dos dois -- ver M97.
 """
 
 from __future__ import annotations
@@ -14,6 +19,8 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
+import climasus4py as cs
+from climasus4py.core.engine import get_connection
 from climasus4py.core.climate_inmet import (
     sus_climate_inmet,
 )
@@ -48,6 +55,25 @@ def _make_inmet_df(n: int = 10) -> pd.DataFrame:
 _PATCH_TARGET = "climasus4py.core.climate_inmet._download_inmet"
 
 
+def _df(rel) -> pd.DataFrame:
+    """Materializa a relacao. A funcao e lazy desde o realinhamento."""
+    return rel.df()
+
+
+def _rel(n: int = 10):
+    """O mock tem de devolver o que o _download_inmet real devolve.
+
+    O `_download_inmet` e anotado `-> duckdb.DuckDBPyRelation`, e o corpo
+    do sus_climate_inmet trata o retorno como relacao -- o filtro por
+    station_code chama `.filter("station_code IN (...)")`, que e SQL. O
+    mock antigo devolvia um pandas.DataFrame, cujo `.filter()` espera
+    items/like/regex; dava `TypeError: Index(...) must be called with a
+    collection of some kind`. Os testes sem station_code passavam por
+    acidente, porque nao exercitavam esse caminho.
+    """
+    return get_connection().from_df(_make_inmet_df(n))
+
+
 # ---------------------------------------------------------------------------
 # Parameter validation — covered without any network call
 # ---------------------------------------------------------------------------
@@ -65,7 +91,7 @@ class TestParameterValidation:
     def test_invalid_lang_raises(self, monkeypatch):
         monkeypatch.setattr(
             "climasus4py.core.climate_inmet._download_inmet",
-            lambda **kw: _make_inmet_df(),
+            lambda **kw: _rel(),
         )
         with pytest.raises(ValueError, match="'lang' must be one of"):
             sus_climate_inmet(years=2023, lang="de")  # type: ignore[arg-type]
@@ -83,77 +109,85 @@ class TestSuccessfulImport:
     """Tests that exercise the full sus_climate_inmet body via mocked download."""
 
     @pytest.fixture
-    def df_out(self, tmp_path, monkeypatch):
+    def rel_out(self, tmp_path, monkeypatch):
         """Patch _download_inmet and call sus_climate_inmet."""
-        monkeypatch.setattr(_PATCH_TARGET, lambda **kw: _make_inmet_df())
+        monkeypatch.setattr(_PATCH_TARGET, lambda **kw: _rel())
         return sus_climate_inmet(
             years=2023, uf="SP", cache_dir=tmp_path, verbose=False
         )
 
-    def test_returns_dataframe(self, df_out):
-        assert isinstance(df_out, pd.DataFrame)
+    def test_returns_lazy_relation(self, rel_out):
+        """Era pd.DataFrame; hoje relacao DuckDB."""
+        import duckdb
 
-    def test_has_rows(self, df_out):
-        assert len(df_out) == 10
+        assert isinstance(rel_out, duckdb.DuckDBPyRelation)
+        assert isinstance(_df(rel_out), pd.DataFrame)
 
-    def test_has_expected_columns(self, df_out):
-        assert "tair_dry_bulb_c" in df_out.columns
-        assert "station_code" in df_out.columns
+    def test_has_rows(self, rel_out):
+        assert len(_df(rel_out)) == 10
 
-    def test_sus_meta_attached(self, df_out):
-        assert "sus_meta" in df_out.attrs
+    def test_has_expected_columns(self, rel_out):
+        assert "tair_dry_bulb_c" in rel_out.columns
+        assert "station_code" in rel_out.columns
 
-    def test_sus_meta_has_years(self, df_out):
-        assert df_out.attrs["sus_meta"]["years"] == [2023]
+    def test_sus_meta_attached(self, rel_out):
+        """Era df.attrs["sus_meta"]; hoje cs.sus_meta(rel)."""
+        assert cs.sus_meta(rel_out) is not None
 
-    def test_sus_meta_has_n_stations(self, df_out):
+    def test_sus_meta_has_years(self, rel_out):
+        assert cs.sus_meta(rel_out)["years"] == [2023]
+
+    def test_sus_meta_has_n_stations(self, rel_out):
         # 2 synthetic stations
-        assert df_out.attrs["sus_meta"]["n_stations"] == 2
+        assert cs.sus_meta(rel_out)["n_stations"] == 2
 
-    def test_sus_meta_has_temporal_coverage(self, df_out):
-        meta = df_out.attrs["sus_meta"]
-        assert "temporal_coverage" in meta
-        assert meta["temporal_coverage"]["start"] is not None
+    def test_sus_meta_has_temporal_coverage(self, rel_out):
+        meta = cs.sus_meta(rel_out)
+        # R chama a chave de `temporal`, com start/end -- nao
+        # `temporal_coverage`, que era invencao do Python antigo.
+        assert "temporal" in meta
+        assert meta["temporal"]["start"] is not None
+        assert meta["temporal"]["end"] is not None
 
     def test_multi_year_range(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_PATCH_TARGET, lambda **kw: _make_inmet_df(20))
-        df = sus_climate_inmet(
+        monkeypatch.setattr(_PATCH_TARGET, lambda **kw: _rel(20))
+        rel = sus_climate_inmet(
             years=[2022, 2023], cache_dir=tmp_path, verbose=False
         )
-        assert isinstance(df, pd.DataFrame)
+        assert len(_df(rel)) == 20
 
     def test_years_as_range(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_PATCH_TARGET, lambda **kw: _make_inmet_df(5))
-        df = sus_climate_inmet(
+        monkeypatch.setattr(_PATCH_TARGET, lambda **kw: _rel(5))
+        rel = sus_climate_inmet(
             years=range(2021, 2023), cache_dir=tmp_path, verbose=False
         )
-        assert len(df) == 5
+        assert len(_df(rel)) == 5
 
 
 class TestStationCodeFilter:
     """station_code parameter narrows the returned data."""
 
     def test_valid_station_code_filters(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_PATCH_TARGET, lambda **kw: _make_inmet_df(10))
-        df = sus_climate_inmet(
+        monkeypatch.setattr(_PATCH_TARGET, lambda **kw: _rel(10))
+        df = _df(sus_climate_inmet(
             years=2023, station_code="A701", cache_dir=tmp_path, verbose=False
-        )
+        ))
         assert (df["station_code"] == "A701").all()
         assert len(df) == 5  # half the rows
 
     def test_station_code_no_match_raises(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_PATCH_TARGET, lambda **kw: _make_inmet_df(10))
+        monkeypatch.setattr(_PATCH_TARGET, lambda **kw: _rel(10))
         with pytest.raises(ValueError, match="No observations found|Nenhuma"):
             sus_climate_inmet(
                 years=2023, station_code="Z999", cache_dir=tmp_path, verbose=False
             )
 
     def test_station_code_list(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_PATCH_TARGET, lambda **kw: _make_inmet_df(10))
-        df = sus_climate_inmet(
+        monkeypatch.setattr(_PATCH_TARGET, lambda **kw: _rel(10))
+        df = _df(sus_climate_inmet(
             years=2023, station_code=["A701", "A702"],
             cache_dir=tmp_path, verbose=False,
-        )
+        ))
         assert len(df) == 10  # both codes kept
 
 
@@ -162,21 +196,22 @@ class TestLanguageMessages:
 
     @pytest.mark.parametrize("lang", ["pt", "en", "es"])
     def test_lang_does_not_raise(self, lang, tmp_path, monkeypatch):
-        monkeypatch.setattr(_PATCH_TARGET, lambda **kw: _make_inmet_df())
-        df = sus_climate_inmet(
+        monkeypatch.setattr(_PATCH_TARGET, lambda **kw: _rel())
+        rel = sus_climate_inmet(
             years=2023, lang=lang, cache_dir=tmp_path, verbose=True
         )
-        assert isinstance(df, pd.DataFrame)
+        assert len(_df(rel)) == 10
 
 
 class TestDefaultYears:
     """When years=None, the function defaults to last 2 years."""
 
     def test_years_none_defaults(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_PATCH_TARGET, lambda **kw: _make_inmet_df())
-        df = sus_climate_inmet(years=None, cache_dir=tmp_path, verbose=False)
-        meta = df.attrs["sus_meta"]
+        monkeypatch.setattr(_PATCH_TARGET, lambda **kw: _rel())
+        rel = sus_climate_inmet(years=None, cache_dir=tmp_path, verbose=False)
+        meta = cs.sus_meta(rel)
         current = datetime.datetime.now().year
+
         assert current - 1 in meta["years"]
         assert current in meta["years"]
 

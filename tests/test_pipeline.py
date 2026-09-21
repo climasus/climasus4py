@@ -830,6 +830,98 @@ class TestPipelineFastPath:
         assert "clean" in calls
 
 
+class TestAvisoDeFallbackNaoPrometeEquivalencia:
+    """O aviso de fallback dizia que os caminhos sao equivalentes (M52).
+
+    A frase era, literal: "Results should be equivalent but slower". E
+    falsa em tres dimensoes medidas -- esquema de saida, dimensao
+    geografica e total de registros -- e prometer equivalencia num aviso
+    e pior que nao avisar, porque quem le para de conferir.
+
+    O esquema divergiu por heranca: o fast path guarda o esquema que o
+    sus_data_aggregate tinha ANTES de ser realinhado ao R
+    (time_group/state/count), e ninguem migrou. O total difere por 335
+    linhas em SP 2023 porque o staged roda o sus_data_clean_encoding e
+    deduplica, e o fast, sendo um CTE unico sobre o parquet, nao.
+
+    Unificar o esquema muda assinatura publica -- o sus_data_aggregate
+    nao tem `geo`, igual ao R -- entao a decisao e do coordenador. O que
+    esta sob nosso controle e o aviso nao mentir.
+    """
+
+    @staticmethod
+    def _dispara_fallback(tmp_path, monkeypatch):
+        """Faz o fast path falhar depois de montar o SQL, e captura o aviso."""
+        import warnings as w
+
+        from climasus4py.core import pipeline as mod
+
+        df = pd.DataFrame({
+            "DTOBITO": ["15012022", "20022022"],
+            "CODMUNRES": [355030, 330455],
+        })
+        parquet_path = tmp_path / "cache" / "SIM-DO" / "SP_2022_all.parquet"
+        parquet_path.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(pa.Table.from_pandas(df), parquet_path)
+
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(df))
+        monkeypatch.setattr("climasus4py.utils.data.resolve_uf", lambda uf: ["SP"])
+        # o CTE monta, mas a execucao levanta -> cai no fallback
+        monkeypatch.setattr(
+            mod, "_build_fast_sql",
+            lambda *a, **k: "SELECT * FROM nao_existe_essa_tabela",
+        )
+        calls: list[str] = []
+        _patch_all_stages(monkeypatch, mod, calls)
+
+        with w.catch_warnings(record=True) as capturados:
+            w.simplefilter("always")
+            mod.sus_pipeline(
+                "SIM-DO", "SP", 2022, lang="pt", time="month", geo="state",
+                epi_week=False, age_group=None,
+                cache_dir=tmp_path / "cache", verbose=False,
+            )
+        return [str(c.message) for c in capturados], calls
+
+    def test_o_fallback_acontece(self, tmp_path, monkeypatch):
+        msgs, calls = self._dispara_fallback(tmp_path, monkeypatch)
+
+        assert "clean" in calls
+        assert any("fast path failed" in m for m in msgs)
+
+    def test_nao_promete_mais_equivalencia(self, tmp_path, monkeypatch):
+        """A guarda contra a frase voltar."""
+        msgs, _ = self._dispara_fallback(tmp_path, monkeypatch)
+        texto = " ".join(msgs)
+
+        assert "should be equivalent" not in texto
+        assert "NOT" in texto and "equivalent" in texto
+
+    @pytest.mark.parametrize("marca", [
+        "time_group",        # o esquema do fast
+        "n_deaths",          # o esquema do staged
+        "occurrence",        # residencia contra ocorrencia
+        "clean_encoding",    # a dedup ausente no fast
+        "334,303",           # o total medido nos dois
+        "333,968",
+        "M52",
+    ])
+    def test_o_aviso_nomeia_cada_diferenca(self, tmp_path, monkeypatch, marca):
+        """Um aviso util diz o que muda, nao so que algo muda."""
+        msgs, _ = self._dispara_fallback(tmp_path, monkeypatch)
+
+        assert marca in " ".join(msgs)
+
+    def test_a_divergencia_esta_no_docstring(self):
+        """Quem le a API descobre antes de cair no fallback."""
+        from climasus4py.core.pipeline import sus_pipeline
+
+        doc = sus_pipeline.__doc__ or ""
+
+        assert "do not produce the same table" in doc
+        assert "M52" in doc
+
+
 class TestPipelineStagedOutput:
     def test_output_param_calls_sus_export(self, monkeypatch, tmp_path):
         """Quando output é definido no staged path, sus_export deve ser chamado."""

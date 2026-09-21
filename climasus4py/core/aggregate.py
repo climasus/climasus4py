@@ -42,7 +42,25 @@ AGG_TIME_EXPRS: dict[str, str | None] = {
     "year":    "DATE_TRUNC('year',    TRY_CAST({date} AS DATE))",
     "quarter": "DATE_TRUNC('quarter', TRY_CAST({date} AS DATE))",
     "month":   "DATE_TRUNC('month',   TRY_CAST({date} AS DATE))",
-    "week":    "DATE_TRUNC('week',    TRY_CAST({date} AS DATE))",
+    # Weeks start on SUNDAY, not Monday.
+    #
+    # R aggregates with lubridate's floor_date() and passes no
+    # week_start, so it takes the default -- getOption(
+    # "lubridate.week.start", 7), i.e. 7 = Sunday. DuckDB's
+    # DATE_TRUNC('week', ...) is ISO and starts on Monday, so the plain
+    # call disagreed with R on essentially every date: of six test dates
+    # spread through 2023, all six landed in a different bucket. Every
+    # weekly series this function produced was shifted, with no warning.
+    #
+    # Sunday start is also the right convention here: Brazilian SVS
+    # epidemiological weeks run Sunday to Saturday. Shifting a day
+    # forward, truncating to Monday and shifting back lands on the
+    # preceding Sunday. Verified against lubridate on eight dates,
+    # including the Sunday/Monday boundary. See M95.
+    "week":    (
+        "DATE_TRUNC('week', TRY_CAST({date} AS DATE) + INTERVAL 1 DAY) "
+        "- INTERVAL 1 DAY"
+    ),
     "day":     "TRY_CAST({date} AS DATE)",
     "5 days":  "DATE_TRUNC('day', TRY_CAST({date} AS DATE)) - INTERVAL (((DAYOFYEAR(TRY_CAST({date} AS DATE)) - 1) % 5)) DAY",
     "14 days": "DATE_TRUNC('day', TRY_CAST({date} AS DATE)) - INTERVAL (((DAYOFYEAR(TRY_CAST({date} AS DATE)) - 1) % 14)) DAY",
@@ -362,7 +380,19 @@ def sus_data_aggregate(
         missing = [c for c in group_by if c not in columns]
         if missing:
             raise ValueError(f"Columns not found in relation: {missing}")
+        # Skip whatever is already in the grouping. The geographic column is
+        # added automatically above, so naming it here too used to emit it
+        # twice — `["date", "CODMUNRES", "CODMUNRES_1", "n"]`, both copies
+        # identical. That is exactly what someone writes when migrating
+        # from the old `geo="municipality"` argument, and the docstring
+        # still points at group_by to "geo-qualify", so the duplicate was
+        # easy to reach and silent: it breaks a downstream join or pivot
+        # rather than raising. Also dedupes a group_by that repeats itself.
+        ja_agrupado = {geo_col} if geo_col else set()
         for c in group_by:
+            if c in ja_agrupado:
+                continue
+            ja_agrupado.add(c)
             select_parts.append(f'"{c}"')
             group_parts.append(f'"{c}"')
 

@@ -361,13 +361,36 @@ def sus_climate_inmet(
         f"INMET data imported; years={years_list}; ufs={uf_list}; "
         f"n_stations={n_stations}"
     )
+    n_obs_row = rel.aggregate("COUNT(*)").fetchone()
+    n_observations = int(n_obs_row[0]) if n_obs_row else 0
+
+    # R attaches a descriptive sus_meta here, not just the pipeline stage:
+    # type, spatial, temporal{start,end}, created/modified, years, ufs,
+    # station_codes, n_stations, n_observations, user. This port computed
+    # n_stations and temporal only to put them in the history string and
+    # the progress line, and attached neither -- so a caller could not ask
+    # the relation what it holds. Restored to R's key names. See M97.
+    now = datetime.now()
     rel = rel.set_alias("climate")
-    rel = set_stage(rel, "climate")
+    rel = set_stage(
+        rel, "climate", rel_type="inmet",
+        extra={
+            "spatial": False,
+            "temporal": temporal,
+            "created": now,
+            "modified": now,
+            "years": years_list,
+            "ufs": uf_list,
+            "station_codes": station_code,
+            "n_stations": n_stations,
+            "n_observations": n_observations,
+            "user": {},
+        },
+    )
     rel = add_history(rel, history_msg)
 
     if verbose:
-        n_obs_row = rel.aggregate("COUNT(*)").fetchone()
-        n_obs = int(n_obs_row[0]) if n_obs_row else 0
+        n_obs = n_observations
         console.print(
             f"[green]✔[/]  {msg['import_done'].format(n_rows=n_obs, n_stations=n_stations)}"  # noqa: E501
         )

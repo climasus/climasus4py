@@ -388,13 +388,24 @@ def decode_age_sql(age_col: str) -> str:
 
 
 def detect_geo_column(columns: list[str], level: str = "municipality") -> str | None:
-    """Return the first recognised geographic column for the requested level."""
+    """Return the first recognised geographic column for the requested level.
+
+    The last three municipality names were missing, and their absence was
+    not harmless: ``climate_aggregate`` validates health data against its
+    own ``_MUNI_CANDIDATES``, which *did* list them, so a relation keyed
+    on ``code_muni`` passed validation and then died deep in the join
+    with ``Binder Error: ... does not have a column named "None"`` --
+    the detector had returned ``None`` and it went straight into the SQL.
+    Appended rather than inserted, so the existing precedence is
+    untouched. See M96.
+    """
     candidates = {
         "municipality": [
             "CODMUNRES", "ID_MUNICIP",
             "municipality_code", "residence_municipality_code",
             "occurrence_municipality_code",
             "codigo_municipio_residencia", "codigo_municipio_ocurrencia",
+            "code_muni", "notification_municipality_code", "MUNI_RES",
         ],
         "state":   ["state", "SG_UF", "UF", "SG_UF_NOT"],
         "region":  ["region"],

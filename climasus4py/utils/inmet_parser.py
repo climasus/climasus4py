@@ -305,18 +305,32 @@ def _wrap_sql_qc(base_sql: str) -> str:
         f"AND ABS(dew_tmean_c - ({dew_calc})) > 3.0 "
         "THEN NULL ELSE dew_tmean_c END"
     )
-    solar_expr = (
-        "CASE WHEN sr_kj_m2 IS NOT NULL "
-        "AND (EXTRACT(HOUR FROM date) >= 18 OR EXTRACT(HOUR FROM date) < 6) "
-        "THEN 0.0 ELSE sr_kj_m2 END"
-    )
-
+    # There is deliberately no night rule for solar radiation.
+    #
+    # This module used to force sr_kj_m2 to 0 whenever
+    # EXTRACT(HOUR FROM date) was >= 18 or < 6, on the reading that those
+    # are night hours. The timestamps are UTC -- this file's own docstring
+    # says so -- and Brazil is UTC-3, so the window actually covered
+    # 15:00-02:59 local and threw away the whole afternoon.
+    #
+    # Measured on SP 2023 against R, joined on (station_code, date):
+    # 65,049 rows where this port returned exactly 0.0 and R returned a
+    # positive measurement, averaging 881 kJ/m2 and reaching 6471. The
+    # mean of the column came out at 958.29 against R's 1270.22, a 33%
+    # gap, while the non-null count, the minimum and the maximum all
+    # matched -- which is why the divergence looked unexplainable for a
+    # week. One concrete row: station A701, 2023-01-01 19:00 UTC (16:00
+    # local, January, peak summer afternoon) held 2604.3 and was zeroed.
+    #
+    # R has no equivalent rule. Its .verify_solar_radiation computes the
+    # extraterrestrial irradiance from latitude, day of year and hour
+    # using real solar geometry, and only WARNS when a value exceeds 110%
+    # of it -- it never edits the data. Removing the rule is what restores
+    # parity. See M28.
     select_parts: list[str] = []
     for col in _OUTPUT_COLUMNS:
         if col == "dew_tmean_c":
             select_parts.append(f"{dew_expr} AS {quote_ident(col)}")
-        elif col == "sr_kj_m2":
-            select_parts.append(f"{solar_expr} AS {quote_ident(col)}")
         else:
             select_parts.append(quote_ident(col))
 
