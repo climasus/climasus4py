@@ -70,9 +70,12 @@ from .enrichment.mod_ml import sus_mod_ml, sus_mod_ml_predict
 from .enrichment.mod_metaregression import sus_mod_metaregression
 from .enrichment.mod_pool import sus_mod_pool
 from .enrichment.mod_sensitivity import sus_mod_sensitivity
+from .enrichment.mod_spatial_bayes import sus_mod_spatial_bayes
 from .enrichment.mod_spatial_moran import sus_mod_spatial_moran
 from .enrichment.mod_spatial_scan import sus_mod_spatial_scan
+from .enrichment.mod_spacetime_bayes import sus_mod_spacetime_bayes
 from .enrichment.mod_spacetime_exceedance import sus_mod_spacetime_exceedance
+from .enrichment.mod_spacetime_predict import sus_mod_spacetime_predict
 from .enrichment.mod_spatial_reg import sus_mod_spatial_reg
 from .enrichment.mod_spatial_weights import sus_mod_spatial_weights
 from .enrichment.mod_swot import sus_mod_swot
@@ -210,9 +213,12 @@ __all__ = [
     "sus_grid_join",
     # Spatial modelling (sus_mod_*)
     "sus_mod_spatial_weights",
+    "sus_mod_spatial_bayes",
     "sus_mod_spatial_moran",
     "sus_mod_spatial_scan",
+    "sus_mod_spacetime_bayes",
     "sus_mod_spacetime_exceedance",
+    "sus_mod_spacetime_predict",
     "sus_mod_spatial_reg",
     # Exposure-response modelling — the sus_mod_dlnm() chain
     "sus_mod_dlnm",
