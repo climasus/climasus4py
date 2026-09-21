@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import shutil
 import sys
+import time
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -60,7 +61,23 @@ def main() -> int:
 
         # Se a copia do repo for MAIS NOVA que o canonico, alguem editou o
         # lugar errado e copiar por cima apagaria esse trabalho.
-        if destino.exists() and destino.stat().st_mtime > origem.stat().st_mtime + 1:
+        #
+        # Mas mtime futuro nao e prova de edicao. O shutil.copy2 PRESERVA o
+        # mtime da origem, entao uma sincronizacao feita quando o canonico
+        # estava com relogio adiantado deixa o destino carimbado no futuro
+        # para sempre -- e a partir dai toda sincronizacao seguinte era
+        # recusada, mesmo com o canonico contendo estritamente mais coisa.
+        # Aconteceu em 15/09/2026: a copia estava marcada 19:24 as 17:57,
+        # com 224.016 bytes contra 227.826 do canonico. Um destino no
+        # futuro e relogio, nao trabalho de alguem.
+        agora = time.time()
+        mt_destino = destino.stat().st_mtime if destino.exists() else 0.0
+        mt_origem = origem.stat().st_mtime
+        if mt_destino > agora + 1:
+            print(f"  {nome:28s} AVISO: a copia esta carimbada no futuro "
+                  f"({mt_destino - agora:.0f}s a frente); mtime ignorado "
+                  f"nesta comparacao. Sincronizando pelo conteudo.")
+        elif mt_destino > mt_origem + 1:
             print(f"  {nome:28s} RECUSADO: a copia em docs/controle/ e mais "
                   f"nova que o canonico em {ORIGEM.name}/. Edite o canonico, "
                   f"ou reconcilie a mao antes de sincronizar.")
