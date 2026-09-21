@@ -17,12 +17,29 @@ def test_sus_read_reads_parquet_lazily(tmp_path):
     assert rel.count("*").fetchone()[0] == 2
 
 
-def test_sus_read_rejects_non_parquet(tmp_path):
+def test_sus_read_accepts_csv_as_r_does(tmp_path):
+    """O CSV passou a ser lido, e antes era recusado.
+
+    Esta funcao ja recusava .csv com ValueError, e o teste cobrava a
+    recusa. O sus_data_read do R detecta e le CSV (`detected_format ==
+    "csv"`), entao a recusa era divergencia de paridade e nao contrato --
+    ver M18. A extensao que continua recusada e a que o R le e este
+    leitor nao, como .rds, e agora a mensagem diz isso.
+    """
     path = tmp_path / "data.csv"
     path.write_text("a\n1\n", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="Parquet"):
-        cs.sus_data_read(path)
+    rel = cs.sus_data_read(path, verbose=False)
+    assert type(rel).__name__ == "DuckDBPyRelation"
+    assert rel.count("*").fetchone()[0] == 1
+
+
+def test_sus_read_rejects_r_only_extension(tmp_path):
+    path = tmp_path / "data.rds"
+    path.write_bytes(b"\x00")
+
+    with pytest.raises(ValueError, match="climasus4r reads it"):
+        cs.sus_data_read(path, verbose=False)
 
 
 def test_sus_sql_entrypoint_and_pipe_mode():
