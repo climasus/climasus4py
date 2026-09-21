@@ -70,10 +70,12 @@ _GDD_BASE = 10.0
 _GDD_UPPER = 30.0
 
 #: The km/h -> mph factor. R applies it to a wind column in m/s, which is
-#: the unit bug recorded as M69; kept named so the parity is explicit
-#: rather than looking like a typo someone should "fix".
+#: the unit bug recorded as M69. Kept named, and reachable through
+#: ``R_WCT_USES_KMH_FACTOR``, so R's number can still be reproduced
+#: exactly and does not look like a typo someone should "fix".
 _MPH_PER_KMH = 0.621371
-#: The correct m/s -> mph factor, used by :func:`_wct_correct_units`.
+#: The correct m/s -> mph factor. What ``wct_c`` uses by default since
+#: 21/09/2026, and what :func:`_wct_correct_units` has always used.
 _MPH_PER_MS = 2.2369362920544
 
 #: `t_mrt - airT` in R's UTCI, written out. R computes a mean radiant
@@ -227,7 +229,18 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
             # from 0 to 1000 W/m2, nearly inert for an index whose purpose
             # is capturing solar load.
             #
-            # Kept faithful by Andrey's decision of 14/09/2026.
+            # KEPT FAITHFUL, and reaffirmed by D5 on 21/09/2026 — the
+            # decision round that corrected M69 and M72 deliberately did
+            # NOT touch this one. The averaging of two terms is written in
+            # R's own documentation, so it is a choice and not a slip; what
+            # is wrong is the documentation citing Liljegren and
+            # Bernard & Pourmoghani for a formula that implements neither.
+            # So the fix belongs in R's *documentation* — own the formula
+            # as the package's own index and stop citing references it does
+            # not use — and not in the formula here. Reimplementing
+            # Liljegren would need radiation and wind that the package does
+            # not always have.
+            #
             # `wbgt_stull` is the validated alternative, emitted as its own
             # column so the divergence shows up as data. The gap is not a
             # constant bias: on the fixture the two differ by a mean of
@@ -435,10 +448,13 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
     # is just the gap between the two published regressions.
     #
     # The error runs warm: understating the wind understates the chill, so
-    # cold-wave risk is underestimated. Kept faithful here because it is a
-    # published output of climasus4r and correcting it silently would make
-    # the two packages disagree; `_wct_correct_units` below keeps the right
-    # formula alive and tested. See M69.
+    # cold-wave risk is underestimated — the dangerous direction for a
+    # cold-wave analysis.
+    #
+    # CORRECTED ON THE DEFAULT PATH since 21/09/2026 (D5), which flipped
+    # the earlier decision to replicate. See `R_WCT_USES_KMH_FACTOR` for
+    # the switch and the reasoning. `_wct_correct_units` stays as the
+    # reference implementation the tests compare against.
     # ------------------------------------------------------------------
     "wct": (
         "wct_c",
@@ -448,9 +464,9 @@ _INDICATOR_DEFS: dict[str, tuple[str, tuple[str, ...], str]] = {
             "{MASK_WIND}"
             "  ELSE ROUND_EVEN((("
             "  35.74 + 0.6215 * ({T} * 9.0 / 5.0 + 32.0)"
-            f"  - 35.75 * POWER(GREATEST(COALESCE({{WS}}, 0.0) * {_MPH_PER_KMH}, 0.01), 0.16)"
+            "  - 35.75 * POWER(GREATEST(COALESCE({WS}, 0.0) * {MPH}, 0.01), 0.16)"
             "  + 0.4275 * ({T} * 9.0 / 5.0 + 32.0)"
-            f"    * POWER(GREATEST(COALESCE({{WS}}, 0.0) * {_MPH_PER_KMH}, 0.01), 0.16)"
+            "    * POWER(GREATEST(COALESCE({WS}, 0.0) * {MPH}, 0.01), 0.16)"
             ") - 32.0) * 5.0 / 9.0, 2) END AS wct_c"
         ),
     ),
@@ -975,12 +991,86 @@ _INDICATOR_THRESHOLDS: dict[str, dict[str, float]] = {
 _FLAG_CHAINS: dict[str, tuple[str, ...]] = {
     "extreme": ("extreme_heat", "extreme_heat_stress", "extreme_danger", "high_risk"),
     "high": ("high_stress", "dangerous", "moderate_heat_stress",
-             "extreme_caution", "hot"),
-    "low": ("warning_low", "low_stress", "slight_cold_stress", "cold"),
+             "extreme_caution", "hot",
+             # Added 21/09/2026 (D5/M72). `diurnal_range` and
+             # `vapor_pressure` declare the threshold literally as
+             # "high", which the chain did not look for, so all of their
+             # flags were constant FALSE. Reviving these needs no
+             # judgement about what the number means: the declared name
+             # IS the flag's name.
+             "high"),
+    "low": ("warning_low", "low_stress", "slight_cold_stress", "cold",
+            # Same date, same reasoning. "low" is `diurnal_range`'s own
+            # name for its low threshold. "slight_cold" is `pet`'s, and
+            # the chain already looked for "slight_cold_stress" — the
+            # near miss M72 describes, which cost pet two columns.
+            "low", "slight_cold"),
 }
 
-#: `extreme`/`high` fire above the threshold, `low` below it.
+#: Threshold names that mean "worse BELOW this value", whichever flag
+#: they end up feeding.
+#:
+#: The fix for the second half of M72, applied 21/09/2026 (D5). The
+#: comparison used to be chosen by the flag alone — `extreme` and `high`
+#: above, `low` below — and for a wind chill that is backwards. ``wcet``
+#: and ``wct`` declare ``high_risk = -35``, which lands in the *extreme*
+#: chain, so R's flag fires on ``value > -35``: TRUE at -30 °C and at
+#: +20 °C, FALSE at -40 °C. Measured over a -40..60 grid it was TRUE in
+#: 190 of 201 points, and on the coldest value of the fixture sample
+#: (-43.61 °C, a risk to life) it was FALSE. The flag marked the mild
+#: side and left out the dangerous one.
+#:
+#: Corrected rather than replicated because a flag that is FALSE exactly
+#: where the hazard is does not carry the information in a poor form — it
+#: carries the opposite of it. ``R_COLD_FLAGS_INVERTED`` reproduces R.
+_FLAG_BELOW: frozenset[str] = frozenset({
+    "high_risk", "moderate_risk", "low_risk",
+    "warning_low", "low_stress", "slight_cold_stress", "slight_cold",
+    "cold", "moderate_cold", "moderate_cold_stress", "strong_cold_stress",
+    "extreme_cold_stress", "comfortable_min", "cool", "low",
+})
+
+#: Whether the cold flags keep R's inverted comparison (M72).
+#:
+#: ``False`` (the default) compares each flag against its threshold in the
+#: direction the threshold's own name implies — see :data:`_FLAG_BELOW`.
+#: ``True`` reproduces R exactly, and is what the parity fixtures are
+#: compared against.
+R_COLD_FLAGS_INVERTED: bool = False
+
+#: Fallback by flag, for a threshold whose name says nothing about
+#: direction: `extreme`/`high` fire above, `low` below.
 _FLAG_COMPARISON: dict[str, str] = {"extreme": ">", "high": ">", "low": "<"}
+
+
+def flag_comparison(indicator: str, flag: str) -> str:
+    """The SQL operator for one flag, ``">"`` or ``"<"``.
+
+    Decided by the name of the threshold that feeds the flag, not by the
+    flag, so a cold-risk threshold fires on the cold side wherever it
+    lands. With :data:`R_COLD_FLAGS_INVERTED` the flag decides, which is
+    what R does.
+    """
+    if R_COLD_FLAGS_INVERTED:
+        return _FLAG_COMPARISON[flag]
+    nome = flag_threshold_name(indicator, flag)
+    if nome is not None and nome in _FLAG_BELOW:
+        return "<"
+    return _FLAG_COMPARISON[flag]
+
+
+def flag_threshold_name(indicator: str, flag: str) -> str | None:
+    """Which declared threshold NAME drives one flag, or ``None``.
+
+    The companion of :func:`flag_threshold`, which returns the value. The
+    name is what decides the comparison direction, so it has to be
+    reachable on its own.
+    """
+    thresholds = _INDICATOR_THRESHOLDS.get(indicator, {})
+    for nome in _FLAG_CHAINS[flag]:
+        if nome in thresholds:
+            return nome
+    return None
 
 
 def flag_threshold(indicator: str, flag: str) -> float | None:
@@ -988,24 +1078,41 @@ def flag_threshold(indicator: str, flag: str) -> float | None:
 
     Exposed rather than inlined because the answer is the whole of the R
     finding recorded as M72, and it is easier to read as data than to
-    re-derive from the chains. Two things fall out of it:
+    re-derive from the chains.
 
-    **16 of the 30 flag columns are constant FALSE**, because the
+    **In R, 16 of the 30 flag columns are constant FALSE**, because the
     threshold names an indicator declares are not the names the chain
-    looks for. ``diurnal_range`` declares ``high``/``moderate``/``low``
-    and the chain wants ``high_stress``/``warning_low``, so all three of
-    its flags never fire; ``vapor_pressure`` is the same; ``pet``
-    declares ``slight_cold`` where the chain wants ``slight_cold_stress``
-    — a near miss that costs it two columns.
+    looks for, and **2 more are inverted** — leaving 12 that carry
+    correct information. What this package emits since 21/09/2026 (D5):
 
-    **2 more are inverted.** ``wcet`` and ``wct`` declare
-    ``high_risk = -35``, which lands in the *extreme* chain, and that
-    flag fires on ``value > -35``. For a wind chill, colder is worse: the
-    flag is TRUE at -30 °C and at +20 °C, and FALSE at -40 °C. Measured
-    over a -40..60 grid it is TRUE in 190 of 201 points — true almost
-    everywhere except the dangerous cases.
+    ==========================  ======  =====
+    of R's 30 flag columns       in R    here
+    ==========================  ======  =====
+    constant FALSE                  16     12
+    inverted                         2      0
+    carrying information            12     18
+    ==========================  ======  =====
 
-    So of 30 emitted flag columns, 12 carry correct information.
+    **The 2 inverted ones are corrected**, because a flag that is FALSE
+    exactly where the hazard is carries the opposite of the information,
+    not a poor form of it. See :data:`_FLAG_BELOW`.
+
+    **4 of the 16 dead ones are revived**, and only those where the
+    declared name settles the question by itself: ``diurnal_range``
+    declares its thresholds literally as ``high`` and ``low``,
+    ``vapor_pressure`` as ``high``, and ``pet`` writes ``slight_cold``
+    where the chain looked for ``slight_cold_stress`` — the near miss
+    M72 describes.
+
+    **The other 12 stay dead on purpose**, and most of them are dead for
+    an honest reason: the indicator declares nothing for that end at all.
+    ``heat_index`` has no cold threshold, so its ``low`` flag has no
+    number to use; ``thi`` declares no extreme. The defect in those cases
+    is emitting a constant-FALSE column instead of omitting it, not the
+    missing threshold. Where a number *does* exist but under an ambiguous
+    name — is ``moderate`` the *high* flag or the *low* one?
+    ``caution``? ``comfortable_min``? — reviving it would mean choosing
+    what the number means, which is a modelling call and not a port.
 
     Args:
         indicator: Indicator code, e.g. ``"wbgt"``.
@@ -1046,7 +1153,7 @@ def _render_flag_exprs(indicator: str) -> list[str]:
             # R fills the column with FALSE rather than omitting it.
             exprs.append(f"FALSE AS {alvo}")
         else:
-            op = _FLAG_COMPARISON[flag]
+            op = flag_comparison(indicator, flag)
             # R's `!is.na(vals) & vals > thr` makes a missing value FALSE,
             # not NA — so the flag is never null even where the indicator is.
             exprs.append(
@@ -1209,6 +1316,42 @@ _MASK_WIND = "  WHEN {T} > 10.0 OR COALESCE({WS}, 0.0) <= 1.3 THEN NULL"
 #: compared against.
 R_COUPLES_MASK_TO_REGION: bool = False
 
+#: Whether ``wct_c`` converts the wind with R's km/h factor (M69).
+#:
+#: R's ``.compute_wct`` does ``ws_mph <- pmax(ws * 0.621371, 0.01)``.
+#: That factor converts **kilometres per hour** to miles per hour, and the
+#: input column is ``ws_2_m_s`` — metres per second. The right factor is
+#: 2.2369362920544, so R understates the wind by 3.6x.
+#:
+#: The proof needs no external reference, and that is what makes this one
+#: safe to correct: R implements the same physical quantity **twice** —
+#: ``wcet_c`` (Environment Canada, wind in km/h, conversion ``ws * 3.6``,
+#: correct) and ``wct_c`` (NWS, wind in mph) — and the two published
+#: regressions agree with each other to about 0.03 °C. So R's own output
+#: shows the error. Measured over 200k points in the valid domain:
+#: ``|wct_R - wcet|`` averages 4.503 °C (max 7.49), while
+#: ``|wct_corrected - wcet|`` averages 0.024 °C (max 0.04). The 0.024 is
+#: the intrinsic gap between the two regressions; the 4.5 is the unit bug.
+#:
+#: ``False`` (the default since 21/09/2026) uses the correct factor. This
+#: **reversed** the earlier decision of 14/09/2026 to replicate: the
+#: reason to replicate was to keep the presentation to the coordinator
+#: defensible, and once the finding was presented and the decision came
+#: back — D5, decided by Andrey on 21/09/2026 — replicating a wrong
+#: number stopped being the careful choice. A column that is wrong by
+#: 4.6 °C carries no information about wind chill; it is not information
+#: in a poor form, which is the line this project draws for replicating.
+#: Direction matters too: the error always runs warm, so a cold-wave
+#: analysis reports less risk than exists.
+#:
+#: ``True`` reproduces R exactly, and is what the parity fixtures are
+#: compared against.
+R_WCT_USES_KMH_FACTOR: bool = False
+
+def _mph_factor() -> float:
+    """The m/s -> mph factor in force, per :data:`R_WCT_USES_KMH_FACTOR`."""
+    return _MPH_PER_KMH if R_WCT_USES_KMH_FACTOR else _MPH_PER_MS
+
 
 def _mask_clauses(apply_mask: bool) -> tuple[str, str]:
     """The two mask clauses, or empty strings when the mask is off.
@@ -1235,6 +1378,10 @@ def _substitute_inmet_cols(
     # the column loop below then resolves.
     out = out.replace("{WBGT}", _WBGT_EXPR)
     out = out.replace("{PET_MONTH}", month_expr)
+    # Read at render time, not baked in at import: the switch is a module
+    # attribute the tests flip with monkeypatch, and a factor frozen into
+    # the template string would ignore them.
+    out = out.replace("{MPH}", repr(_mph_factor()))
     for chave, valor in (params or _REGION_NONE).items():
         out = out.replace("{P:" + chave + "}", repr(float(valor)))
     for key, col in _INMET_COLS.items():

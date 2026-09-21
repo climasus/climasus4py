@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Sequence
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Literal
 
@@ -50,14 +51,57 @@ _KNOWN_CLIMATE_VARS = [
     "wd_degrees", "sr_kj_m2",
 ]
 
-_MUNI_CANDIDATES = [
-    "code_muni", "residence_municipality_code",
-    "occurrence_municipality_code", "notification_municipality_code",
-    "municipality_code", "CODMUNRES", "MUNI_RES",
-]
+# The two lists that used to live here are gone (D6/M96). They disagreed
+# with `detect_geo_column` and `detect_date_column` on both membership and
+# ORDER, and that is exactly how M96 happened: this module validated
+# against its own list, which *did* include `code_muni`, so a relation
+# keyed on it passed validation and then died in the join with
+# `Binder Error: ... does not have a column named "None"` — the detector
+# had returned None and it went into the SQL. Validation and detection now
+# read the same declaration from climasus-data, so they cannot disagree.
+#
+# Functions rather than constants so an updated climasus-data is picked up
+# without a climasus4py release.
 
-_DATE_CANDIDATES = ["death_date", "DTOBITO", "date", "DT_NOTIFIC",
-                    "DT_INTER", "DTNASC"]
+
+#: The geographic basis in force for the current call, or ``None``.
+#:
+#: A ContextVar and not a module global because every step of this module
+#: has to agree on ONE municipality column: `_match_spatial` builds
+#: `climate_matched` keyed on it, and each of the ten strategies then
+#: joins `LEFT(CAST(muni_col AS VARCHAR), 6) = c.code_muni` after
+#: detecting the column again on its own. If the basis reached some of
+#: them and not others, the join would silently match nothing. Threading
+#: the resolved column through ten helpers would do it too; this keeps the
+#: single source in one place and stays safe under threads and asyncio,
+#: which a plain global would not.
+_GEO_BASIS: ContextVar[str | None] = ContextVar("_GEO_BASIS", default=None)
+
+
+def _muni_candidates() -> list[str]:
+    """Municipality names, from the shared metadata, for the basis in force."""
+    from ..utils.data import municipality_candidates
+
+    return municipality_candidates(_GEO_BASIS.get())
+
+
+def _detect_muni(columns) -> str | None:
+    """The municipality column, honouring the basis in force.
+
+    Used in place of ``detect_geo_column(..., level="municipality")``
+    inside this module so every step resolves the same column.
+    """
+    from ..utils.data import _detect_column
+
+    return _detect_column(list(columns), _muni_candidates())
+
+
+def _date_candidates() -> list[str]:
+    """Date names, from the shared metadata."""
+    from ..utils.data import load_datasus_columns_spec
+
+    return list(load_datasus_columns_spec()["role_priority"]["date"])
+
 
 _STATION_CANDIDATES = ["station_code", "wmo_code"]
 
@@ -268,15 +312,15 @@ def _validate_health_data(health_data) -> None:
     cols = list(health_data.columns)
     if n == 0:
         raise ValueError("health_data is empty.")
-    if not any(c in cols for c in _MUNI_CANDIDATES):
+    if not any(c in cols for c in _muni_candidates()):
         raise ValueError(
             f"health_data has no municipality column.\n"
-            f"Expected one of: {_MUNI_CANDIDATES}\nAvailable: {cols}"
+            f"Expected one of: {_muni_candidates()}\nAvailable: {cols}"
         )
-    if not any(c in cols for c in _DATE_CANDIDATES):
+    if not any(c in cols for c in _date_candidates()):
         raise ValueError(
             f"health_data has no date column.\n"
-            f"Expected one of: {_DATE_CANDIDATES}\nAvailable: {cols}"
+            f"Expected one of: {_date_candidates()}\nAvailable: {cols}"
         )
     if "geometry_wkt" not in cols:
         raise ValueError(
@@ -314,7 +358,7 @@ def _validate_climate_data(climate_data) -> None:
 
 
 def _validate_date_overlap(health_data, climate_data) -> None:
-    date_col = next((c for c in _DATE_CANDIDATES if c in health_data.columns), None)
+    date_col = next((c for c in _date_candidates() if c in health_data.columns), None)
     if date_col is None:
         return
     row = health_data.aggregate(
@@ -529,7 +573,7 @@ def _match_spatial(climate_data: pa.Table, health_data: duckdb.DuckDBPyRelation,
     if station_col is None:
         raise ValueError(f"climate_data has no station column.")
 
-    muni_col = next((c for c in _MUNI_CANDIDATES if c in health_data.columns), None)
+    muni_col = next((c for c in _muni_candidates() if c in health_data.columns), None)
     if muni_col is None:
         raise ValueError(f"health_data has no municipality column.")
 
@@ -661,7 +705,7 @@ def _drop_internals(result: duckdb.DuckDBPyRelation) -> duckdb.DuckDBPyRelation:
 
 def _join_exact(health_data, climate_data, climate_vars):
     date_col = detect_date_column(list(health_data.columns))
-    muni_col = detect_geo_column(list(health_data.columns), level="municipality")
+    muni_col = _detect_muni(health_data.columns)
     vars_av  = [v for v in climate_vars if v in climate_data.schema.names]
     rules    = _build_agg_rules(vars_av)
     agg_sql  = ", ".join(_agg_expr_sql(v, rules[v], alias_prefix="") for v in vars_av)
@@ -688,7 +732,7 @@ def _join_exact(health_data, climate_data, climate_vars):
 def _join_moving_window(health_data, climate_data, climate_vars,
                         window_days, min_obs=0.7):
     date_col    = detect_date_column(list(health_data.columns))
-    muni_col    = detect_geo_column(list(health_data.columns), level="municipality")
+    muni_col    = _detect_muni(health_data.columns)
     vars_av     = [v for v in climate_vars if v in climate_data.schema.names]
     rules       = _build_agg_rules(vars_av)
     window_size = window_days + 1
@@ -732,7 +776,7 @@ def _join_moving_window(health_data, climate_data, climate_vars,
 
 def _join_discrete_lag(health_data, climate_data, climate_vars, lag_days):
     date_col = detect_date_column(list(health_data.columns))
-    muni_col = detect_geo_column(list(health_data.columns), level="municipality")
+    muni_col = _detect_muni(health_data.columns)
     vars_av  = [v for v in climate_vars if v in climate_data.schema.names]
     conn     = get_connection()
     conn.register("_h_dl", health_data)
@@ -777,7 +821,7 @@ def _join_distributed_lag(health_data, climate_data, climate_vars, max_lag):
 def _join_offset_window(health_data, climate_data, climate_vars,
                         offset_days, min_obs=0.7):
     date_col    = detect_date_column(list(health_data.columns))
-    muni_col    = detect_geo_column(list(health_data.columns), level="municipality")
+    muni_col    = _detect_muni(health_data.columns)
     vars_av     = [v for v in climate_vars if v in climate_data.schema.names]
     rules       = _build_agg_rules(vars_av)
     w1, w2      = offset_days[0], offset_days[1]
@@ -815,7 +859,7 @@ def _join_offset_window(health_data, climate_data, climate_vars,
 def _join_degree_days(health_data, climate_data, window_days,
                       temp_base, gdd_temp_var="tair_dry_bulb_c", min_obs=0.7):
     date_col    = detect_date_column(list(health_data.columns))
-    muni_col    = detect_geo_column(list(health_data.columns), level="municipality")
+    muni_col    = _detect_muni(health_data.columns)
     window_size = window_days + 1
     tb_str      = str(temp_base).replace(".", "p")
     col_name    = f"gdd_w{window_days}_tbase{tb_str}"
@@ -854,7 +898,7 @@ def _join_threshold_exceedance(health_data, climate_data, climate_vars,
                                 window_days, threshold_value,
                                 threshold_direction="above", min_obs=0.7):
     date_col    = detect_date_column(list(health_data.columns))
-    muni_col    = detect_geo_column(list(health_data.columns), level="municipality")
+    muni_col    = _detect_muni(health_data.columns)
     vars_av     = [v for v in climate_vars if v in climate_data.schema.names]
     window_size = window_days + 1
     op          = ">" if threshold_direction == "above" else "<"
@@ -918,7 +962,7 @@ def _join_cold_wave_exceedance(health_data, climate_data, climate_vars,
 def _join_weighted_window(health_data, climate_data, climate_vars,
                            window_days, weights=None, min_obs=0.7):
     date_col    = detect_date_column(list(health_data.columns))
-    muni_col    = detect_geo_column(list(health_data.columns), level="municipality")
+    muni_col    = _detect_muni(health_data.columns)
     vars_av     = [v for v in climate_vars if v in climate_data.schema.names]
     rules       = _build_agg_rules(vars_av)
     window_size = window_days + 1
@@ -979,7 +1023,7 @@ def _join_weighted_window(health_data, climate_data, climate_vars,
 
 def _join_seasonal(health_data, climate_data, climate_vars, min_days=60):
     date_col = detect_date_column(list(health_data.columns))
-    muni_col = detect_geo_column(list(health_data.columns), level="municipality")
+    muni_col = _detect_muni(health_data.columns)
     vars_av  = [v for v in climate_vars if v in climate_data.schema.names]
     rules    = _build_agg_rules(vars_av)
     season_agg = []
@@ -1058,6 +1102,7 @@ def sus_climate_aggregate(
     weights: list[float] | None = None,
     min_obs: float = 0.7,
     min_days: int = 60,
+    geo_basis: str | None = None,
     verbose: bool = True,
 ) -> duckdb.DuckDBPyRelation:
     """Integrate climate and health data using 10 temporal strategies.
@@ -1098,6 +1143,23 @@ def sus_climate_aggregate(
         min_obs: Minimum proportion of valid observations in window (0-1).
             Default: 0.7.
         min_days: Minimum days per station for ``seasonal``. Default: 60.
+        geo_basis: Which municipality column to key the spatial match on:
+            ``"residence"``, ``"occurrence"``, ``"notification"`` or
+            ``"unspecified"``. ``None`` (default) walks the declared
+            fallback order, residence first — the behaviour that was
+            there before.
+
+            Worth naming when it matters. Residence and occurrence are
+            **different epidemiological cuts**: a death in a referral
+            hospital is counted in the patient's home municipality by one
+            and in the hospital's by the other, and for a climate-health
+            analysis the exposure belongs to where the person *lived*,
+            not to where they were treated. M21 showed the choice changes
+            the result. Left as ``None``, list order decides in silence
+            and the output does not say which cut it used.
+
+            Added by D6, which unified the five municipality lists the
+            package used to carry into one declaration in climasus-data.
         verbose: Print progress messages.
 
     Returns:
@@ -1112,165 +1174,177 @@ def sus_climate_aggregate(
         ...                 temporal_strategy="moving_window", window_days=14)
         >>> cs.sus_climate_info(result)
     """
-    _VALID_STRATEGIES = {
-        "exact", "moving_window", "discrete_lag", "distributed_lag",
-        "offset_window", "degree_days", "threshold_exceedance",
-        "cold_wave_exceedance", "weighted_window", "seasonal",
-    }
-    if temporal_strategy not in _VALID_STRATEGIES:
-        raise ValueError(
-            f"temporal_strategy '{temporal_strategy}' is not valid.\n"
-            f"Options: {sorted(_VALID_STRATEGIES)}"
+    # O recorte vale por toda a chamada, e nao so no despacho: a
+    # validacao, o casamento espacial e o bloco de metadata resolvem a
+    # coluna de municipio cada um por sua conta, e todos tem de chegar
+    # na MESMA -- senao o join casa zero linha em silencio.
+    from ..utils.data import municipality_candidates
+
+    if geo_basis is not None:
+        municipality_candidates(geo_basis)   # valida o nome cedo
+    _token_basis = _GEO_BASIS.set(geo_basis)
+    try:
+        _VALID_STRATEGIES = {
+            "exact", "moving_window", "discrete_lag", "distributed_lag",
+            "offset_window", "degree_days", "threshold_exceedance",
+            "cold_wave_exceedance", "weighted_window", "seasonal",
+        }
+        if temporal_strategy not in _VALID_STRATEGIES:
+            raise ValueError(
+                f"temporal_strategy '{temporal_strategy}' is not valid.\n"
+                f"Options: {sorted(_VALID_STRATEGIES)}"
+            )
+
+        # materialise climate if it's a DuckDBPyRelation
+        if isinstance(climate_data, duckdb.DuckDBPyRelation):
+            climate_data = climate_data.df()
+
+        # --- Block 1-3: validation ---
+        _validate_health_data(health_data)
+        _validate_climate_data(climate_data)
+        _validate_date_overlap(health_data, climate_data)
+
+        # --- resolve climate_vars ---
+        if isinstance(climate_data, pa.Table):
+            climate_cols = climate_data.schema.names
+        else:
+            climate_cols = list(climate_data.columns)
+
+        avail = [v for v in _KNOWN_CLIMATE_VARS if v in climate_cols]
+        if climate_vars == "all" or climate_vars is None:
+            climate_vars_resolved = avail
+        else:
+            climate_vars_resolved = [v for v in climate_vars if v in climate_cols]
+            missing = [v for v in climate_vars if v not in climate_cols]
+            if missing and verbose:
+                print(f"Warning: variables not found and ignored: {missing}")
+
+        # --- Block 4: climate region ---
+        region  = _detect_climate_region(climate_data, climate_region, verbose=verbose)
+        defs    = _get_region_defaults(region)
+
+        if temp_base is None and temporal_strategy == "degree_days":
+            temp_base = defs["temp_base_health"]
+            if verbose:
+                print(f"temp_base not set — using default for {region}: {temp_base}°C")
+
+        if threshold_value is None and temporal_strategy == "threshold_exceedance":
+            threshold_value = defs["heatwave_threshold"]
+            if verbose:
+                print(f"threshold_value not set — using default for {region}: {threshold_value}°C")
+
+        if threshold_value is None and temporal_strategy == "cold_wave_exceedance":
+            threshold_value = defs["coldwave_threshold"]
+            if verbose:
+                print(f"threshold_value not set — using default for {region}: {threshold_value}°C")
+
+        # --- Block 5: validate strategy params ---
+        _validate_strategy_params(
+            temporal_strategy, window_days, lag_days, offset_days,
+            temp_base, threshold_value, threshold_direction,
+            weights, climate_vars_resolved,
         )
 
-    # materialise climate if it's a DuckDBPyRelation
-    if isinstance(climate_data, duckdb.DuckDBPyRelation):
-        climate_data = climate_data.df()
-
-    # --- Block 1-3: validation ---
-    _validate_health_data(health_data)
-    _validate_climate_data(climate_data)
-    _validate_date_overlap(health_data, climate_data)
-
-    # --- resolve climate_vars ---
-    if isinstance(climate_data, pa.Table):
-        climate_cols = climate_data.schema.names
-    else:
-        climate_cols = list(climate_data.columns)
-
-    avail = [v for v in _KNOWN_CLIMATE_VARS if v in climate_cols]
-    if climate_vars == "all" or climate_vars is None:
-        climate_vars_resolved = avail
-    else:
-        climate_vars_resolved = [v for v in climate_vars if v in climate_cols]
-        missing = [v for v in climate_vars if v not in climate_cols]
-        if missing and verbose:
-            print(f"Warning: variables not found and ignored: {missing}")
-
-    # --- Block 4: climate region ---
-    region  = _detect_climate_region(climate_data, climate_region, verbose=verbose)
-    defs    = _get_region_defaults(region)
-
-    if temp_base is None and temporal_strategy == "degree_days":
-        temp_base = defs["temp_base_health"]
         if verbose:
-            print(f"temp_base not set — using default for {region}: {temp_base}°C")
+            print(f"Strategy: {temporal_strategy}")
 
-    if threshold_value is None and temporal_strategy == "threshold_exceedance":
-        threshold_value = defs["heatwave_threshold"]
+        # --- Block 6: daily pre-aggregation ---
+        climate_daily = _aggregate_meteo_daily(climate_data, time_unit=time_unit)
         if verbose:
-            print(f"threshold_value not set — using default for {region}: {threshold_value}°C")
+            print(f"Daily data: {len(climate_daily):,} rows")
 
-    if threshold_value is None and temporal_strategy == "cold_wave_exceedance":
-        threshold_value = defs["coldwave_threshold"]
+        # --- Block 7: spatial matching ---
         if verbose:
-            print(f"threshold_value not set — using default for {region}: {threshold_value}°C")
+            print("Performing spatial matching...")
+        climate_matched = _match_spatial(climate_daily, health_data, verbose=verbose)
 
-    # --- Block 5: validate strategy params ---
-    _validate_strategy_params(
-        temporal_strategy, window_days, lag_days, offset_days,
-        temp_base, threshold_value, threshold_direction,
-        weights, climate_vars_resolved,
-    )
+        # --- Block 8: temporal join ---
+        if verbose:
+            print(f"Applying strategy '{temporal_strategy}'...")
 
-    if verbose:
-        print(f"Strategy: {temporal_strategy}")
+        dispatch = {
+            "exact":               lambda: _join_exact(health_data, climate_matched, climate_vars_resolved),
+            "moving_window":       lambda: _join_moving_window(health_data, climate_matched, climate_vars_resolved, window_days, min_obs),
+            "discrete_lag":        lambda: _join_discrete_lag(health_data, climate_matched, climate_vars_resolved, lag_days),
+            "distributed_lag":     lambda: _join_distributed_lag(health_data, climate_matched, climate_vars_resolved, max(lag_days) if lag_days else 0),
+            "offset_window":       lambda: _join_offset_window(health_data, climate_matched, climate_vars_resolved, offset_days, min_obs),
+            "degree_days":         lambda: _join_degree_days(health_data, climate_matched, window_days, temp_base, gdd_temp_var, min_obs),
+            "threshold_exceedance":lambda: _join_threshold_exceedance(health_data, climate_matched, climate_vars_resolved, window_days, threshold_value, threshold_direction, min_obs),
+            "cold_wave_exceedance":lambda: _join_cold_wave_exceedance(health_data, climate_matched, climate_vars_resolved, window_days, threshold_value, min_obs),
+            "weighted_window":     lambda: _join_weighted_window(health_data, climate_matched, climate_vars_resolved, window_days, weights, min_obs),
+            "seasonal":            lambda: _join_seasonal(health_data, climate_matched, climate_vars_resolved, min_days),
+        }
+        result = dispatch[temporal_strategy]()
 
-    # --- Block 6: daily pre-aggregation ---
-    climate_daily = _aggregate_meteo_daily(climate_data, time_unit=time_unit)
-    if verbose:
-        print(f"Daily data: {len(climate_daily):,} rows")
+        # --- sus_meta ---
+        result = set_stage(result, "climate", _inherit_from=health_data)
+        result = add_history(
+            result,
+            f"Climate aggregation: strategy={temporal_strategy}; "
+            f"vars={len(climate_vars_resolved)}; region={region}; time_unit={time_unit}"
+        )
 
-    # --- Block 7: spatial matching ---
-    if verbose:
-        print("Performing spatial matching...")
-    climate_matched = _match_spatial(climate_daily, health_data, verbose=verbose)
+        # --- Block 9: metadata dict ---
+        date_col = next((c for c in _date_candidates() if c in result.columns), None)
+        new_cols = [c for c in result.columns if c not in health_data.columns]
 
-    # --- Block 8: temporal join ---
-    if verbose:
-        print(f"Applying strategy '{temporal_strategy}'...")
+        match_rate = None
+        if new_cols:
+            total      = result.count("*").fetchone()[0]
+            n_not_null = result.filter(f"{new_cols[0]} IS NOT NULL").count("*").fetchone()[0]
+            match_rate = round(n_not_null / total * 100, 1) if total > 0 else 0.0
 
-    dispatch = {
-        "exact":               lambda: _join_exact(health_data, climate_matched, climate_vars_resolved),
-        "moving_window":       lambda: _join_moving_window(health_data, climate_matched, climate_vars_resolved, window_days, min_obs),
-        "discrete_lag":        lambda: _join_discrete_lag(health_data, climate_matched, climate_vars_resolved, lag_days),
-        "distributed_lag":     lambda: _join_distributed_lag(health_data, climate_matched, climate_vars_resolved, max(lag_days) if lag_days else 0),
-        "offset_window":       lambda: _join_offset_window(health_data, climate_matched, climate_vars_resolved, offset_days, min_obs),
-        "degree_days":         lambda: _join_degree_days(health_data, climate_matched, window_days, temp_base, gdd_temp_var, min_obs),
-        "threshold_exceedance":lambda: _join_threshold_exceedance(health_data, climate_matched, climate_vars_resolved, window_days, threshold_value, threshold_direction, min_obs),
-        "cold_wave_exceedance":lambda: _join_cold_wave_exceedance(health_data, climate_matched, climate_vars_resolved, window_days, threshold_value, min_obs),
-        "weighted_window":     lambda: _join_weighted_window(health_data, climate_matched, climate_vars_resolved, window_days, weights, min_obs),
-        "seasonal":            lambda: _join_seasonal(health_data, climate_matched, climate_vars_resolved, min_days),
-    }
-    result = dispatch[temporal_strategy]()
+        period_start = period_end = None
+        if date_col:
+            row = result.aggregate(
+                f"MIN(CAST({date_col} AS DATE)) AS d_min, "
+                f"MAX(CAST({date_col} AS DATE)) AS d_max"
+            ).fetchone()
+            period_start = str(row[0]) if row[0] else None
+            period_end   = str(row[1]) if row[1] else None
 
-    # --- sus_meta ---
-    result = set_stage(result, "climate", _inherit_from=health_data)
-    result = add_history(
-        result,
-        f"Climate aggregation: strategy={temporal_strategy}; "
-        f"vars={len(climate_vars_resolved)}; region={region}; time_unit={time_unit}"
-    )
+        muni_col = next((c for c in _muni_candidates() if c in result.columns), None)
+        n_munic  = None
+        if muni_col:
+            n_munic = result.aggregate(
+                f"COUNT(DISTINCT LEFT(CAST({muni_col} AS VARCHAR), 6)) AS n"
+            ).fetchone()[0]
 
-    # --- Block 9: metadata dict ---
-    date_col = next((c for c in _DATE_CANDIDATES if c in result.columns), None)
-    new_cols = [c for c in result.columns if c not in health_data.columns]
+        n_events = result.count("*").fetchone()[0]
 
-    match_rate = None
-    if new_cols:
-        total      = result.count("*").fetchone()[0]
-        n_not_null = result.filter(f"{new_cols[0]} IS NOT NULL").count("*").fetchone()[0]
-        match_rate = round(n_not_null / total * 100, 1) if total > 0 else 0.0
+        _CLIMASUS_META[id(result)] = {
+            "strategy":            temporal_strategy,
+            "climate_vars":        climate_vars_resolved,
+            "climate_region":      region,
+            "time_unit":           time_unit,
+            "window_days":         window_days,
+            "lag_days":            lag_days,
+            "offset_days":         offset_days,
+            "temp_base":           temp_base,
+            "threshold_value":     threshold_value,
+            "threshold_direction": threshold_direction,
+            "weights":             weights,
+            "min_obs":             min_obs,
+            "min_days":            min_days,
+            "n_events":            n_events,
+            "n_municipalities":    n_munic,
+            "match_rate_pct":      match_rate,
+            "new_columns":         new_cols,
+            "period_start":        period_start,
+            "period_end":          period_end,
+        }
 
-    period_start = period_end = None
-    if date_col:
-        row = result.aggregate(
-            f"MIN(CAST({date_col} AS DATE)) AS d_min, "
-            f"MAX(CAST({date_col} AS DATE)) AS d_max"
-        ).fetchone()
-        period_start = str(row[0]) if row[0] else None
-        period_end   = str(row[1]) if row[1] else None
+        if verbose:
+            print(f"\nDone:")
+            print(f"  Events:          {n_events:,}")
+            print(f"  Municipalities:  {n_munic}")
+            print(f"  Climate columns: {len(new_cols)}")
+            print(f"  Match rate:      {match_rate}%")
+            print(f"  Period:          {period_start} → {period_end}")
 
-    muni_col = next((c for c in _MUNI_CANDIDATES if c in result.columns), None)
-    n_munic  = None
-    if muni_col:
-        n_munic = result.aggregate(
-            f"COUNT(DISTINCT LEFT(CAST({muni_col} AS VARCHAR), 6)) AS n"
-        ).fetchone()[0]
-
-    n_events = result.count("*").fetchone()[0]
-
-    _CLIMASUS_META[id(result)] = {
-        "strategy":            temporal_strategy,
-        "climate_vars":        climate_vars_resolved,
-        "climate_region":      region,
-        "time_unit":           time_unit,
-        "window_days":         window_days,
-        "lag_days":            lag_days,
-        "offset_days":         offset_days,
-        "temp_base":           temp_base,
-        "threshold_value":     threshold_value,
-        "threshold_direction": threshold_direction,
-        "weights":             weights,
-        "min_obs":             min_obs,
-        "min_days":            min_days,
-        "n_events":            n_events,
-        "n_municipalities":    n_munic,
-        "match_rate_pct":      match_rate,
-        "new_columns":         new_cols,
-        "period_start":        period_start,
-        "period_end":          period_end,
-    }
-
-    if verbose:
-        print(f"\nDone:")
-        print(f"  Events:          {n_events:,}")
-        print(f"  Municipalities:  {n_munic}")
-        print(f"  Climate columns: {len(new_cols)}")
-        print(f"  Match rate:      {match_rate}%")
-        print(f"  Period:          {period_start} → {period_end}")
-
-    return result
+        return result
+    finally:
+        _GEO_BASIS.reset(_token_basis)
 
 
 def sus_climate_info(result: duckdb.DuckDBPyRelation) -> None:

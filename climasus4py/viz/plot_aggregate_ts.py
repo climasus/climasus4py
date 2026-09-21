@@ -28,10 +28,18 @@ _TS_OUTCOME_CANDIDATES = [
     "count", "n", "total",
 ]
 
-_TS_DATE_CANDIDATES = [
-    "date", "data", "DT_NOTIFIC", "DTOBITO", "DT_INTER",
-    "DTNASC", "DT_COMPET",
-]
+# A quinta lista (D6/M96), agora vinda do climasus-data. Os dois nomes que
+# so existiam aqui -- "data" e "DT_COMPET" -- seguem cobertos, acrescidos
+# ao fim para nao mexer na precedencia declarada.
+_TS_DATE_EXTRA = ["data", "DT_COMPET"]
+
+
+def _ts_date_candidates() -> list[str]:
+    from ..utils.data import load_datasus_columns_spec
+
+    declaradas = list(
+        load_datasus_columns_spec()["role_priority"]["date"])
+    return declaradas + [c for c in _TS_DATE_EXTRA if c not in declaradas]
 
 _TS_PLOT_TYPES = {"epidemic", "seasonal", "heatmap", "trend"}
 
@@ -102,10 +110,13 @@ def _ts_detect_value_col(columns: list, value_col: str | None) -> str:
 
 
 def _ts_detect_date_col(columns: list) -> str:
-    for c in _TS_DATE_CANDIDATES:
+    for c in _ts_date_candidates():
         if c in columns:
             return c
-    raise ValueError("Date column not found.")
+    raise ValueError(
+        "Date column not found. Expected one of: "
+        + ", ".join(_ts_date_candidates())
+    )
 
 
 def _ts_prepare(df: pd.DataFrame, value_col: str, date_col: str) -> pd.DataFrame:

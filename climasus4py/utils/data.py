@@ -144,10 +144,35 @@ _FALLBACK_DATASUS_COLUMNS: dict[str, Any] = {
         "SINASC":      {"any_of": ["NUMERODN"]},
     },
     "role_priority": {
-        "date":  ["death_date", "date", "DTOBITO", "DTNASC", "admission_date"],
+        "date":  ["death_date", "date", "DTOBITO", "DTNASC", "admission_date",
+                  "DT_NOTIFIC", "DT_INTER"],
         "cause": ["underlying_cause", "cause", "CAUSABAS", "DIAG_PRINC"],
         "age":   ["age", "age_years", "age_code", "IDADE", "IDADEMAE"],
         "sex":   ["sex", "SEXO", "CS_SEXO"],
+        # Municipality and state were MISSING from this fallback while
+        # detect_geo_column kept its own hardcoded dict, so nothing
+        # noticed. Now that the detector reads the metadata (D6/M96), an
+        # install without climasus-data would raise KeyError without
+        # these. Same union and same order as the published file.
+        "municipality": [
+            "CODMUNRES", "residence_municipality_code",
+            "codigo_municipio_residencia", "MUNI_RES",
+            "CODMUNOCOR", "occurrence_municipality_code",
+            "codigo_municipio_ocurrencia",
+            "ID_MUNICIP", "notification_municipality_code",
+            "municipality_code", "code_muni",
+        ],
+        "state": ["state", "SG_UF", "UF", "SG_UF_NOT"],
+    },
+    "municipality_by_basis": {
+        "_fallback_order": ["residence", "occurrence", "notification",
+                            "unspecified"],
+        "residence": ["CODMUNRES", "residence_municipality_code",
+                      "codigo_municipio_residencia", "MUNI_RES"],
+        "occurrence": ["CODMUNOCOR", "occurrence_municipality_code",
+                       "codigo_municipio_ocurrencia"],
+        "notification": ["ID_MUNICIP", "notification_municipality_code"],
+        "unspecified": ["municipality_code", "code_muni"],
     },
 }
 
@@ -173,26 +198,45 @@ def load_datasus_columns_spec() -> dict[str, Any]:
     if not isinstance(data, dict):
         return _FALLBACK_DATASUS_COLUMNS.copy()
 
-    if int(data.get("schema_version") or 1) >= 2:
+    versao = int(data.get("schema_version") or 1)
+    if versao >= 3:
         return data
 
     import warnings
 
+    corrigido = dict(data)
+    faltando: list[str] = []
+
+    if versao < 2:
+        faltando.append(
+            "the single all_numeric_columns list of 23 entries, which mixes "
+            "quantities with fixed-width identifier codes and loses the "
+            "leading zero of CODESTAB when coerced (M64)")
+        for chave in ("all_numeric_columns", "all_identifier_columns",
+                      "all_categorical_columns"):
+            corrigido[chave] = _FALLBACK_DATASUS_COLUMNS[chave]
+
+    if versao < 3:
+        faltando.append(
+            "no municipality_by_basis, and a role_priority.municipality of "
+            "3 names against the 11 the detectors need — residence and "
+            "occurrence could not be told apart (M96)")
+        corrigido["municipality_by_basis"] = (
+            _FALLBACK_DATASUS_COLUMNS["municipality_by_basis"])
+        papeis = dict(corrigido.get("role_priority") or {})
+        for chave in ("municipality", "state", "date"):
+            papeis[chave] = _FALLBACK_DATASUS_COLUMNS["role_priority"][chave]
+        corrigido["role_priority"] = papeis
+
     warnings.warn(
         "climasus-data publishes metadata/datasus_columns.json at "
-        f"schema_version {data.get('schema_version')!r}, which still has "
-        "the single all_numeric_columns list of 23 entries. That list "
-        "mixes quantities with fixed-width identifier codes, and coercing "
-        "it to numbers loses the leading zero of CODESTAB (M64). Using "
-        "the corrected split lists bundled with climasus4py instead; run "
-        "update_climasus_data() to get the published ones.",
+        f"schema_version {data.get('schema_version')!r}, which has "
+        + "; and ".join(faltando)
+        + ". Using the corrected lists bundled with climasus4py instead; "
+        "run update_climasus_data() to get the published ones.",
         UserWarning,
         stacklevel=2,
     )
-    corrigido = dict(data)
-    for chave in ("all_numeric_columns", "all_identifier_columns",
-                  "all_categorical_columns"):
-        corrigido[chave] = _FALLBACK_DATASUS_COLUMNS[chave]
     return corrigido
 
 
@@ -440,31 +484,98 @@ def decode_age_sql(age_col: str) -> str:
     )
 
 
-def detect_geo_column(columns: list[str], level: str = "municipality") -> str | None:
+#: Levels the shared metadata does not describe, so they stay here.
+_GEO_LOCAL_LEVELS: dict[str, list[str]] = {
+    "region": ["region"],
+    "country": ["country"],
+}
+
+
+def municipality_candidates(basis: str | None = None) -> list[str]:
+    """Municipality column names, in order, for one geographic basis.
+
+    Reads ``municipality_by_basis`` from the shared metadata (D6/M96).
+    ``basis`` of ``None`` returns the declared fallback union, which is
+    what ``role_priority.municipality`` holds.
+
+    Args:
+        basis: ``"residence"``, ``"occurrence"``, ``"notification"``,
+            ``"unspecified"``, or ``None`` for the full fallback order.
+
+    Returns:
+        Ordered candidate names.
+
+    Raises:
+        ValueError: If *basis* is not a declared one.
+    """
+    spec = _load_datasus_columns_json()
+    if basis is None:
+        return list(spec["role_priority"]["municipality"])
+    porbase = spec.get("municipality_by_basis") or {}
+    if basis not in porbase or basis.startswith("_"):
+        validos = [k for k in porbase if not k.startswith("_")]
+        raise ValueError(
+            f"Unknown geographic basis {basis!r}. Declared: "
+            f"{sorted(validos)}."
+        )
+    return list(porbase[basis])
+
+
+def detect_geo_column(
+    columns: list[str],
+    level: str = "municipality",
+    basis: str | None = None,
+) -> str | None:
     """Return the first recognised geographic column for the requested level.
 
-    The last three municipality names were missing, and their absence was
-    not harmless: ``climate_aggregate`` validates health data against its
-    own ``_MUNI_CANDIDATES``, which *did* list them, so a relation keyed
-    on ``code_muni`` passed validation and then died deep in the join
-    with ``Binder Error: ... does not have a column named "None"`` --
-    the detector had returned ``None`` and it went straight into the SQL.
-    Appended rather than inserted, so the existing precedence is
-    untouched. See M96.
+    Municipality names come from the **shared metadata**, which is the
+    single source since 21/09/2026 (D6). There used to be five lists
+    disagreeing on both membership and order: this function's own dict,
+    ``role_priority.municipality``, ``climate_aggregate``'s
+    ``_MUNI_CANDIDATES``, and one in each plotting module. Order is what
+    matters, because the first match wins.
+
+    That divergence is how M96 happened: ``climate_aggregate`` validated
+    against its own list, which *did* include ``code_muni``, so a
+    relation keyed on it passed validation and then died deep in the join
+    with ``Binder Error: ... does not have a column named "None"`` — the
+    detector had returned ``None`` and it went straight into the SQL.
+    With one list, validation and detection cannot disagree again.
+
+    Args:
+        columns: Column names to search.
+        level: ``"municipality"``, ``"state"``, ``"region"`` or
+            ``"country"``.
+        basis: For ``level="municipality"``, which geographic cut to
+            require: ``"residence"``, ``"occurrence"``,
+            ``"notification"`` or ``"unspecified"``. ``None`` (default)
+            walks the declared fallback order, residence first.
+
+            Worth asking for explicitly when it matters: residence and
+            occurrence are **different epidemiological cuts** and the
+            choice changes the result (M21). With ``None`` the order
+            decides in silence, which is the behaviour that was there
+            before and is kept so nothing breaks — but a caller that
+            cares should say which one it means.
+
+    Returns:
+        The first matching column name, or ``None``.
+
+    Raises:
+        ValueError: If *basis* is given with a level other than
+            municipality, or is not a declared basis.
     """
-    candidates = {
-        "municipality": [
-            "CODMUNRES", "ID_MUNICIP",
-            "municipality_code", "residence_municipality_code",
-            "occurrence_municipality_code",
-            "codigo_municipio_residencia", "codigo_municipio_ocurrencia",
-            "code_muni", "notification_municipality_code", "MUNI_RES",
-        ],
-        "state":   ["state", "SG_UF", "UF", "SG_UF_NOT"],
-        "region":  ["region"],
-        "country": ["country"],
-    }
-    return _detect_column(columns, candidates.get(level, []))
+    if level == "municipality":
+        return _detect_column(columns, municipality_candidates(basis))
+    if basis is not None:
+        raise ValueError(
+            f"basis={basis!r} only applies to level='municipality', not "
+            f"{level!r}."
+        )
+    if level == "state":
+        return _detect_column(
+            columns, _load_datasus_columns_json()["role_priority"]["state"])
+    return _detect_column(columns, _GEO_LOCAL_LEVELS.get(level, []))
 
 
 def system_family(system: str) -> str:

@@ -21,8 +21,8 @@ import pytest
 import climasus4py as cs
 from climasus4py.core.engine import get_connection
 from climasus4py.enrichment.climate_aggregate import (
-    _DATE_CANDIDATES,
-    _MUNI_CANDIDATES,
+    _date_candidates,
+    _muni_candidates,
 )
 from climasus4py.utils.data import detect_date_column, detect_geo_column
 
@@ -238,18 +238,30 @@ class TestDetectorBateComOValidador:
     que e o caminho de dengue -- o caso de uso principal de uma
     biblioteca de clima e saude. `DT_INTER` e a de internacao do SIH.
 
-    Corrigido acrescentando os nomes no FIM de cada lista, sem mexer na
-    precedencia existente. Os de data moraram sempre no climasus-data
-    (`role_priority.date`); os de municipio estao hardcoded no
-    `detect_geo_column`, que ignora o `role_priority.municipality` -- duas
-    fontes de verdade para a mesma coisa, o que continua registrado.
+    Corrigido primeiro pelas pontas, em 15/09/2026, acrescentando os
+    nomes no FIM de cada lista. Em 21/09/2026 a D6 fechou a causa: havia
+    CINCO listas -- esta, a do `detect_geo_column`, a do
+    `role_priority.municipality` e uma em cada modulo de grafico -- e
+    divergiam tambem na ORDEM, que e o que decide, porque a primeira que
+    casa vence. Todas passaram a ler a mesma declaracao do
+    climasus-data, entao validacao e deteccao nao podem mais discordar.
     """
 
-    @pytest.mark.parametrize("coluna", _MUNI_CANDIDATES)
+    def test_o_validador_e_o_detector_leem_a_MESMA_lista(self):
+        """A garantia estrutural, que e mais forte que a de conteudo.
+
+        Enquanto eram duas listas, manter as duas em acordo dependia de
+        alguem lembrar. Agora e a mesma chamada.
+        """
+        from climasus4py.utils.data import municipality_candidates
+
+        assert _muni_candidates() == municipality_candidates()
+
+    @pytest.mark.parametrize("coluna", _muni_candidates())
     def test_todo_municipio_aceito_e_detectavel(self, coluna):
         assert detect_geo_column([coluna], level="municipality") == coluna
 
-    @pytest.mark.parametrize("coluna", _DATE_CANDIDATES)
+    @pytest.mark.parametrize("coluna", _date_candidates())
     def test_toda_data_aceita_e_detectavel(self, coluna):
         assert detect_date_column([coluna]) == coluna
 

@@ -27,11 +27,10 @@ _MAP_OUTCOME_CANDIDATES = [
     "count", "n", "total",
 ]
 
-_MAP_MUNI_CANDIDATES = [
-    "residence_municipality_code", "occurrence_municipality_code",
-    "notification_municipality_code", "municipality_code",
-    "CODMUNRES", "CODMUNOCOR", "ID_MUNICIP", "code_muni",
-]
+# A quarta das cinco listas de coluna de municipio que o pacote tinha,
+# cada uma com a sua ordem (D6/M96). Agora todas leem a mesma declaracao
+# do climasus-data, entao um mapa nao pode mais agregar por um recorte
+# geografico diferente do que a agregacao usou.
 
 _MAP_TYPES = {"bubble", "choropleth", "quantile_choropleth"}
 
@@ -93,12 +92,14 @@ def _map_detect_outcome_col(columns: list, value_col: str | None) -> str:
 
 
 def _map_detect_muni_col(columns: list) -> str:
-    for c in _MAP_MUNI_CANDIDATES:
-        if c in columns:
-            return c
+    from ..utils.data import detect_geo_column, municipality_candidates
+
+    achada = detect_geo_column(list(columns), level="municipality")
+    if achada is not None:
+        return achada
     raise ValueError(
-        "Municipality column not detected. "
-        "Expected one of: residence_municipality_code, CODMUNRES, ..."
+        "Municipality column not detected. Expected one of: "
+        + ", ".join(municipality_candidates())
     )
 
 

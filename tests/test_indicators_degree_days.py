@@ -43,6 +43,7 @@ from climasus4py.enrichment.climate_indicators import (
     _MPH_PER_MS,
     _wct_correct_units,
     flag_threshold,
+    flag_threshold_name,
     has_flags,
     resolve_indicator,
 )
@@ -74,11 +75,32 @@ def saida_wbgt(entrada) -> pd.DataFrame:
 
 @pytest.fixture(scope="module")
 def saida_py(entrada) -> pd.DataFrame:
-    rel = get_connection().from_df(entrada)
-    return cs.sus_climate_compute_indicators(
-        rel, indicators=NOVOS, station_col="station_code",
-        date_col="datetime", region="none", verbose=False,
-    ).df()
+    """A saida do Python com as chaves de replica LIGADAS.
+
+    Esta fixture alimenta os testes de paridade, e a referencia deles e a
+    saida real do climasus4r -- entao ela tem de pedir os defeitos do R
+    de propósito. Sao dois, os dois corrigidos no default em 21/09/2026
+    pela D5: o fator de unidade do wct_c (M69) e a inversao das flags de
+    frio (M72).
+
+    Restaura na mao, e nao por monkeypatch, pelo mesmo motivo da
+    `saida_como_o_r`: uma fixture de escopo de modulo com monkeypatch so
+    desfaz no teardown do arquivo, e a chave ficaria ligada para as
+    classes seguintes -- que sao justamente as que testam o default
+    oposto.
+    """
+    antes = (mod.R_WCT_USES_KMH_FACTOR, mod.R_COLD_FLAGS_INVERTED)
+    mod.R_WCT_USES_KMH_FACTOR = True
+    mod.R_COLD_FLAGS_INVERTED = True
+    try:
+        rel = get_connection().from_df(entrada)
+        return cs.sus_climate_compute_indicators(
+            rel, indicators=NOVOS, station_col="station_code",
+            date_col="datetime", region="none", verbose=False,
+        ).df()
+    finally:
+        (mod.R_WCT_USES_KMH_FACTOR,
+         mod.R_COLD_FLAGS_INVERTED) = antes
 
 
 # ---------------------------------------------------------------------------
@@ -520,39 +542,61 @@ class TestFlagsLimiares:
     @pytest.mark.parametrize(("ind", "flag"), [
         ("heat_index", "low"), ("thi", "extreme"), ("thi", "low"),
         ("wcet", "high"), ("wcet", "low"), ("wct", "high"), ("wct", "low"),
-        ("diurnal_range", "extreme"), ("diurnal_range", "high"),
-        ("diurnal_range", "low"),
-        ("vapor_pressure", "extreme"), ("vapor_pressure", "high"),
-        ("vapor_pressure", "low"),
+        ("diurnal_range", "extreme"),
+        ("vapor_pressure", "extreme"), ("vapor_pressure", "low"),
     ])
     def test_nomes_que_a_cadeia_nunca_le(self, ind, flag):
-        """16 das 30 colunas de flag do R sao constante FALSE.
+        """As que seguem constante FALSE, e por um motivo honesto.
 
-        Nao por falta de limiar declarado, mas porque o NOME declarado nao
-        esta na cadeia de prioridade. O diurnal_range declara
-        high/moderate/low e a cadeia procura high_stress/warning_low; o pet
-        declara slight_cold onde a cadeia quer slight_cold_stress -- quase
-        acerto que custa duas colunas.
+        No R sao 16 das 30. Doze seguem assim aqui, e a maioria porque o
+        indicador NAO DECLARA nada para aquela ponta: o heat_index nao tem
+        limiar de frio, o thi nao tem extremo. Nesses casos o defeito e
+        emitir coluna constante FALSE em vez de omiti-la, e nao o limiar
+        que falta. Onde o numero existe sob nome ambiguo -- `moderate` e a
+        flag high ou a low? `caution`? `comfortable_min`? -- revivê-la
+        exigiria escolher o que o numero significa, que e decisao de
+        modelagem e nao porte. Ver D5/M72.
         """
         assert flag_threshold(ind, flag) is None
 
+    @pytest.mark.parametrize(("ind", "flag", "nome", "valor"), [
+        ("diurnal_range", "high", "high", 15.0),
+        ("diurnal_range", "low", "low", 5.0),
+        ("vapor_pressure", "high", "high", 2.5),
+        ("pet", "low", "slight_cold", 13.0),
+    ])
+    def test_as_quatro_revividas(self, ind, flag, nome, valor):
+        """21/09/2026: quatro das 16 mortas voltaram a disparar (D5/M72).
+
+        So estas quatro, e so porque o nome declarado resolve a questao
+        sozinho: o diurnal_range declara os limiares literalmente como
+        `high` e `low`, o vapor_pressure como `high`, e o pet escreve
+        `slight_cold` onde a cadeia procurava `slight_cold_stress` -- o
+        quase acerto que o M72 descreve. Nenhuma exigiu escolher
+        significado.
+        """
+        assert flag_threshold_name(ind, flag) == nome
+        assert flag_threshold(ind, flag) == pytest.approx(valor)
+
     def test_as_colunas_constantes_saem_mesmo_assim(self, com_flags):
-        """O R emite a coluna cheia de FALSE em vez de omiti-la."""
+        """O R emite a coluna cheia de FALSE em vez de omiti-la.
+
+        Replicado: omitir mudaria o conjunto de colunas, que e paridade de
+        forma. O vapor_pressure_kpa_flag_high saiu desta lista em
+        21/09/2026 porque passou a disparar.
+        """
         for c in ("vapor_pressure_kpa_flag_extreme",
-                  "vapor_pressure_kpa_flag_high",
                   "vapor_pressure_kpa_flag_low",
                   "thi_c_flag_extreme", "thi_c_flag_low"):
             assert c in com_flags.columns
             assert not com_flags[c].any()
 
     def test_a_conta_das_colunas_que_nao_disparam(self):
-        """Dos 7 indicadores com limiar ja portados, 13 das 21 flags sao mortas.
+        """Dos 7 indicadores com limiar ja portados: eram 13 mortas, sao 10.
 
-        Por indicador: wbgt 0, heat_index 1 (low), thi 2 (extreme e low),
-        wcet 2 (high e low), wct 2, diurnal_range 3, vapor_pressure 3.
-
-        No conjunto completo do R -- que inclui et, utci e pet, ainda nao
-        portados -- sao 16 de 30.
+        Por indicador, agora: wbgt 0, heat_index 1 (low), thi 2 (extreme e
+        low), wcet 2 (high e low), wct 2, diurnal_range 1 (extreme),
+        vapor_pressure 2 (extreme e low).
         """
         portados = ["wbgt", "heat_index", "thi", "wcet", "wct",
                     "diurnal_range", "vapor_pressure"]
@@ -564,49 +608,85 @@ class TestFlagsLimiares:
 
         assert por_indicador == {
             "wbgt": 0, "heat_index": 1, "thi": 2, "wcet": 2, "wct": 2,
-            "diurnal_range": 3, "vapor_pressure": 3,
+            "diurnal_range": 1, "vapor_pressure": 2,
         }
-        assert sum(por_indicador.values()) == 13
+        assert sum(por_indicador.values()) == 10
         assert all(has_flags(i) for i in portados)
 
     def test_a_conta_completa_do_r(self):
-        """16 das 30 colunas do conjunto completo do R nunca disparam."""
+        """No R, 16 das 30 nunca disparam; aqui, 12.
+
+        As duas contas no mesmo teste de proposito: a do R e o achado, e a
+        daqui e o que o pacote entrega. Se alguem reviver mais flags sem
+        atualizar o registro, este teste falha.
+        """
         todos_do_r = ["wbgt", "heat_index", "thi", "wcet", "wct", "et",
                       "utci", "pet", "diurnal_range", "vapor_pressure"]
+        assert len(todos_do_r) * 3 == 30
+
         mortas = sum(1 for i in todos_do_r for f in ("extreme", "high", "low")
                      if flag_threshold(i, f) is None)
+        assert mortas == 12, "revividas a mais ou a menos que as quatro da D5"
 
-        assert len(todos_do_r) * 3 == 30
-        assert mortas == 16
+        # A conta do R: as quatro revividas vinham dos nomes literais que a
+        # cadeia do R nao procura.
+        revividas = [("diurnal_range", "high"), ("diurnal_range", "low"),
+                     ("vapor_pressure", "high"), ("pet", "low")]
+        assert mortas + len(revividas) == 16
 
 
-class TestFlagInvertidaNoFrio:
-    """A flag extreme de wcet/wct marca o lado AMENO (M72).
+class TestFlagDeFrioCorrigida:
+    """A flag extreme de wcet/wct marcava o lado AMENO (M72).
 
-    Os dois declaram high_risk = -35, que cai na cadeia do extreme, e essa
-    flag dispara em valor > limiar. Para sensacao termica de frio, mais
-    frio e pior -- entao a flag e TRUE em quase todo lugar e FALSE
-    exatamente nos casos perigosos.
+    Os dois declaram high_risk = -35, que cai na cadeia do extreme, e no R
+    essa flag dispara em `valor > limiar`. Para sensacao termica de frio,
+    mais frio e pior -- entao a flag do R e TRUE em quase todo lugar e
+    FALSE exatamente nos casos perigosos.
+
+    CORRIGIDO no default em 21/09/2026 (D5): a direcao passou a ser
+    decidida pelo NOME do limiar e nao pela flag, entao um limiar de risco
+    de frio dispara no lado frio onde quer que caia. Uma flag que e FALSE
+    justamente onde esta o perigo nao carrega a informacao em forma ruim
+    -- carrega o oposto dela.
     """
 
     def test_o_high_risk_cai_na_cadeia_do_extreme(self):
         assert flag_threshold("wcet", "extreme") == -35.0
         assert flag_threshold("wcet", "high") is None
 
-    def test_dispara_no_ameno_e_nao_no_perigoso(self, com_flags):
-        com_valor = com_flags[com_flags["wcet_c"].notna()]
-        mais_frio = com_valor.loc[com_valor["wcet_c"].idxmin()]
+    @pytest.mark.parametrize("ind", ["wcet", "wct", "wct_ms"])
+    def test_a_direcao_agora_e_para_baixo(self, ind):
+        assert mod.flag_comparison(ind, "extreme") == "<"
 
-        assert mais_frio["wcet_c"] < -40          # risco de vida
-        assert not bool(mais_frio["wcet_c_flag_extreme"])
-        # E TRUE na maioria esmagadora, que e o outro sintoma.
-        assert com_valor["wcet_c_flag_extreme"].mean() > 0.8
+    @pytest.mark.parametrize("col", ["wcet_c", "wct_c"])
+    def test_dispara_no_perigoso_e_nao_no_ameno(self, com_flags, col):
+        com_valor = com_flags[com_flags[col].notna()]
+        mais_frio = com_valor.loc[com_valor[col].idxmin()]
 
-    def test_o_mesmo_no_wct(self, com_flags):
-        com_valor = com_flags[com_flags["wct_c"].notna()]
-        mais_frio = com_valor.loc[com_valor["wct_c"].idxmin()]
+        assert mais_frio[col] < -40, "a fixture perdeu o caso extremo"
+        assert bool(mais_frio[f"{col}_flag_extreme"]), (
+            "o valor mais frio da amostra, risco de vida, nao disparou")
+        # E o outro sintoma some: a flag deixa de ser TRUE em quase tudo.
+        assert com_valor[f"{col}_flag_extreme"].mean() < 0.2
 
-        assert not bool(mais_frio["wct_c_flag_extreme"])
+    @pytest.mark.parametrize("col", ["wcet_c", "wct_c"])
+    def test_a_chave_reproduz_a_inversao_do_r(self, entrada, col):
+        """O achado tem de seguir reproduzivel, senao vira so historia."""
+        antes = mod.R_COLD_FLAGS_INVERTED
+        mod.R_COLD_FLAGS_INVERTED = True
+        try:
+            rel = get_connection().from_df(entrada)
+            out = cs.sus_climate_compute_indicators(
+                rel, indicators=["wcet", "wct"], station_col="station_code",
+                date_col="datetime", region="none",
+                confidence_flags=True, verbose=False).df()
+        finally:
+            mod.R_COLD_FLAGS_INVERTED = antes
+
+        com_valor = out[out[col].notna()]
+        mais_frio = com_valor.loc[com_valor[col].idxmin()]
+        assert not bool(mais_frio[f"{col}_flag_extreme"])
+        assert com_valor[f"{col}_flag_extreme"].mean() > 0.8
 
 
 class TestAliasDoCodigoR:
@@ -913,7 +993,6 @@ class TestVarianteVsBase:
     @pytest.mark.parametrize(("variante", "base"), [
         ("thi_classic_c", "thi_c"),
         ("diurnal_range_station_c", "diurnal_range_c"),
-        ("wct_ms_c", "wct_c"),
         ("wbgt_stull_c", "wbgt_c"),
     ])
     def test_as_numericas_diferem(self, par, variante, base):
@@ -937,23 +1016,55 @@ class TestVarianteVsBase:
         assert (b[sem_rh] == "Perhumid").all()
         assert a[sem_rh].isna().all()
 
-    def test_o_wct_corrigido_converge_com_o_wcet(self, entrada):
-        """A prova do M69, agora entre duas COLUNAS em vez de uma funcao.
+    def test_o_wct_ms_virou_igual_ao_wct(self, par):
+        """Consequencia direta da D5, e nao acidente.
 
-        wcet_c (Environment Canada, km/h, conversao correta) e wct_ms_c
-        (NWS, m/s -> mph correto) sao a mesma grandeza e convergem; o
-        wct_c do R, nao.
+        O `wct_ms` foi criado como a variante corrigida do `wct`. Desde
+        21/09/2026 o proprio `wct` usa o fator certo, entao as duas
+        colunas coincidem no default. O `wct_ms_c` continua a sair, com o
+        mesmo nome de sempre, para nao quebrar quem o pede por nome.
         """
-        rel = get_connection().from_df(entrada)
-        out = cs.sus_climate_compute_indicators(
-            rel, indicators=["wcet", "wct", "wct_ms"],
-            station_col="station_code", date_col="datetime",
-            confidence_flags=False, region="none", verbose=False,
-        ).df()
-        m = out["wcet_c"].notna() & out["wct_c"].notna() & out["wct_ms_c"].notna()
+        a, b = par["wct_ms_c"].astype(float), par["wct_c"].astype(float)
+        m = a.notna() & b.notna()
+        assert m.sum() > 500
+        assert np.array_equal(a[m].to_numpy(), b[m].to_numpy())
 
+    def test_o_wct_corrigido_converge_com_o_wcet(self, entrada):
+        """A prova do M69, entre COLUNAS em vez de uma funcao.
+
+        wcet_c (Environment Canada, km/h, conversao correta) e wct_c com o
+        fator certo sao a mesma grandeza e convergem a menos de 0,1 C. Com
+        o fator do R -- a chave ligada -- divergem em mais de 4 C na
+        media, e o wct_c sai SEMPRE mais quente, que e o lado perigoso
+        para analise de onda de frio.
+        """
+        def roda():
+            rel = get_connection().from_df(entrada)
+            return cs.sus_climate_compute_indicators(
+                rel, indicators=["wcet", "wct", "wct_ms"],
+                station_col="station_code", date_col="datetime",
+                confidence_flags=False, region="none", verbose=False,
+            ).df()
+
+        out = roda()
+        m = out["wcet_c"].notna() & out["wct_c"].notna()
+        assert np.abs(out.loc[m, "wct_c"] - out.loc[m, "wcet_c"]).max() < 0.1
         assert np.abs(out.loc[m, "wct_ms_c"] - out.loc[m, "wcet_c"]).max() < 0.1
-        assert np.abs(out.loc[m, "wct_c"] - out.loc[m, "wcet_c"]).mean() > 4.0
+
+        antes = mod.R_WCT_USES_KMH_FACTOR
+        mod.R_WCT_USES_KMH_FACTOR = True
+        try:
+            do_r = roda()
+        finally:
+            mod.R_WCT_USES_KMH_FACTOR = antes
+
+        m2 = do_r["wcet_c"].notna() & do_r["wct_c"].notna()
+        assert np.abs(do_r.loc[m2, "wct_c"] - do_r.loc[m2, "wcet_c"]).mean() > 4.0
+        assert (do_r.loc[m2, "wct_c"] >= do_r.loc[m2, "wcet_c"]).all(), (
+            "o erro de unidade tem de correr sempre para o lado quente")
+        assert np.abs(do_r.loc[m2, "wct_ms_c"]
+                      - do_r.loc[m2, "wcet_c"]).max() < 0.1, (
+            "a chave nao pode afetar o wct_ms, que sempre usou o fator certo")
 
     def test_a_ordem_das_linhas_segue_a_entrada(self, entrada):
         """Premissa de toda comparacao contra fixture neste arquivo.
@@ -1369,12 +1480,16 @@ def saida_como_o_r(entrada) -> pd.DataFrame:
     chave ficaria ligada para as classes seguintes -- que e exatamente o
     que testam o default oposto.
     """
-    anterior = mod.R_COUPLES_MASK_TO_REGION
+    anterior = (mod.R_COUPLES_MASK_TO_REGION, mod.R_WCT_USES_KMH_FACTOR,
+                mod.R_COLD_FLAGS_INVERTED)
     mod.R_COUPLES_MASK_TO_REGION = True
+    mod.R_WCT_USES_KMH_FACTOR = True
+    mod.R_COLD_FLAGS_INVERTED = True
     try:
         return _indicadores(entrada)
     finally:
-        mod.R_COUPLES_MASK_TO_REGION = anterior
+        (mod.R_COUPLES_MASK_TO_REGION, mod.R_WCT_USES_KMH_FACTOR,
+         mod.R_COLD_FLAGS_INVERTED) = anterior
 
 
 @pytest.fixture(scope="module")
@@ -1420,6 +1535,11 @@ class TestCaminhoPadraoDoR:
     testes de paridade abaixo pedem R_COUPLES_MASK_TO_REGION=True para
     alcancar o comportamento do R; os do default do Python estao na
     classe seguinte.
+
+    A fixture pede TRES chaves, e nao uma: o fator de unidade do wct_c
+    (M69) e a inversao das flags de frio (M72) tambem passaram a ser
+    corrigidos no default, em 21/09/2026 pela D5. A referencia aqui e a
+    saida real do R, entao alcanca-la exige pedir os tres defeitos.
     """
 
     @pytest.mark.parametrize("coluna", [
