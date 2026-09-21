@@ -754,7 +754,15 @@ def _method_ehf(daily: pd.DataFrame, dur: int) -> pd.DataFrame:
 def _method_utci(daily: pd.DataFrame, dur: int) -> pd.DataFrame:
     daily = daily.copy()
     if "utci_min" not in daily.columns or daily["utci_min"].isna().all():
-        daily["cw_utci"] = np.nan
+        # pd.NA e nao np.nan: o irmao deste modulo, o
+        # climate_heatwaves, ja usava pd.NA aqui, e np.nan
+        # forca a coluna inteira para float64. Sao BANDEIRAS
+        # booleanas -- "houve onda por este metodo" -- e uma
+        # coluna de bandeira que sai numerica vai para uma escala
+        # continua no plot, onde o grafico declara escala
+        # discreta. Medido: cw_utci/cw_wbgt/cw_hi saiam float64
+        # enquanto hw_utci/hw_wbgt/hw_hi saiam object. Ver M46.
+        daily["cw_utci"] = pd.NA
         return daily
     below = (
         daily["utci_min"].notna()
@@ -768,7 +776,15 @@ def _method_utci(daily: pd.DataFrame, dur: int) -> pd.DataFrame:
 def _method_wbgt(daily: pd.DataFrame, dur: int) -> pd.DataFrame:
     daily = daily.copy()
     if "wbgt_min" not in daily.columns or daily["wbgt_min"].isna().all():
-        daily["cw_wbgt"] = np.nan
+        # pd.NA e nao np.nan: o irmao deste modulo, o
+        # climate_heatwaves, ja usava pd.NA aqui, e np.nan
+        # forca a coluna inteira para float64. Sao BANDEIRAS
+        # booleanas -- "houve onda por este metodo" -- e uma
+        # coluna de bandeira que sai numerica vai para uma escala
+        # continua no plot, onde o grafico declara escala
+        # discreta. Medido: cw_utci/cw_wbgt/cw_hi saiam float64
+        # enquanto hw_utci/hw_wbgt/hw_hi saiam object. Ver M46.
+        daily["cw_wbgt"] = pd.NA
         return daily
     below = (
         daily["wbgt_min"].notna()
@@ -782,7 +798,15 @@ def _method_wbgt(daily: pd.DataFrame, dur: int) -> pd.DataFrame:
 def _method_hi(daily: pd.DataFrame, dur: int) -> pd.DataFrame:
     daily = daily.copy()
     if "hi_min" not in daily.columns or daily["hi_min"].isna().all():
-        daily["cw_hi"] = np.nan
+        # pd.NA e nao np.nan: o irmao deste modulo, o
+        # climate_heatwaves, ja usava pd.NA aqui, e np.nan
+        # forca a coluna inteira para float64. Sao BANDEIRAS
+        # booleanas -- "houve onda por este metodo" -- e uma
+        # coluna de bandeira que sai numerica vai para uma escala
+        # continua no plot, onde o grafico declara escala
+        # discreta. Medido: cw_utci/cw_wbgt/cw_hi saiam float64
+        # enquanto hw_utci/hw_wbgt/hw_hi saiam object. Ver M46.
+        daily["cw_hi"] = pd.NA
         return daily
     below = daily["hi_min"].notna() & daily["hi_p"].notna() & (daily["hi_min"] < daily["hi_p"])
     daily["cw_hi"] = _grouped_consecutive_flag(below, daily["station_code"], dur)
@@ -805,7 +829,13 @@ def _apply_all_methods(
     cw_cols = [f"cw_{m.lower()}" for m in methods if f"cw_{m.lower()}" in daily.columns]
     if cw_cols:
         daily = daily.copy()
-        daily["cw_any"] = daily[cw_cols].astype(float).fillna(0).sum(axis=1) > 0
+        # .eq(True) e nao astype(float).fillna(0), pelo mesmo motivo que o
+        # climate_heatwaves usa .eq(True) desde o M61: a coluna de um
+        # metodo que nao pode ser calculado e pd.NA, e astype(float)
+        # levanta "float() argument must be a string or a real number, not
+        # 'NAType'". As duas funcoes irmas passam a calcular o *_any do
+        # mesmo jeito. Ver M46.
+        daily["cw_any"] = daily[cw_cols].eq(True).sum(axis=1) > 0
     return daily
 
 

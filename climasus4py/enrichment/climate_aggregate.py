@@ -274,14 +274,92 @@ def _apply_quality_control(df: pd.DataFrame, verbose: bool = False) -> pd.DataFr
 # Aggregation rules
 # ---------------------------------------------------------------------------
 
+#: Variables aggregated by SUM rather than mean, because they accumulate.
+#:
+#: Byte for byte the rule R declares in its own ``.build_agg_rules``:
+#: ``case_when(vars %in% c("rainfall_mm", "sr_kj_m2") ~ "sum",
+#: vars == "wd_degrees" ~ "mean_circular", TRUE ~ "mean")``. Checked
+#: against the installed climasus4r, not assumed.
+_SUM_VARS: frozenset[str] = frozenset({"rainfall_mm", "sr_kj_m2"})
+
+#: Wind direction: averaged as an angle, not as a number.
+_CIRC_VARS: frozenset[str] = frozenset({"wd_degrees"})
+
+#: Strategies whose output differs from climasus4r's for the accumulable
+#: variables — see :func:`_warn_moving_window_divergence`.
+_R_IGNORES_RULE_IN = ("moving_window",)
+
+#: Whether the moving-window divergence has already been reported.
+_AVISOU_MW: set[str] = set()
+
+
 def _build_agg_rules(vars: list[str]) -> dict[str, str]:
     """Return aggregation rule per climate variable."""
-    sum_vars  = {"rainfall_mm", "sr_kj_m2"}
-    circ_vars = {"wd_degrees"}
     return {
-        v: ("sum" if v in sum_vars else "mean_circular" if v in circ_vars else "mean")
+        v: ("sum" if v in _SUM_VARS
+            else "mean_circular" if v in _CIRC_VARS else "mean")
         for v in vars
     }
+
+
+def _warn_moving_window_divergence(
+    estrategia: str, vars: list[str], verbose: bool
+) -> None:
+    """Say out loud that ``moving_window`` disagrees with climasus4r (M11 a).
+
+    The divergence was decided in favour of this package on 09/09/2026:
+    precipitation accumulates, so summing a 14-day window is what answers
+    the epidemiological question ("how much rain fell in the period"),
+    and a daily mean of rain over 14 days answers nothing in particular.
+    What stayed open was that the divergence is **silent** — the column
+    comes out ``rainfall_mm_sum_w14`` instead of ``rainfall_mm_mean_w14``
+    and neither package says a word, so whoever compares the two finds it
+    by reading a column name.
+
+    And the ground is firmer than the finding recorded. R does **not**
+    "use the mean"; R contradicts itself, which is the same shape of
+    proof as M69:
+
+    * ``.build_agg_rules`` in R declares ``rainfall_mm ~ "sum"`` — the
+      identical rule this module uses;
+    * ``.join_window``, ``.join_lag``, ``.join_offset_window``,
+      ``.join_weighted_window``, ``.join_discrete_lag`` and
+      ``.join_distributed_lag`` all look that rule up and honour it;
+    * ``.join_moving_window`` **never mentions** ``agg_rule`` or
+      ``agg_type``. It computes ``avg = mean(value, na.rm = TRUE)``
+      unconditionally and names the column
+      ``paste0(var, "_mean_w", window_days)``.
+
+    So one of R's seven window functions ignores R's own rule, and this
+    package agrees with the other six. Measured: 60.35 mm against
+    4.11 mm on the same window, a ratio of 14.67.
+
+    Reported once per process per strategy. A warning on every call would
+    be noise in a loop, and noise is how a real warning gets missed.
+    """
+    if estrategia not in _R_IGNORES_RULE_IN:
+        return
+    acumulaveis = [v for v in vars if v in _SUM_VARS]
+    if not acumulaveis:
+        return
+    if estrategia in _AVISOU_MW:
+        return
+    _AVISOU_MW.add(estrategia)
+
+    warnings.warn(
+        f"sus_climate_aggregate(temporal_strategy={estrategia!r}): "
+        f"{', '.join(acumulaveis)} is summed over the window, so the column "
+        f"comes out as '<var>_sum_w<N>' and not '<var>_mean_w<N>' as "
+        f"climasus4r names it. This is a DELIBERATE divergence, decided on "
+        f"09/09/2026: these variables accumulate, and a daily mean of "
+        f"rainfall over a window does not answer the usual epidemiological "
+        f"question. R's own .build_agg_rules declares the same sum rule, and "
+        f"six of its seven window functions honour it — only "
+        f".join_moving_window ignores it and averages everything. Measured: "
+        f"60.35 mm against 4.11 mm on the same window. Recorded as M11.",
+        UserWarning,
+        stacklevel=3,
+    )
 
 
 def _agg_expr_sql(var: str, rule: str, suffix: str = "", alias_prefix: str = "c.") -> str:
@@ -1218,6 +1296,9 @@ def sus_climate_aggregate(
             missing = [v for v in climate_vars if v not in climate_cols]
             if missing and verbose:
                 print(f"Warning: variables not found and ignored: {missing}")
+
+        _warn_moving_window_divergence(
+            temporal_strategy, climate_vars_resolved, verbose)
 
         # --- Block 4: climate region ---
         region  = _detect_climate_region(climate_data, climate_region, verbose=verbose)

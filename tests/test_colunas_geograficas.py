@@ -23,6 +23,8 @@ nao deveria decidir isso em silencio (M21).
 
 from __future__ import annotations
 
+import warnings
+
 import pandas as pd
 import pytest
 
@@ -264,3 +266,130 @@ class TestCompatibilidadeDeMetadado:
                 == "MUNI_RES"
         finally:
             mod.load_datasus_columns_spec.cache_clear()
+
+
+# ---------------------------------------------------------------------------
+# M11 (a) — a divergencia da chuva deixou de ser silenciosa
+# ---------------------------------------------------------------------------
+
+class TestDivergenciaDaChuvaAvisa:
+    """A divergencia era DELIBERADA e SILENCIOSA; agora so deliberada.
+
+    Decidida em 09/09/2026 a favor deste pacote: precipitacao acumula,
+    entao somar a janela de 14 dias responde a pergunta epidemiologica
+    usual, e media diaria de chuva na janela nao responde nada em
+    particular. O que ficou aberto foi o silencio -- a coluna sai
+    `rainfall_mm_sum_w14` em vez de `rainfall_mm_mean_w14` e nenhum dos
+    dois pacotes dizia nada.
+
+    E o terreno e mais firme do que o registro dizia. O R NAO "faz
+    media": o R se contradiz, que e a mesma forma de prova do M69.
+    Conferido no climasus4r instalado:
+
+    * `.build_agg_rules` declara `rainfall_mm ~ "sum"` -- regra identica
+      a deste modulo;
+    * `.join_window`, `.join_lag`, `.join_offset_window`,
+      `.join_weighted_window`, `.join_discrete_lag` e
+      `.join_distributed_lag` consultam essa regra e a honram;
+    * `.join_moving_window` NAO MENCIONA `agg_rule` nem `agg_type`. Faz
+      `avg = mean(value, na.rm = TRUE)` sem condicao e nomeia a coluna
+      `paste0(var, "_mean_w", window_days)`.
+
+    Uma das sete funcoes de janela do R ignora a regra do proprio R, e
+    este pacote concorda com as outras seis.
+    """
+
+    @staticmethod
+    def _clima(com_chuva=True):
+        cols = {"station_code": ["A"] * 90,
+                "date": pd.date_range("2023-01-01", periods=90),
+                "latitude": [-23.55] * 90, "longitude": [-46.63] * 90,
+                "tair_dry_bulb_c": [25.0] * 90}
+        if com_chuva:
+            cols["rainfall_mm"] = [5.0] * 90
+        return get_connection().from_df(pd.DataFrame(cols))
+
+    @classmethod
+    def _chama(cls, estrategia, com_chuva=True, limpar=True, **kw):
+        from climasus4py.enrichment import climate_aggregate as agg
+
+        if limpar:
+            agg._AVISOU_MW.clear()
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            cs.sus_climate_aggregate(
+                _saude(CODMUNRES=["3550308"] * 3), cls._clima(com_chuva),
+                temporal_strategy=estrategia, verbose=False, **kw)
+        return [str(x.message) for x in w if "M11" in str(x.message)]
+
+    def test_moving_window_com_chuva_avisa(self):
+        msgs = self._chama("moving_window", window_days=14)
+        assert len(msgs) == 1
+        assert "_sum_w" in msgs[0] and "_mean_w" in msgs[0]
+        assert "DELIBERATE" in msgs[0]
+
+    def test_o_aviso_diz_que_o_R_se_contradiz(self):
+        """Nao basta avisar: o aviso tem de dizer por que estamos certos."""
+        msgs = self._chama("moving_window", window_days=14)
+        assert "six of its seven window functions" in msgs[0]
+        assert ".join_moving_window" in msgs[0]
+        assert "60.35" in msgs[0] and "4.11" in msgs[0]
+
+    def test_avisa_uma_vez_por_processo(self):
+        """Aviso repetido em laco e ruido, e ruido esconde aviso de verdade."""
+        from climasus4py.enrichment import climate_aggregate as agg
+
+        primeiro = self._chama("moving_window", window_days=14)
+        segundo = self._chama("moving_window", limpar=False, window_days=14)
+        assert len(primeiro) == 1
+        assert segundo == []
+        agg._AVISOU_MW.clear()
+
+    def test_sem_variavel_acumulavel_nao_avisa(self):
+        assert self._chama("moving_window", com_chuva=False,
+                           window_days=14) == []
+
+    def test_estrategia_que_nao_diverge_nao_avisa(self):
+        """Avisar onde nao ha divergencia gastaria a atencao a toa."""
+        assert self._chama("exact") == []
+
+    def test_a_regra_por_variavel_e_a_mesma_do_R(self):
+        """`c("rainfall_mm", "sr_kj_m2") ~ "sum"`, byte a byte.
+
+        Se alguem mexer nesta lista, a divergencia deixa de ser a que o
+        aviso descreve.
+        """
+        from climasus4py.enrichment.climate_aggregate import (
+            _CIRC_VARS,
+            _SUM_VARS,
+            _build_agg_rules,
+        )
+
+        assert _SUM_VARS == {"rainfall_mm", "sr_kj_m2"}
+        assert _CIRC_VARS == {"wd_degrees"}
+        assert _build_agg_rules(
+            ["rainfall_mm", "sr_kj_m2", "wd_degrees", "tair_dry_bulb_c"]
+        ) == {"rainfall_mm": "sum", "sr_kj_m2": "sum",
+              "wd_degrees": "mean_circular", "tair_dry_bulb_c": "mean"}
+
+    def test_a_coluna_sai_somada_de_fato(self):
+        """O aviso descreve o que a saida faz, e nao o contrario.
+
+        A data de obito e de FEVEREIRO de proposito: a `_saude` deste
+        modulo usa 5 de janeiro, e com o clima comecando em 1 de janeiro
+        nao ha 14 dias anteriores, entao o `min_obs` nao e atingido e a
+        coluna sai NaN. A primeira versao deste teste caiu nisso -- e o
+        NaN e comportamento correto, nao defeito.
+        """
+        saude = get_connection().from_df(pd.DataFrame({
+            "CODMUNRES": ["3550308"] * 2,
+            "DTOBITO": pd.to_datetime(["2023-02-15", "2023-02-20"]),
+            "geometry_wkt": [WKT] * 2}))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            out = cs.sus_climate_aggregate(
+                saude, self._clima(), temporal_strategy="moving_window",
+                window_days=14, verbose=False).df()
+        assert "rainfall_mm_sum_w14" in out.columns
+        assert out["rainfall_mm_sum_w14"].iloc[0] == pytest.approx(75.0), (
+            "5 mm/dia numa janela de 14+1 dias: soma 75, media daria 5")

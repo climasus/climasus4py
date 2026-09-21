@@ -383,8 +383,30 @@ def sus_grid_prodes(
         muni["code_muni"] = muni[muni_col].astype(str).str.slice(0, 7)
         muni = muni.set_geometry(muni.geometry.make_valid())
         muni = muni.to_crs(epsg=4326)
+        # Same normalisation the deforestation layer gets (M49). The error
+        # observed named ``df1``, the deforestation side, but ``overlay``
+        # refuses mixed types in either frame and a municipality boundary
+        # can come back from make_valid() as a collection just as easily.
+        antes = set(muni["code_muni"])
+        muni = _polygons_only(muni)
+        perdidos = sorted(antes - set(muni["code_muni"]))
+        if perdidos:
+            # Losing a municipality is not the same as losing a sliver: the
+            # aggregation is BY municipality, so a dropped one silently
+            # disappears from the result instead of reporting zero.
+            import warnings
+
+            warnings.warn(
+                f"sus_grid_prodes: {len(perdidos)} municipality/ies had no "
+                f"polygonal geometry left after repair and were dropped, so "
+                f"they will not appear in the result: "
+                f"{', '.join(perdidos[:10])}"
+                + (" ..." if len(perdidos) > 10 else ""),
+                UserWarning,
+                stacklevel=2,
+            )
         muni_slim = muni[["code_muni", muni.geometry.name]]
-        n_mun = len(muni)
+        n_mun = muni["code_muni"].nunique()
         if verbose:
             console.print("[cyan]INFO[/]  " + msg["spatial_start"].format(n_mun=n_mun))
 
@@ -666,6 +688,39 @@ def _fetch_wfs(
 # Internal: spatial intersection + per-municipality aggregation
 # ---------------------------------------------------------------------------
 
+def _polygons_only(gdf):
+    """Keep only the polygonal parts of a layer, ready for ``overlay``.
+
+    ``gpd.overlay`` raises ``NotImplementedError: df1 contains mixed
+    geometry types`` when the frame holds more than one geometry family,
+    and that is how ``sus_grid_prodes`` died on the PRODES layers (M49):
+    "Erro ao processar interseção para MataAtlantica 2023: df1 contains
+    mixed geometry types", and then "Nenhum dado foi processado com
+    sucesso" — a message that blames the call when the problem is in the
+    source data.
+
+    ``make_valid()`` alone does not fix it, and can *cause* it: a
+    self-intersecting ring comes back as a ``MultiPolygon`` (fine) but a
+    zero-width sliver comes back as a ``LineString``, and a polygon with
+    a spike as a ``GeometryCollection``. Measured on geopandas 1.1.0:
+    ``Polygon`` next to ``MultiPolygon`` overlays fine, and so does a
+    ``GeometryCollection``; what raises is a ``LineString`` next to a
+    ``Polygon``.
+
+    So: explode the multiparts and the collections, drop everything that
+    is not a polygon, and drop the empties. A line has zero area, which
+    is what this function goes on to sum, so nothing measurable is lost —
+    the alternative was losing the whole biome/year.
+    """
+    if gdf.empty:
+        return gdf
+
+    partes = gdf.explode(index_parts=False, ignore_index=True)
+    poligonos = partes[partes.geom_type.isin(("Polygon", "MultiPolygon"))]
+    return poligonos[~(poligonos.geometry.is_empty
+                       | poligonos.geometry.isna())].copy()
+
+
 def _intersect_and_aggregate(
     defor: gpd.GeoDataFrame,
     muni_slim: gpd.GeoDataFrame,
@@ -686,7 +741,10 @@ def _intersect_and_aggregate(
     import geopandas as gpd
 
     try:
-        defor_clean = defor.set_geometry(defor.geometry.make_valid())
+        defor_clean = _polygons_only(defor.set_geometry(
+            defor.geometry.make_valid()))
+        if defor_clean.empty:
+            return None
         defor_clean = defor_clean.to_crs(epsg=4326)
 
         intersection = gpd.overlay(defor_clean, muni_slim, how="intersection")
