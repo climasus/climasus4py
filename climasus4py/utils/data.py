@@ -109,12 +109,33 @@ _FALLBACK_DATASUS_COLUMNS: dict[str, Any] = {
         "DTSAIDA", "DTCADASTRO", "DTATESTADO", "DTREGCART", "DTCASAM",
         "DTULTMENST", "DTCONSULT", "DTDECLARAC",
     ],
+    # Split in three (M64). This used to be the same 23-entry list the
+    # metadata published, and it carried the same defect: CODESTAB came
+    # out as a number and 5.1% of the rows lost their leading zeros. The
+    # fallback has to agree with schema_version 2 of
+    # metadata/datasus_columns.json, or an install without climasus-data
+    # would quietly go back to corrupting identifiers. GRAESSION is gone
+    # from here too — it matches no column in any DATASUS file available.
     "all_numeric_columns": [
-        "CONTADOR", "PESO", "QTDFILVIVO", "QTDFILMORT", "GESTACAO",
-        "SEMAGESTAC", "OBITOGRAV", "GRAESSION", "CODMUNNATU", "CODMUNRES",
-        "CODMUNOCOR", "CODESTAB", "LOCOCOR", "IDADEMAE", "ESCMAE",
-        "CODOCUPMAE", "QTDGESTANT", "QTDPARTNOR", "QTDPARTCES",
-        "IDADEPAI", "ESCPAI", "SERIESCPAI", "SERIESCMAE",
+        "CONTADOR", "PESO", "QTDFILVIVO", "QTDFILMORT", "SEMAGESTAC",
+        "IDADEMAE", "QTDGESTANT", "QTDPARTNOR", "QTDPARTCES", "IDADEPAI",
+    ],
+    "all_identifier_columns": {
+        "CODESTAB": 7,
+        "CODMUNRES": 6,
+        "CODMUNOCOR": 6,
+        "CODMUNNATU": 6,
+        # Seis porque o codigo de ocupacao CBO-2002 tem seis digitos: nao
+        # aparece em nenhum SIM-DO disponivel aqui, entao a largura vem do
+        # sistema de codigos e nao de medicao -- como o paliativo do M5 ja
+        # declarava.
+        "CODOCUPMAE": 6,
+    },
+    "all_categorical_columns": [
+        "GESTACAO", "OBITOGRAV", "LOCOCOR", "ESCMAE", "ESCPAI",
+        "SERIESCMAE", "SERIESCPAI",
+        "CODIFICADO", "ESC", "ESC2010", "ESCFALAGR1", "ESCMAE2010",
+        "ESCMAEAGR1",
     ],
     "system_signatures": {
         "SIM-DO":      {"any_of": ["CAUSABAS", "DTOBITO"]},
@@ -133,14 +154,46 @@ _FALLBACK_DATASUS_COLUMNS: dict[str, Any] = {
 
 @lru_cache(maxsize=1)
 def load_datasus_columns_spec() -> dict[str, Any]:
-    """Load DATASUS column specs, with fallback for older climasus-data releases."""
+    """Load DATASUS column specs, with fallback for older climasus-data.
+
+    A release before ``schema_version`` 2 publishes the single 23-entry
+    ``all_numeric_columns`` and none of the three split lists. Returning
+    it as it comes would put the M64 corruption straight back — the
+    importer would coerce ``CODESTAB`` to a number again and 5.1% of the
+    rows would lose their leading zeros — so the three lists are taken
+    from the fallback instead, and the user is told why. Everything else
+    in the file (dates, signatures, role priority) is honoured as
+    published.
+    """
     try:
         data = load_json("metadata/datasus_columns.json")
-        if isinstance(data, dict):
-            return data
     except FileNotFoundError:
-        pass
-    return _FALLBACK_DATASUS_COLUMNS.copy()
+        return _FALLBACK_DATASUS_COLUMNS.copy()
+
+    if not isinstance(data, dict):
+        return _FALLBACK_DATASUS_COLUMNS.copy()
+
+    if int(data.get("schema_version") or 1) >= 2:
+        return data
+
+    import warnings
+
+    warnings.warn(
+        "climasus-data publishes metadata/datasus_columns.json at "
+        f"schema_version {data.get('schema_version')!r}, which still has "
+        "the single all_numeric_columns list of 23 entries. That list "
+        "mixes quantities with fixed-width identifier codes, and coercing "
+        "it to numbers loses the leading zero of CODESTAB (M64). Using "
+        "the corrected split lists bundled with climasus4py instead; run "
+        "update_climasus_data() to get the published ones.",
+        UserWarning,
+        stacklevel=2,
+    )
+    corrigido = dict(data)
+    for chave in ("all_numeric_columns", "all_identifier_columns",
+                  "all_categorical_columns"):
+        corrigido[chave] = _FALLBACK_DATASUS_COLUMNS[chave]
+    return corrigido
 
 
 # ---------------------------------------------------------------------------

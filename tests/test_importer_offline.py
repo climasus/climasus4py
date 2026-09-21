@@ -62,14 +62,22 @@ class TestCoerceTypes:
         result = _coerce_datasus_types(df)
         assert pd.isna(result["DTOBITO"].iloc[0])
 
-    def test_numeric_column_codmunres_coerced(self):
-        """CODMUNRES (coluna numérica) deve ser convertida para float/int."""
+    def test_identifier_column_codmunres_stays_text(self):
+        """CODMUNRES é IDENTIFICADOR e fica texto (M64).
+
+        Este teste cobrava o contrário — numérico — porque o metadado
+        publicava as 23 colunas numa lista só, e `pd.to_numeric` passava
+        por cima de código e quantidade sem distinguir. Código de
+        município não entra em conta nenhuma, e o irmão dele na mesma
+        lista, `CODESTAB`, perdia o zero à esquerda em 5,1% das linhas.
+        As três listas foram separadas em 21/09/2026.
+        """
         from climasus4py.core.importer import _coerce_datasus_types
 
         df = pd.DataFrame({"CODMUNRES": ["355030", "330455"]})
         result = _coerce_datasus_types(df)
-        assert pd.api.types.is_numeric_dtype(result["CODMUNRES"])
-        assert result["CODMUNRES"].iloc[0] == 355030
+        assert not pd.api.types.is_numeric_dtype(result["CODMUNRES"])
+        assert result["CODMUNRES"].iloc[0] == "355030"
 
     def test_invalid_numeric_becomes_nan(self):
         """Valor não-numérico em coluna numérica deve virar NaN."""
@@ -171,7 +179,7 @@ class TestCoerceTypes:
         })
         result = _coerce_datasus_types(df)
         assert pd.api.types.is_datetime64_any_dtype(result["DTOBITO"])
-        assert result["CODMUNRES"].iloc[0] == 355030
+        assert result["CODMUNRES"].iloc[0] == "355030", "identificador (M64)"
         assert result["CAUSABAS"].iloc[0] == "J189"
 
 

@@ -104,26 +104,46 @@ class TestCoerceTypes:
         # "invalid" → NaT
         assert pd.isna(df["DTNASC"].iloc[3])
 
-    def test_numeric_columns_converted(self, sample_sim_do_df):
+    def test_quantity_columns_converted(self, sample_sim_do_df):
+        """Só as QUANTIDADES viram número (M64).
+
+        Este teste cobrava `CODMUNRES` numérico junto de `CONTADOR` e
+        `PESO`, porque o metadado publicava as 23 numa lista só. Não são a
+        mesma coisa: código de município é identificador e não entra em
+        conta nenhuma. A lista virou três em 21/09/2026.
+        """
         df = _coerce_datasus_types(sample_sim_do_df.copy())
         assert pd.api.types.is_numeric_dtype(df["CONTADOR"])
         assert pd.api.types.is_numeric_dtype(df["PESO"])
-        assert pd.api.types.is_numeric_dtype(df["CODMUNRES"])
+        assert not pd.api.types.is_numeric_dtype(df["CODMUNRES"]), (
+            "CODMUNRES é identificador e tem de ficar texto")
+
+    def test_identifier_columns_stay_text(self, sample_sim_do_df):
+        df = _coerce_datasus_types(sample_sim_do_df.copy())
+        assert df["CODMUNRES"].iloc[0] == "355030"
 
     def test_numeric_invalid_becomes_nan(self, sample_sim_do_df):
         df = _coerce_datasus_types(sample_sim_do_df.copy())
-        # "abc" in CODMUNRES → NaN
-        assert pd.isna(df["CODMUNRES"].iloc[2])
         # "abc" in PESO → NaN
         assert pd.isna(df["PESO"].iloc[2])
         # "" in PESO → NaN
         assert pd.isna(df["PESO"].iloc[3])
 
-    def test_numeric_valid_values_preserved(self, sample_sim_do_df):
+    def test_identifier_invalid_is_kept_as_it_came(self, sample_sim_do_df):
+        """"abc" em CODMUNRES sobrevive, e antes virava NaN.
+
+        Divergência deliberada: para uma QUANTIDADE, texto inválido não
+        tem leitura possível e NaN é a resposta certa. Para um CÓDIGO,
+        apagar o valor esconde o problema de origem -- quem audita a base
+        precisa ver que veio "abc" naquele registro.
+        """
+        df = _coerce_datasus_types(sample_sim_do_df.copy())
+        assert df["CODMUNRES"].iloc[2] == "abc"
+
+    def test_quantity_valid_values_preserved(self, sample_sim_do_df):
         df = _coerce_datasus_types(sample_sim_do_df.copy())
         assert df["CONTADOR"].iloc[0] == 1
         assert df["PESO"].iloc[0] == 3200
-        assert df["CODMUNRES"].iloc[0] == 355030
 
     def test_string_whitespace_stripped(self, sample_sim_do_df):
         df = _coerce_datasus_types(sample_sim_do_df.copy())
@@ -358,11 +378,20 @@ class TestPipelineRoundTrip:
 class TestCodigosDeLarguraFixa:
     """O CNES precisa sair como string de 7 digitos com zero a esquerda (M5).
 
-    ``_coerce_datasus_types`` no importador aplica ``pd.to_numeric`` em tudo o
-    que o metadado lista em ``all_numeric_columns``, e essa lista MISTURA
-    quantidades reais (PESO, IDADEMAE, os QTD*) com CODIGOS. Para um codigo,
-    numerico e perda: 0000057 virava 57, valor que nao casa com estabelecimento
-    nenhum em base externa. No SIM-DO SP 2023 foram 13.294 de 262.909 (5,1%).
+    HISTORICO, porque a causa foi removida em 21/09/2026. O
+    ``_coerce_datasus_types`` aplicava ``pd.to_numeric`` em tudo o que o
+    metadado listava em ``all_numeric_columns``, e aquela lista unica
+    MISTURAVA quantidades reais (PESO, IDADEMAE, os QTD*) com CODIGOS. Para
+    um codigo, numerico e perda: 0000057 virava 57, valor que nao casa com
+    estabelecimento nenhum em base externa. No SIM-DO SP 2023 foram 13.294
+    de 262.909 (5,1%).
+
+    A lista virou tres na D4/M64, e o importador nao numeriza mais
+    identificador -- entao um arquivo importado hoje ja chega com o zero.
+    Estes testes continuam valendo, e passam a cobrir o REPARO dos caches
+    gravados ANTES da correcao, que tem o dano em disco. O padding do
+    ``sus_data_standardize`` deixou de ser paliativo com largura cravada no
+    codigo e passou a ler ``all_identifier_columns`` do metadado.
 
     Os codigos de municipio nao sofrem -- comecam em 11 -- e os de um digito
     nao tem como encurtar. Verificado no mesmo dado: zero valores curtos em
@@ -523,3 +552,135 @@ class TestDataForaDaListaExplicita:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
+
+
+# ---------------------------------------------------------------------------
+# D4 / M64 — as tres listas, e o que cada uma faz
+# ---------------------------------------------------------------------------
+
+class TestTresListasDeColuna:
+    """M64: all_numeric_columns eram tres coisas numa lista de 23.
+
+    O dano medido no SIM-DO SP 2023: 13.294 das 262.909 linhas com
+    CODESTAB (5,1%) perderam zero a esquerda, 10049 onde o CNES e 0010049.
+
+    A divisao ficou: dez QUANTIDADES, cinco IDENTIFICADORES com largura, e
+    treze CATEGORICOS. Quatro dos categoricos -- GESTACAO, OBITOGRAV,
+    LOCOCOR e ESCMAE -- TEM livro de rotulos no climasus4r e estavam sendo
+    convertidos a numero.
+    """
+
+    def test_quantidade_vira_numero(self):
+        df = _coerce_datasus_types(pd.DataFrame({
+            "PESO": ["3200"], "IDADEMAE": ["28"], "CONTADOR": ["1"],
+            "QTDFILVIVO": ["2"], "SEMAGESTAC": ["39"],
+        }))
+        for col in df.columns:
+            assert pd.api.types.is_numeric_dtype(df[col]), col
+
+    def test_identificador_fica_texto_com_zero(self):
+        df = _coerce_datasus_types(pd.DataFrame({
+            "CODESTAB": ["0010049"], "CODMUNRES": ["355030"],
+        }))
+        assert df["CODESTAB"].iloc[0] == "0010049"
+        assert df["CODMUNRES"].iloc[0] == "355030"
+        assert not pd.api.types.is_numeric_dtype(df["CODESTAB"])
+
+    def test_identificador_curto_e_preenchido(self):
+        df = _coerce_datasus_types(pd.DataFrame({"CODESTAB": ["10049"]}))
+        assert df["CODESTAB"].iloc[0] == "0010049"
+
+    def test_identificador_longo_nao_e_truncado(self):
+        """O LPAD do DuckDB TRUNCA, e era o que o paliativo usava.
+
+        MEDIDO: LPAD('12345678', 7, '0') devolve '1234567'. Num codigo com
+        um digito a mais -- dado de origem ruim, ou largura errada no
+        metadado -- isso transforma problema de qualidade em perda de
+        dado, que e exatamente o defeito que este passo existe para
+        desfazer.
+        """
+        df = _coerce_datasus_types(pd.DataFrame({
+            "CODESTAB": ["12345678", "123456789"]}))
+        assert df["CODESTAB"].tolist() == ["12345678", "123456789"]
+
+    def test_lixo_num_codigo_nao_ganha_zeros(self):
+        """Pegado por teste: 'abc' virava '000abc'.
+
+        Preencher com zero um valor que nao e digito inventa digitos.
+        Lixo em coluna de codigo e fato sobre a origem que vale ver.
+        """
+        df = _coerce_datasus_types(pd.DataFrame({
+            "CODESTAB": ["abc", "00abc", "57"]}))
+        assert df["CODESTAB"].tolist() == ["abc", "00abc", "0000057"]
+
+    def test_categorico_fica_texto_para_casar_com_o_livro(self):
+        df = _coerce_datasus_types(pd.DataFrame({
+            "LOCOCOR": ["1"], "ESCMAE": ["5"], "GESTACAO": ["6"],
+            "OBITOGRAV": ["9"],
+        }))
+        for col in df.columns:
+            assert not pd.api.types.is_numeric_dtype(df[col]), col
+            assert isinstance(df[col].iloc[0], str), col
+
+    def test_o_categorico_ainda_recebe_rotulo(self):
+        """A prova de que ficar texto nao quebrou a traducao.
+
+        Era o risco real da mudanca: LOCOCOR, ESCMAE, GESTACAO e
+        OBITOGRAV deixaram de ser convertidos a numero, e a traducao de
+        valor tinha de seguir casando.
+        """
+        rel = get_connection().from_df(pd.DataFrame({
+            "LOCOCOR": ["1", "2", "3"], "DTOBITO": ["01012023"] * 3}))
+        out = sus_data_standardize(rel, lang="en", system="SIM-DO").df()
+        assert out["death_location"].tolist() == [
+            "Hospital", "Other health facility", "Home"]
+
+    def test_nulo_nunca_vira_codigo(self):
+        df = _coerce_datasus_types(pd.DataFrame({
+            "CODESTAB": [None, "57"], "LOCOCOR": [None, "1"]}))
+        assert pd.isna(df["CODESTAB"].iloc[0])
+        assert pd.isna(df["LOCOCOR"].iloc[0])
+
+    def test_largura_nula_nao_preenche(self):
+        from climasus4py.core.importer import _pad_identifier
+
+        s = pd.Series(["57"])
+        assert _pad_identifier(s, None).iloc[0] == "57"
+
+    def test_metadado_antigo_avisa_e_nao_volta_a_corromper(self, monkeypatch):
+        """Com climasus-data em schema 1, o defeito nao pode voltar calado.
+
+        Um release anterior publica a lista unica de 23. Devolve-la como
+        vem poria a corrupcao de volta: o importador converteria CODESTAB
+        a numero outra vez.
+        """
+        from climasus4py.utils import data as mod
+
+        antigo = {
+            "schema_version": 1,
+            "all_date_columns": ["DTOBITO"],
+            "all_numeric_columns": ["CONTADOR", "CODESTAB", "LOCOCOR"],
+            "system_signatures": {},
+            "role_priority": {},
+        }
+        monkeypatch.setattr(mod, "load_json", lambda _p: antigo)
+        mod.load_datasus_columns_spec.cache_clear()
+        try:
+            with pytest.warns(UserWarning, match="schema_version"):
+                spec = mod.load_datasus_columns_spec()
+            assert "CODESTAB" not in spec["all_numeric_columns"]
+            assert "LOCOCOR" not in spec["all_numeric_columns"]
+            assert spec["all_identifier_columns"]["CODESTAB"] == 7
+            assert spec["all_date_columns"] == ["DTOBITO"], (
+                "o resto do arquivo publicado tem de ser honrado")
+        finally:
+            mod.load_datasus_columns_spec.cache_clear()
+
+    def test_as_larguras_vem_do_metadado_e_nao_do_codigo(self):
+        """O paliativo do M5 cravava as larguras no standardize.py."""
+        from climasus4py.core import standardize
+
+        assert not hasattr(standardize, "_CODE_COLUMN_WIDTHS"), (
+            "o dict cravado saiu; as larguras vem de "
+            "all_identifier_columns")
+        assert standardize._code_column_widths()["CODESTAB"] == 7

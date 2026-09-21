@@ -23,13 +23,26 @@ from .engine import get_connection, schema_columns
 # SIM-DO but mother_occupation_cbo in SINASC — with no PT translation at all
 # in one of them. One entry per raw column covers every language and system.
 #
-# This declaration belongs in the climasus-data metadata, which today has
-# ``all_numeric_columns`` mixing codes and quantities with no widths. Changing
-# shared metadata needs the coordinator, so this is a stopgap. See M5.
-_CODE_COLUMN_WIDTHS: dict[str, int] = {
-    "CODESTAB": 7,    # CNES establishment — the one actually damaged
-    "CODOCUPMAE": 6,  # CBO occupation (SINASC)
-}
+# The declaration now lives in the climasus-data metadata, as
+# ``all_identifier_columns`` of ``metadata/datasus_columns.json``
+# (schema_version 2, M64). This used to be a hardcoded stopgap here,
+# labelled as one, because splitting the shared list needed the
+# coordinator; that decision was taken on 21/09/2026.
+#
+# Kept as a function rather than a constant so an install that updates
+# climasus-data does not need a climasus4py release to see a new code.
+def _code_column_widths() -> dict[str, int]:
+    """Fixed-width identifier columns and their widths, from the metadata.
+
+    Entries with a null width are skipped: the metadata declares them as
+    identifiers whose width could not be measured, and padding to a
+    guessed width would invent digits.
+    """
+    from ..utils.data import load_datasus_columns_spec
+
+    declarados = load_datasus_columns_spec().get(
+        "all_identifier_columns") or {}
+    return {col: int(w) for col, w in declarados.items() if w}
 
 
 # ---------------------------------------------------------------------------
@@ -248,32 +261,34 @@ def sus_data_standardize(
     # Runs before the rename so the raw DATASUS names are still in place —
     # see the note on _CODE_COLUMN_WIDTHS.
     #
-    # ``_coerce_datasus_types`` in the importer casts everything the metadata
-    # lists in ``all_numeric_columns`` with ``pd.to_numeric``, and that list
-    # mixes real quantities (PESO, IDADEMAE, the QTD* counts) with CODES. For
-    # a code, numeric is lossy: the CNES is seven digits with significant
-    # leading zeros, so 0000057 came back as 57 — a value that matches no
-    # establishment in any external registry. On SIM-DO SP 2023 that hit
-    # 13.294 of 262.909 records (5,1%). The R keeps the padded string.
+    # The importer no longer numericises these (M64, schema_version 2 of
+    # datasus_columns.json), so a freshly imported file already arrives as
+    # padded text. This step stays for the caches written BEFORE that fix,
+    # where the damage is on disk: on SIM-DO SP 2023, 13.294 of 262.909
+    # records with CODESTAB (5,1%) are short, 0000057 stored as 57 — a
+    # value that matches no establishment in any external registry.
     #
-    # Only CODESTAB is actually damaged in practice: municipality codes start
-    # at 11 and the single-digit codes cannot shorten, verified on the same
-    # dataset (zero short values for CODMUNRES, CODMUNOCOR, CODMUNNATU,
-    # LOCOCOR, ESCMAE, GESTACAO, OBITOGRAV). CODOCUPMAE is padded too because
-    # the rule is about the kind of column, not about one dataset. Ver M5.
-    for code_col, width in _CODE_COLUMN_WIDTHS.items():
+    # NOT plain LPAD: DuckDB's LPAD **truncates** when the value is longer
+    # than the width, so LPAD('12345678', 7, '0') returns '1234567'. On a
+    # code that is one digit too long — bad source data, or a width wrong
+    # in the metadata — that turns a quality problem into lost data, which
+    # is the defect this whole step exists to undo. Pad only what is
+    # short, and leave anything else exactly as it came.
+    for code_col, width in _code_column_widths().items():
         if code_col not in columns:
             continue
+        # TRY_CAST via BIGINT normalises the float rendering a numericised
+        # cache carries ("57.0" → "57"); a value that is already text and
+        # not a number falls back to itself rather than to NULL.
+        limpo = (f'COALESCE(CAST(TRY_CAST("{code_col}" AS BIGINT) AS VARCHAR), '
+                 f'CAST("{code_col}" AS VARCHAR))')
+        expr = (
+            f'CASE WHEN "{code_col}" IS NULL THEN NULL '
+            f'WHEN LENGTH({limpo}) >= {width} THEN {limpo} '
+            f'ELSE LPAD({limpo}, {width}, \'0\') END AS "{code_col}"'
+        )
         rel = rel.project(
-            ", ".join(
-                (
-                    f'LPAD(CAST(TRY_CAST("{c}" AS BIGINT) AS VARCHAR), {width}, \'0\') '
-                    f'AS "{c}"'
-                )
-                if c == code_col
-                else f'"{c}"'
-                for c in columns
-            )
+            ", ".join(expr if c == code_col else f'"{c}"' for c in columns)
         )
         columns = schema_columns(rel)
 

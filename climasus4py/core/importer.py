@@ -68,23 +68,109 @@ def _datasus_numeric_cols() -> frozenset[str]:
     return frozenset(load_datasus_columns_spec()["all_numeric_columns"])
 
 
+def _datasus_identifier_cols() -> dict[str, int | None]:
+    """Fixed-width code columns, mapped to their width.
+
+    Text, not numbers. ``None`` as the width means "keep as text but do
+    not pad" — the width could not be measured for that column.
+    """
+    spec = load_datasus_columns_spec()
+    return dict(spec.get("all_identifier_columns") or {})
+
+
+def _datasus_categorical_cols() -> frozenset[str]:
+    """Coded columns whose values match the label books.
+
+    Text, so the value still matches
+    ``dictionaries/*/categories.json`` — four of these (GESTACAO,
+    OBITOGRAV, LOCOCOR, ESCMAE) carry a label book in climasus4r and were
+    being turned into numbers.
+    """
+    spec = load_datasus_columns_spec()
+    return frozenset(spec.get("all_categorical_columns") or ())
+
+
 #: Textual renderings of a missing value. Not data — if one of these
 #: reaches a DATASUS text column it is an artefact of stringification.
 _NULL_LITERALS: frozenset[str] = frozenset({"None", "nan", "NaN", "NaT", "<NA>"})
 
 
 def _coerce_datasus_types(df: pd.DataFrame) -> pd.DataFrame:
-    """Coerce DATASUS columns to proper types before writing to Parquet."""
+    """Coerce DATASUS columns to proper types before writing to Parquet.
+
+    Four families, and the split matters (M64). The metadata used to
+    publish a single ``all_numeric_columns`` list of 23 entries and this
+    function ran ``pd.to_numeric`` over all of them. Those 23 were three
+    different kinds of column, and for the identifiers the coercion
+    destroyed data: measured on SIM-DO SP 2023, **13,294 of the 262,909
+    rows carrying CODESTAB — 5.1% — came out short**, ``10049`` where the
+    CNES code is ``0010049``.
+
+    * **Dates** — parsed from DATASUS ``DDMMYYYY``.
+    * **Quantities** — the ten entries where a number is the point:
+      counts, weight, ages, weeks of gestation.
+    * **Identifiers** — fixed-width codes, kept as text and padded to
+      their declared width. Never arithmetic: the leading zero is part of
+      the code.
+    * **Categorical codes** — kept as text so the value still matches the
+      label books in ``dictionaries/*/categories.json``.
+
+    The municipality codes were *not* losing data, despite being coerced:
+    an IBGE code never starts with zero, because the UF prefix runs 11 to
+    53, and all 334,303 rows measured exactly six digits. They move to
+    text for type hygiene, not to fix a loss.
+    """
     date_cols = _datasus_date_cols()
     numeric_cols = _datasus_numeric_cols()
+    identifier_cols = _datasus_identifier_cols()
+    categorical_cols = _datasus_categorical_cols()
     for col in df.columns:
         if col in date_cols:
             df[col] = pd.to_datetime(df[col], format="%d%m%Y", errors="coerce")
         elif col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors="coerce")
+        elif col in identifier_cols:
+            df[col] = _pad_identifier(
+                _strip_preserving_nulls(df[col]), identifier_cols[col])
+        elif col in categorical_cols:
+            df[col] = _strip_preserving_nulls(df[col])
         elif df[col].dtype == object or pd.api.types.is_string_dtype(df[col]):
             df[col] = _strip_preserving_nulls(df[col])
     return df
+
+
+def _pad_identifier(col: pd.Series, width: int | None) -> pd.Series:
+    """Left-pad a code column with zeros to *width*, never truncating.
+
+    A raw DBF field usually already carries the zeros, so not coercing to
+    a number is most of the fix; the padding is what repairs a value that
+    reached us short — from a re-imported cache, or a source that dropped
+    them.
+
+    Only pads, never cuts. A value longer than *width* is left alone and
+    kept as it came: truncating a code to fit a declared width would turn
+    a metadata mistake into lost data, which is the very defect this
+    function exists to stop. ``width`` of ``None`` means the width is not
+    known, so only the text conversion applies.
+
+    And only pads **digits**. A test caught this padding ``"abc"`` into
+    ``"000abc"``, which invents digits on a value that is not a code at
+    all. Garbage in a code column is a fact about the source worth
+    seeing, so it survives exactly as it came.
+    """
+    if width is None:
+        return col
+    presente = col.notna()
+    if not presente.any():
+        return col
+    col = col.copy()
+    valores = col[presente].astype(str)
+    padded = valores.where(
+        ~(valores.str.fullmatch(r"\d+") & (valores.str.len() < width)),
+        valores.str.zfill(width),
+    )
+    col.loc[presente] = padded
+    return col
 
 
 def _strip_preserving_nulls(col: pd.Series) -> pd.Series:

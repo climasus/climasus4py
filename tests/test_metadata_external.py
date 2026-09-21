@@ -36,11 +36,51 @@ class TestDatasusColumnsSpec:
         assert "DTNASC" in cols
         assert len(cols) >= 18
 
-    def test_numeric_columns_count(self):
-        cols = load_datasus_columns_spec()["all_numeric_columns"]
-        assert "CONTADOR" in cols
-        assert "CODMUNRES" in cols
-        assert len(cols) >= 23
+    def test_numeric_columns_are_only_quantities(self):
+        """M64: a lista unica de 23 virou tres.
+
+        Este teste cobrava `len(cols) >= 23` e `CODMUNRES in cols`, ou
+        seja, cobrava exatamente o defeito: que identificador estivesse
+        entre os numericos. Agora cobra o contrario.
+        """
+        spec = load_datasus_columns_spec()
+        assert int(spec["schema_version"]) >= 2
+        cols = spec["all_numeric_columns"]
+        assert "CONTADOR" in cols and "PESO" in cols
+        for identificador in ("CODMUNRES", "CODESTAB", "CODMUNOCOR",
+                              "CODMUNNATU", "CODOCUPMAE"):
+            assert identificador not in cols, (
+                f"{identificador} e codigo de largura fixa: numerico perde "
+                f"o zero a esquerda")
+        for categorico in ("LOCOCOR", "ESCMAE", "GESTACAO", "OBITOGRAV"):
+            assert categorico not in cols, (
+                f"{categorico} tem livro de rotulos e precisa casar como "
+                f"texto")
+
+    def test_as_tres_listas_nao_se_sobrepoem(self):
+        spec = load_datasus_columns_spec()
+        q = set(spec["all_numeric_columns"])
+        i = set(spec["all_identifier_columns"])
+        c = set(spec["all_categorical_columns"])
+        assert not q & i and not q & c and not i & c, (
+            f"sobreposicao: Q&I={q & i}, Q&C={q & c}, I&C={i & c}")
+
+    def test_toda_largura_declarada_e_positiva(self):
+        for col, w in load_datasus_columns_spec()[
+                "all_identifier_columns"].items():
+            assert w is None or (isinstance(w, int) and w > 0), (col, w)
+
+    def test_graession_saiu(self):
+        """Nao existe em dado nenhum: nem no SIM-DO real, nem no R.
+
+        Conferido contra os tres SIM-DO em cache (87 colunas cada), os 671
+        campos dos dicionarios do climasus4r e os tres columns.json.
+        """
+        spec = load_datasus_columns_spec()
+        todas = (set(spec["all_numeric_columns"])
+                 | set(spec["all_identifier_columns"])
+                 | set(spec["all_categorical_columns"]))
+        assert "GRAESSION" not in todas
 
 
 class TestDetectSystem:
