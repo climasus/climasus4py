@@ -83,20 +83,60 @@ def _load_column_dict(lang: str, system: str | None = None) -> dict[str, str]:
     return mapping
 
 
-def _load_category_dict(lang: str) -> dict[str, dict[str, str]]:
+def _load_category_dict(
+    lang: str, system: str | None = None
+) -> dict[str, dict[str, str]]:
     """Load category value translation dictionary for the requested language.
 
-    Mirrors R: get_translation_dict_en()$values
+    Mirrors R, which keeps **one dictionary per system** —
+    ``get_translation_dict_pt()$values``, ``_pt_sih``, ``_pt_sinan`` and the
+    rest — and applies the one for the system at hand.
 
-    The keys are **translated** column names (applied after column rename),
-    e.g. ``"sex"`` → ``{"1": "Male", "2": "Female"}``.
+    The keys are column names **after** the rename, e.g. ``"sex"`` →
+    ``{"1": "Male", "2": "Female"}``. A column the rename does not touch
+    keeps its source name and is keyed by it (``TERCEIRO``, which R
+    translates in no section).
+
+    Why the system matters, with the case that forced it (M104): the
+    translated column ``education_level`` is fed by ``INSTRU`` from **SIH**
+    (``1`` Analfabeto, ``2`` 1 Grau, ``3`` 2 Grau, ``4`` 3 Grau) *and* by
+    ``CS_ESCOL_N`` from **SINAN** (``1`` "1 a 4 serie incompleta EF", ``2``
+    "4 serie completa EF", ...). The same codes mean different things, and
+    a flat file can only hold one book — so SINAN data came out labelled
+    with the SIH scale.
+
+    **Merged per column, replaced per book.** A system section replaces the
+    whole code book of every column it declares, and COMMON still covers
+    the columns it does not mention.
+
+    Per book and not per code, because R is the authority and R merges
+    nothing: ``.standardize_tibble_internal`` picks exactly **one**
+    dictionary — ``if (system == "SINAN") translations <-
+    get_translation_dict_pt_sinan()`` — and iterates it. A per-code merge
+    was the first thing written here and it was wrong in the way this
+    whole finding is about: with SIH data, ``education_level`` code ``5``
+    would have kept the label SINAN gives it, because the SIH book stops
+    at ``4``. Labelling a code with another system's book is inventing a
+    meaning, which is the M70/M79 defect by another route. Under
+    replacement that code comes out raw, which is honest.
+
+    COMMON is kept as the fallback for unmentioned columns, and that part
+    *is* a superset of R: R would leave those untranslated. The gain is
+    real — it is what the M7 work restored — and it cannot relabel
+    anything, because a column the system's book does not mention has no
+    competing meaning to lose.
 
     Args:
         lang: Language code — ``"pt"``, ``"en"`` or ``"es"``.
+        system: SUS system identifier (e.g. ``"SIM-DO"``, ``"SINAN-DENG"``).
+            Selects the section, falling back to the family (``"SIA-PA"`` →
+            ``"SIA"``). ``None`` returns COMMON alone — the generic book,
+            which is byte for byte what every caller got before this file
+            gained sections.
 
     Returns:
-        Dict mapping translated_column_name → {original_value → label}.
-        Empty dict if language file not found.
+        Dict mapping column_name → {source_value → label}. Empty dict if
+        the language file is not found.
     """
     json_path = f"dictionaries/pt-{lang}/categories.json"
     try:
@@ -104,7 +144,42 @@ def _load_category_dict(lang: str) -> dict[str, dict[str, str]]:
     except FileNotFoundError:
         return {}
 
-    return {k: v for k, v in data.items() if not k.startswith("_")}
+    secoes = {k: v for k, v in data.items()
+              if not k.startswith("_") and isinstance(v, dict)}
+
+    # Pre-5.0 files are flat: column name straight at the top level, with
+    # no COMMON. Detected by the absence of COMMON rather than by the
+    # version string, so a hand-edited file without the bump still loads.
+    if "COMMON" not in secoes:
+        return secoes
+
+    mapping: dict[str, dict[str, str]] = {
+        col: dict(livro) for col, livro in secoes["COMMON"].items()
+        if isinstance(livro, dict)
+    }
+
+    def sobrepor(secao: dict) -> None:
+        for col, livro in secao.items():
+            if isinstance(livro, dict):
+                mapping[col] = dict(livro)
+
+    if system is not None:
+        family = system.split("-")[0]
+        especifica = secoes.get(system, secoes.get(family))
+        if isinstance(especifica, dict):
+            sobrepor(especifica)
+
+    # With no system, COMMON alone — deliberately NOT a merge of every
+    # section, which is where :func:`_load_column_dict` goes. Merging
+    # column *names* mostly works, because the raw names differ between
+    # systems. Merging code *books* picks a winner per code, and the
+    # winner is whichever section the loop reached last: measured, code
+    # "3" of ``sex`` came out "Unknown" from a late section where the flat
+    # file said "Female". That would relabel data silently, and for a
+    # reason as arbitrary as key order. COMMON is the generic book, so it
+    # is also exactly what every caller got before this file gained
+    # sections.
+    return mapping
 
 
 # ---------------------------------------------------------------------------
@@ -312,9 +387,12 @@ def sus_data_standardize(
 
     # ------------------------------------------------------------------
     # 3. Value translation (categorical labels)
-    # Applied AFTER rename — keys in categories.json are translated names
+    # Applied AFTER rename — keys in categories.json are translated names.
+    # The system goes in for the same reason it goes into the rename: two
+    # systems feed the same translated column with different code books,
+    # and without it SINAN data came out on the SIH education scale (M104).
     # ------------------------------------------------------------------
-    cat_map = _load_category_dict(lang)
+    cat_map = _load_category_dict(lang, system=system)
 
     if cat_map:
         new_columns = schema_columns(rel)

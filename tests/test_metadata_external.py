@@ -239,38 +239,131 @@ class TestCategoryKeysReachable:
                   "unidade_idade"},
     }
 
+    # Chaves guardadas pelo nome DE ORIGEM, de proposito. Sao campos que o
+    # columns.json nao traduz em secao nenhuma, entao a coluna chega ao
+    # passo de valor com o nome cru e a chave crua e a unica que a alcanca
+    # -- e o mesmo que o R faz, ja que ele aplica valor indexado pelo campo
+    # de origem.
+    #
+    # Ficam declaradas porque o repositorio NAO PODE PROVAR que a coluna
+    # existe: o datasus_columns.json publica listas de data, de numerico e
+    # assinaturas de sistema, e nao um rol de colunas. Sem a declaracao,
+    # qualquer chave em maiuscula passaria, inclusive um nome digitado
+    # errado. Com ela, uma chave crua NOVA falha o teste ate ser
+    # justificada aqui.
+    CRUAS = {
+        "pt-en": {"TERCEIRO"},
+        # GESTOR_TP e VINCPREV so aparecem aqui, e a causa esta no R: o
+        # $columns do SIH em espanhol tem 100 campos contra os 153 do
+        # ingles e do portugues, e nao traduz esses dois -- mas o $values
+        # em espanhol TEM os livros dos dois. Ou seja, no R a coluna fica
+        # com o nome cru e o livro e aplicado pelo nome cru, e funciona.
+        # A chave crua e a correta aqui pelo mesmo motivo. Registrado como
+        # M117, que e a lacuna do dicionario espanhol, nao daqui.
+        "pt-es": {"TERCEIRO", "GESTOR_TP", "VINCPREV"},
+        "pt-pt": {"TERCEIRO"},
+    }
+
     @staticmethod
-    def _alvos(lang):
-        """Todo nome de coluna que existe DEPOIS do rename, em qualquer sistema."""
+    def _alvos(lang, secao=None):
+        """Nomes que uma coluna pode ter quando chega ao passo de valor.
+
+        Sao dois conjuntos, e o segundo e facil de esquecer:
+
+        1. o nome **traduzido**, quando o rename mapeia o campo;
+        2. o nome **de origem**, quando nao mapeia -- a coluna simplesmente
+           mantem o que tinha. E o caso de TERCEIRO, que o R nao traduz em
+           secao nenhuma e cujo livro de valores so e alcancavel pela
+           chave crua.
+
+        Com *secao*, usa a precedencia do loader (secao, familia, COMMON);
+        sem, aceita qualquer secao, que e o que o `system=None` faz.
+        """
         from climasus4py.utils.data import load_json
 
         cols = load_json(f"dictionaries/{lang}/columns.json")
-        nomes = set()
-        for secao, mapa in cols.items():
-            if secao.startswith("_") or not isinstance(mapa, dict):
-                continue
-            nomes.update(v for v in mapa.values() if isinstance(v, str))
-        return nomes
+        secoes = {k: v for k, v in cols.items()
+                  if not k.startswith("_") and isinstance(v, dict)}
+
+        if secao is None:
+            aplicaveis = list(secoes.values())
+        else:
+            familia = secao.split("-")[0]
+            aplicaveis = [secoes[n] for n in (secao, familia, "COMMON")
+                          if n in secoes]
+
+        traduzidos = {v for mapa in aplicaveis for v in mapa.values()
+                      if isinstance(v, str)}
+        mapeados = {k for mapa in aplicaveis for k in mapa}
+        # Campo que existe no columns.json de OUTRA secao mas nao nas
+        # aplicaveis: chega cru, entao a chave crua o alcanca.
+        crus = {k for mapa in secoes.values() for k in mapa} - mapeados
+        return traduzidos | crus
 
     @staticmethod
-    def _categorias(lang):
+    def _secoes(lang):
+        """As secoes do categories.json, ja no formato 5.0 ou no antigo."""
         from climasus4py.utils.data import load_json
 
         cats = load_json(f"dictionaries/{lang}/categories.json")
-        return {k: v for k, v in cats.items() if not k.startswith("_")}
+        secoes = {k: v for k, v in cats.items()
+                  if not k.startswith("_") and isinstance(v, dict)}
+        if "COMMON" in secoes:
+            return secoes
+        return {"COMMON": secoes}   # arquivo plano, pre-5.0
+
+    @classmethod
+    def _categorias(cls, lang):
+        """Toda chave de categoria, de todas as secoes."""
+        chaves: dict[str, dict] = {}
+        for secao in cls._secoes(lang).values():
+            chaves.update(secao)
+        return chaves
 
     def test_toda_chave_de_categoria_e_nome_de_coluna(self):
+        """Agora POR SECAO, que e mais exigente que o teste antigo.
+
+        Antes o arquivo era plano e bastava a chave ser alcancavel em
+        algum sistema. Com as secoes do M104, uma chave na secao errada --
+        livro do SINAN posto em SIH, digamos -- passaria no teste antigo e
+        nunca seria consultada. Aqui cada secao e conferida com a
+        precedencia que o loader de fato usa.
+        """
         import pytest
 
         for lang, fantasmas in self.FANTASMAS.items():
             try:
-                cats, alvos = self._categorias(lang), self._alvos(lang)
+                secoes = self._secoes(lang)
             except FileNotFoundError:
                 pytest.skip(f"climasus-data sem dictionaries/{lang}")
-            orfas = sorted(set(cats) - alvos - fantasmas)
-            assert not orfas, (
-                f"{lang}: chave de categoria que nenhuma coluna alcanca, "
-                f"logo o codigo cru do DATASUS passa em silencio: {orfas}"
+            cruas = self.CRUAS.get(lang, set())
+            for nome, chaves in secoes.items():
+                alvos = self._alvos(lang, None if nome == "COMMON" else nome)
+                orfas = sorted(set(chaves) - alvos - fantasmas - cruas)
+                assert not orfas, (
+                    f"{lang}/{nome}: chave de categoria que nenhuma coluna "
+                    f"alcanca nessa secao, logo o codigo cru do DATASUS "
+                    f"passa em silencio: {orfas}"
+                )
+
+    def test_as_chaves_cruas_declaradas_ainda_existem(self):
+        """Contrapartida da declaracao: a lista nao pode envelhecer.
+
+        Sem isto, CRUAS viraria uma lista de excecoes que ninguem revisa,
+        e uma chave que saiu do dicionario continuaria perdoada para
+        sempre.
+        """
+        import pytest
+
+        for lang, cruas in self.CRUAS.items():
+            try:
+                chaves = set(self._categorias(lang))
+            except FileNotFoundError:
+                pytest.skip(f"climasus-data sem dictionaries/{lang}")
+            sumidas = sorted(cruas - chaves)
+            assert not sumidas, (
+                f"{lang}: declarada como chave crua mas ja nao esta no "
+                f"dicionario -- tire da lista: {sumidas}"
             )
 
     def test_fantasmas_declaradas_ainda_existem(self):
