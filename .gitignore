@@ -27,6 +27,13 @@ config.yaml
 # Notebooks
 .ipynb_checkpoints/
 
+# Exploracao na raiz do repo: comparacoes R vs Python rodadas a mao, com
+# caminhos absolutos da maquina do Andrey e saida de celula embutida. Sao
+# rascunho de trabalho, nao material do pacote -- decidido em 21/09/2026.
+/Comparacoes*.ipynb
+/pipeline*.ipynb
+/pipeline R.r
+
 # Operating system
 .DS_Store
 Thumbs.db
