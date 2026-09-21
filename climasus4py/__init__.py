@@ -71,6 +71,8 @@ from .enrichment.mod_metaregression import sus_mod_metaregression
 from .enrichment.mod_pool import sus_mod_pool
 from .enrichment.mod_sensitivity import sus_mod_sensitivity
 from .enrichment.mod_spatial_moran import sus_mod_spatial_moran
+from .enrichment.mod_spatial_scan import sus_mod_spatial_scan
+from .enrichment.mod_spacetime_exceedance import sus_mod_spacetime_exceedance
 from .enrichment.mod_spatial_reg import sus_mod_spatial_reg
 from .enrichment.mod_spatial_weights import sus_mod_spatial_weights
 from .enrichment.mod_swot import sus_mod_swot
@@ -91,6 +93,12 @@ from .utils.disease_groups import get_disease_group_details, list_disease_groups
 from .utils.census_select import sus_census_select
 from .utils.cid_select import sus_data_cid_select
 from .utils.explore import sus_explore
+from .utils.rap import (
+    sus_rap_from_recipe,
+    sus_rap_inspect,
+    sus_rap_recipe,
+    sus_rap_run,
+)
 from .utils.quality import sus_data_quality_report
 from .utils.welcome import sus_welcome
 from .utils.ts_quality import sus_data_ts_quality
@@ -105,6 +113,9 @@ from .viz.mod_plot_ml import sus_mod_plot_ml
 from .viz.mod_plot_pool import sus_mod_plot_pool
 from .viz.mod_plot_sensitivity import sus_mod_plot_sensitivity
 from .viz.mod_plot_spatial_moran import sus_mod_plot_spatial_moran
+from .viz.mod_plot_spatial_scan import sus_mod_plot_spatial_scan
+from .viz.mod_plot_spatial_bayes import sus_mod_plot_spatial_bayes
+from .viz.mod_plot_spacetime import sus_mod_plot_spacetime
 from .viz.mod_plot_swot import sus_mod_plot_swot
 from .viz.mod_plot_vulnerability import sus_mod_plot_vulnerability
 from .viz.plot_demographics import sus_data_plot_demographics
@@ -116,6 +127,10 @@ __all__ = [
     "__version__",
     # Pipeline
     "sus_pipeline",
+    "sus_rap_from_recipe",
+    "sus_rap_inspect",
+    "sus_rap_recipe",
+    "sus_rap_run",
     # Core
     "sus_data_import",
     "sus_data_clean_encoding",
@@ -196,6 +211,8 @@ __all__ = [
     # Spatial modelling (sus_mod_*)
     "sus_mod_spatial_weights",
     "sus_mod_spatial_moran",
+    "sus_mod_spatial_scan",
+    "sus_mod_spacetime_exceedance",
     "sus_mod_spatial_reg",
     # Exposure-response modelling — the sus_mod_dlnm() chain
     "sus_mod_dlnm",
@@ -239,6 +256,9 @@ __all__ = [
     "sus_mod_plot_sensitivity",
     "sus_mod_plot_ml",
     "sus_mod_plot_spatial_moran",
+    "sus_mod_plot_spatial_scan",
+    "sus_mod_plot_spatial_bayes",
+    "sus_mod_plot_spacetime",
     "sus_mod_plot_swot",
     # Was recorded as a stub and is not one: the three plot types are all
     # implemented. Only ``interactive=True`` raises, for want of a plotly
