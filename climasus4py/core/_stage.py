@@ -32,7 +32,62 @@ CANONICAL_STAGES: list[str] = [
     "filter",
     "variables",
     "aggregate",
+    # The three enrichment stages, in R's order (M34). They were written
+    # by the package and absent from this list, which had two costs.
+    # `assert_after` silently returns for a stage it does not know, so
+    # nothing downstream of aggregation was ever checked; and the three
+    # enrichments all wrote the single string "enrichment", so a spatial
+    # join, a climate join and a census join were indistinguishable in
+    # the metadata — while `climasus4r` tells them apart.
+    "spatial",
+    "climate",
+    "census",
 ]
+
+#: Vocabulary map to ``climasus4r``, which uses ten stage names against
+#: these nine. It is a map and not a rename because the R spellings are
+#: not better — ``stand`` for standardize, ``derive`` for variables — and
+#: renaming would break every caller that reads the metadata. What was
+#: missing was any way to compare the two, which is what this provides.
+#:
+#: R splits filtering in two (``filter_cid`` for ICD and ``filter_demo``
+#: for demographics) where this package has one ``sus_filter``, so the
+#: mapping is one-to-many in that direction.
+R_STAGE_EQUIVALENTS: dict[str, tuple[str, ...]] = {
+    "import":      ("import",),
+    "clean":       ("clean",),
+    "standardize": ("stand",),
+    "filter":      ("filter_cid", "filter_demo"),
+    "variables":   ("derive",),
+    "aggregate":   ("aggregate",),
+    "spatial":     ("spatial",),
+    "climate":     ("climate",),
+    "census":      ("census",),
+}
+
+#: Stage names this package used to write, and what they mean now.
+#: ``"enrichment"`` was written by the spatial, climate and census joins
+#: alike; metadata saved before M34 still carries it, and resolving it to
+#: the earliest of the three keeps `assert_after` conservative rather
+#: than letting an old relation claim a later stage than it reached.
+LEGACY_STAGE_ALIASES: dict[str, str] = {
+    "enrichment": "spatial",
+}
+
+
+def canonical_stage(stage: str | None) -> str | None:
+    """Resolve a stage name, translating the names this package retired.
+
+    Args:
+        stage: Stage name as stored, possibly a retired spelling.
+
+    Returns:
+        The canonical name, or *stage* unchanged when it is already
+        canonical or unknown.
+    """
+    if stage is None:
+        return None
+    return LEGACY_STAGE_ALIASES.get(stage, stage)
 
 # WeakKeyDictionary so relations can be garbage-collected without leaks.
 _stage_map: WeakKeyDictionary[
@@ -186,14 +241,19 @@ def assert_after(rel: duckdb.DuckDBPyRelation, stage: str) -> None:
         ValueError: If the current stage precedes *stage* in
             ``CANONICAL_STAGES``.
     """
-    current = get_stage(rel)
+    current = canonical_stage(get_stage(rel))
     if current is None:
         return
 
     try:
         current_idx = CANONICAL_STAGES.index(current)
-        required_idx = CANONICAL_STAGES.index(stage)
+        required_idx = CANONICAL_STAGES.index(canonical_stage(stage))
     except ValueError:
+        # An unknown stage means the check cannot be made, not that it
+        # passed — but raising here would turn any custom stage into a
+        # hard error. Returning is the existing contract; what changed
+        # (M34) is that the three enrichment stages are now known, so
+        # they stopped falling through this branch.
         return
 
     if current_idx < required_idx:

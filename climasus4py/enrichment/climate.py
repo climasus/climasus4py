@@ -173,4 +173,5 @@ def sus_climate(
         sql = _join_direct(geo_col, date_col, obs_paths, vars_list)
 
     result = rel.query("_climate_health", sql)
-    return set_stage(result, "enrichment")
+    # "climate", not the generic "enrichment" (M34).
+    return set_stage(result, "climate")

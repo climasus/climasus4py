@@ -11,7 +11,7 @@ import warnings
 import duckdb
 import pandas as pd
 
-from ..utils.data import load_json
+from ..utils.data import expand_column_synonyms, load_json
 from ._stage import add_history, get_meta, set_stage
 from .engine import get_connection, schema_columns
 
@@ -112,7 +112,13 @@ def _agg_detect_date_col(columns: list[str], system: str | None = None) -> str |
         # fallback hardcoded
         candidates = ["death_date", "birth_date", "admission_date",
                       "notification_date", "date", "DTOBITO", "DT_NOTIFIC"]
-    return next((c for c in candidates if c in columns), None)
+    # The config lists each column once, in English or raw. Expanding to
+    # every spelling is what makes `sus_data_standardize(lang="pt")`
+    # followed by this function work: it produced `data_obito`, which was
+    # in no list anywhere, and the error told the caller to run the
+    # standardize they had just run (M123). Order is preserved, so SIM is
+    # still dated by the death and not the birth.
+    return next((c for c in expand_column_synonyms(candidates) if c in columns), None)
 
 
 def _agg_geo_candidates(system: str | None = None) -> list[str]:
@@ -127,8 +133,10 @@ def _agg_geo_candidates(system: str | None = None) -> list[str]:
     candidates = cfg.get(base, []) + cfg.get("common", [])
     if not candidates:
         candidates = ["residence_municipality_code", "municipality_code", "CODMUNRES"]
-    # dedupe keeping order: the system list and "common" overlap
-    return list(dict.fromkeys(candidates))
+    # dedupe keeping order: the system list and "common" overlap.
+    # Expanded to every spelling for the same reason as the date (M123);
+    # the expansion dedupes too, but the call is kept explicit.
+    return expand_column_synonyms(list(dict.fromkeys(candidates)))
 
 
 def _agg_detect_geo_col(columns: list[str], system: str | None = None) -> str | None:

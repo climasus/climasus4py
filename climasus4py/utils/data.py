@@ -218,35 +218,75 @@ _FALLBACK_DATASUS_COLUMNS: dict[str, Any] = {
         "SINAN-DENGUE":{"any_of": ["NU_NOTIFIC"]},
         "SINASC":      {"any_of": ["NUMERODN"]},
     },
+    # Every role lists the raw DATASUS name AND its standardized form in
+    # the three languages, each translation placed immediately after the
+    # raw name it came from. Until schema_version 4 only the English
+    # forms were here, so `sus_data_standardize(lang="pt")` produced
+    # `data_obito` and the very next step could not find it — 26 of 44
+    # system x language x role combinations failed (M123).
+    #
+    # The list is a PRIORITY, first match wins, which is why the
+    # placement matters: `data_nascimento` after `data_obito` keeps a SIM
+    # frame dated by the death, as it always was. The translations are
+    # derived from dictionaries/*/columns.json, never invented.
     "role_priority": {
-        "date":  ["death_date", "date", "DTOBITO", "DTNASC", "admission_date",
-                  "DT_NOTIFIC", "DT_INTER"],
-        "cause": ["underlying_cause", "cause", "CAUSABAS", "DIAG_PRINC"],
-        "age":   ["age", "age_years", "age_code", "IDADE", "IDADEMAE"],
-        "sex":   ["sex", "SEXO", "CS_SEXO"],
+        "date": [
+            "death_date", "date", "DTOBITO", "data_obito", "fecha_muerte",
+            "DTNASC", "birth_date", "data_nascimento", "fecha_nacimiento",
+            "admission_date", "DT_NOTIFIC", "notification_date",
+            "data_notificacao", "fecha_notificacion", "DT_INTER",
+            "data_internacao", "fecha_internacion", "fecha_ingreso",
+        ],
+        "cause": [
+            "underlying_cause", "cause", "CAUSABAS", "causa_basica",
+            "DIAG_PRINC", "primary_diagnosis", "diagnostico_principal",
+        ],
+        "age": [
+            "age", "age_years", "age_code", "IDADE", "codigo_idade", "idade",
+            "codigo_edad", "edad", "IDADEMAE", "mother_age", "idade_mae",
+            "edad_madre",
+        ],
+        "sex": [
+            "sex", "SEXO", "sexo", "CS_SEXO",
+        ],
         # Municipality and state were MISSING from this fallback while
         # detect_geo_column kept its own hardcoded dict, so nothing
         # noticed. Now that the detector reads the metadata (D6/M96), an
         # install without climasus-data would raise KeyError without
         # these. Same union and same order as the published file.
+        # Must stay the concatenation of municipality_by_basis in
+        # _fallback_order — there is a test, and it caught this list
+        # drifting when the M123 translations were added here alone.
         "municipality": [
             "CODMUNRES", "residence_municipality_code",
             "codigo_municipio_residencia", "MUNI_RES",
             "CODMUNOCOR", "occurrence_municipality_code",
-            "codigo_municipio_ocurrencia",
+            "codigo_municipio_ocurrencia", "codigo_municipio_ocorrencia",
             "ID_MUNICIP", "notification_municipality_code",
+            "codigo_municipio_notificacao", "codigo_municipio_notificacion",
             "municipality_code", "code_muni",
         ],
-        "state": ["state", "SG_UF", "UF", "SG_UF_NOT"],
+        "state": [
+            "state", "SG_UF", "residence_uf", "uf_residencia", "UF",
+            "hospitalization_uf", "uf_hospitalizacao", "uf_hospitalizacion",
+            "SG_UF_NOT", "notification_uf", "uf_notificacao", "uf_notificacion",
+        ],
     },
     "municipality_by_basis": {
         "_fallback_order": ["residence", "occurrence", "notification",
                             "unspecified"],
         "residence": ["CODMUNRES", "residence_municipality_code",
                       "codigo_municipio_residencia", "MUNI_RES"],
+        # `codigo_municipio_ocurrencia` is the Spanish spelling; the
+        # Portuguese one (`...ocorrencia`) was missing entirely until the
+        # M123 sweep, so a pt-standardized frame could not be told apart
+        # by basis — it fell through to residence.
         "occurrence": ["CODMUNOCOR", "occurrence_municipality_code",
-                       "codigo_municipio_ocurrencia"],
-        "notification": ["ID_MUNICIP", "notification_municipality_code"],
+                       "codigo_municipio_ocurrencia",
+                       "codigo_municipio_ocorrencia"],
+        "notification": ["ID_MUNICIP", "notification_municipality_code",
+                         "codigo_municipio_notificacao",
+                         "codigo_municipio_notificacion"],
         "unspecified": ["municipality_code", "code_muni"],
     },
 }
@@ -274,7 +314,7 @@ def load_datasus_columns_spec() -> dict[str, Any]:
         return _FALLBACK_DATASUS_COLUMNS.copy()
 
     versao = int(data.get("schema_version") or 1)
-    if versao >= 3:
+    if versao >= 4:
         return data
 
     import warnings
@@ -302,6 +342,18 @@ def load_datasus_columns_spec() -> dict[str, Any]:
         for chave in ("municipality", "state", "date"):
             papeis[chave] = _FALLBACK_DATASUS_COLUMNS["role_priority"][chave]
         corrigido["role_priority"] = papeis
+
+    if versao < 4:
+        faltando.append(
+            "a role_priority carrying only the ENGLISH standardized names, "
+            "so sus_data_standardize(lang='pt') produces data_obito and the "
+            "next step raises 'Date column not found' pointing at the "
+            "function that just ran — 26 of 44 system x language x role "
+            "combinations could not find their column (M123)")
+        # Every role, not the three of the version 3 branch: the missing
+        # translations are spread across all six.
+        corrigido["role_priority"] = dict(
+            _FALLBACK_DATASUS_COLUMNS["role_priority"])
 
     warnings.warn(
         "climasus-data publishes metadata/datasus_columns.json at "
@@ -454,6 +506,78 @@ def _detect_column(columns: list[str], candidates: list[str]) -> str | None:
         if c in col_set:
             return c
     return None
+
+
+@lru_cache(maxsize=1)
+def _column_synonym_index() -> dict[str, tuple[str, ...]]:
+    """Map every column spelling to the whole group it belongs to.
+
+    A DATASUS column has up to four names: the raw one (``DTOBITO``) and
+    what ``sus_data_standardize`` renames it to in each language
+    (``death_date``, ``data_obito``, ``fecha_muerte``). The dictionaries
+    under ``dictionaries/pt-*/columns.json`` hold raw-to-translation; this
+    inverts them into groups, so any spelling leads to all the others.
+
+    It exists because the same priority list was being kept twice — in
+    ``role_priority`` and in ``templates/aggregate_config.json`` — and
+    both were written in English only. Translating each copy by hand
+    would have made a third thing to keep in sync; expanding a name into
+    its group takes the language dimension out of the lists entirely
+    (M123).
+
+    Returns:
+        ``{spelling: (raw, en, pt, es…)}``. Empty when the dictionaries
+        cannot be read, which degrades to the previous behaviour rather
+        than raising: the candidate lists still carry the raw and English
+        names on their own.
+    """
+    grupos: dict[str, list[str]] = {}
+    for par in ("pt-en", "pt-pt", "pt-es"):
+        try:
+            livro = load_json(f"dictionaries/{par}/columns.json")
+        except (FileNotFoundError, ValueError):
+            continue
+        for secao, mapa in livro.items():
+            if secao == "_meta" or not isinstance(mapa, dict):
+                continue
+            for bruto, traduzido in mapa.items():
+                if not isinstance(traduzido, str) or not traduzido:
+                    continue
+                grupo = grupos.setdefault(bruto, [bruto])
+                if traduzido not in grupo:
+                    grupo.append(traduzido)
+
+    indice: dict[str, tuple[str, ...]] = {}
+    for grupo in grupos.values():
+        congelado = tuple(grupo)
+        for nome in grupo:
+            # A spelling shared by two raw columns keeps the first group.
+            # Rare, and picking either beats dropping both.
+            indice.setdefault(nome, congelado)
+    return indice
+
+
+def expand_column_synonyms(names: list[str] | tuple[str, ...]) -> list[str]:
+    """Expand each candidate into every spelling of the same column.
+
+    Order is preserved and duplicates dropped, so a priority list stays a
+    priority list: the group of the first candidate comes before the
+    group of the second. That is what keeps a SIM frame dated by the
+    death and not the birth, in every language.
+
+    Args:
+        names: Candidate column names, most preferred first.
+
+    Returns:
+        The expanded list, in the same priority order.
+    """
+    indice = _column_synonym_index()
+    saida: list[str] = []
+    for nome in names:
+        for variante in indice.get(nome, (nome,)):
+            if variante not in saida:
+                saida.append(variante)
+    return saida
 
 
 def detect_date_column(columns: list[str]) -> str | None:

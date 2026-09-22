@@ -264,60 +264,34 @@ def test_o_join_preserva_o_date_de_quem_ja_o_tem() -> None:
     `sus_climate_aggregate`. Padronizando e agregando antes de juntar,
     como o pipeline faz, o `date` atravessa.
 
-    O `lang="en"` aqui **não** é estilo: é o único idioma em que esta
-    cadeia funciona hoje. O `role_priority` do `datasus_columns.json` só
-    lista os nomes padronizados em inglês, então depois de
-    `sus_data_standardize(lang="pt")` o `sus_data_aggregate` levanta
-    "Date column not found. [...] run sus_data_standardize() first" — a
-    função que acabou de rodar. Medido em 26 de 44 combinações de
-    sistema × idioma × papel. É o M123, e não é deste teste resolver;
-    quando for, este teste deve passar a varrer os três idiomas.
+    Varre os três idiomas. Enquanto o M123 esteve aberto este teste
+    rodava só em inglês, porque `sus_data_standardize(lang="pt")` produzia
+    `data_obito` e o `sus_data_aggregate` seguinte levantava "Date column
+    not found [...] run sus_data_standardize() first" — a função que
+    acabara de rodar.
     """
     conn = get_connection()
-    df = pd.DataFrame({
-        "CODMUNRES": list(MUNICIPIOS),
-        "DTOBITO": ["01012020", "15022020", "20032020", "05042020", "10052020"],
-        "CAUSABAS": ["J189"] * 5,
-    })
-    conn.register("_m8_chain", df)
-    padronizado = cs.sus_data_standardize(
-        conn.table("_m8_chain"), system="SIM-DO", lang="en"
-    )
-    agregado = cs.sus_data_aggregate(
-        padronizado, time_unit="month", system="SIM-DO", lang="en",
-        verbose=False,
-    )
-    juntado = cs.sus_spatial_join(agregado)
-    assert "date" in juntado.columns
-    assert juntado.df()["date"].notna().all(), "data não converteu"
-    # e as colunas do M8 chegaram junto
-    for coluna in NOVAS:
-        assert coluna in juntado.columns
-
-
-def test_m123_a_cadeia_em_portugues_ainda_quebra() -> None:
-    """Fixa o defeito **enquanto ele existe**, para que o conserto apareça.
-
-    Sem isto, o M123 seria só uma linha num CSV. Quando o
-    `role_priority` ganhar os nomes em português, este teste falha — e é
-    esse o sinal de que o teste acima pode varrer os três idiomas.
-    """
-    conn = get_connection()
-    df = pd.DataFrame({
-        "CODMUNRES": list(MUNICIPIOS),
-        "DTOBITO": ["01012020", "15022020", "20032020", "05042020", "10052020"],
-        "CAUSABAS": ["J189"] * 5,
-    })
-    conn.register("_m123", df)
-    padronizado = cs.sus_data_standardize(
-        conn.table("_m123"), system="SIM-DO", lang="pt"
-    )
-    assert "data_obito" in padronizado.columns
-    with pytest.raises(ValueError, match="Date column not found"):
-        cs.sus_data_aggregate(
-            padronizado, time_unit="month", system="SIM-DO", lang="pt",
+    for lang in ("pt", "en", "es"):
+        df = pd.DataFrame({
+            "CODMUNRES": list(MUNICIPIOS),
+            "DTOBITO": ["01012020", "15022020", "20032020", "05042020",
+                        "10052020"],
+            "CAUSABAS": ["J189"] * 5,
+        })
+        conn.register(f"_m8_chain_{lang}", df)
+        padronizado = cs.sus_data_standardize(
+            conn.table(f"_m8_chain_{lang}"), system="SIM-DO", lang=lang
+        )
+        agregado = cs.sus_data_aggregate(
+            padronizado, time_unit="month", system="SIM-DO", lang=lang,
             verbose=False,
         )
+        juntado = cs.sus_spatial_join(agregado, lang=lang)
+        assert "date" in juntado.columns, lang
+        assert juntado.df()["date"].notna().all(), f"{lang}: data não converteu"
+        # e as colunas do M8 chegaram junto
+        for coluna in NOVAS:
+            assert coluna in juntado.columns, f"{lang}: {coluna}"
 
 
 # --- o contrato lazy ----------------------------------------------------

@@ -50,7 +50,8 @@ def _limpa_caches_de_dados():
     yield
     from climasus4py.utils import data as _data
 
-    for nome in ("load_json", "load_datasus_columns_spec", "_municipio_meta"):
+    for nome in ("load_json", "load_datasus_columns_spec", "_municipio_meta",
+                 "_column_synonym_index"):
         alvo = getattr(_data, nome, None)
         limpar = getattr(alvo, "cache_clear", None)
         if limpar is not None:

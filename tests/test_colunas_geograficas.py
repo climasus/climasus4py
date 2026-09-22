@@ -260,7 +260,12 @@ class TestCompatibilidadeDeMetadado:
         try:
             with pytest.warns(UserWarning, match="municipality_by_basis"):
                 spec = mod.load_datasus_columns_spec()
-            assert len(spec["role_priority"]["municipality"]) == 11
+            # Compared against the bundled list, not a literal count.
+            # It used to say `== 11`, and the number went stale the day
+            # the M123 translations were added — a magic number that
+            # fails for a change that was correct.
+            assert (spec["role_priority"]["municipality"]
+                    == mod._FALLBACK_DATASUS_COLUMNS["role_priority"]["municipality"])
             assert spec["municipality_by_basis"]["occurrence"]
             assert mod.detect_geo_column(["MUNI_RES"], "municipality") \
                 == "MUNI_RES"

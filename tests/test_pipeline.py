@@ -121,8 +121,17 @@ class TestStageTracking:
         assert_after(rel, "clean")  # get_stage → None → retorna cedo
 
     def test_canonical_stages_order(self):
+        """A ordem é contrato: o `assert_after` compara índices.
+
+        Os três últimos entraram em 22/09/2026 (M34). Eles já eram
+        escritos pelo pacote e estavam fora desta lista, e `assert_after`
+        retorna em silêncio para estágio que não conhece — então toda
+        checagem de ordem a jusante da agregação passava sem verificar
+        nada. A ordem dos três é a do `climasus4r`.
+        """
         assert CANONICAL_STAGES == [
-            "import", "clean", "standardize", "filter", "variables", "aggregate"
+            "import", "clean", "standardize", "filter", "variables",
+            "aggregate", "spatial", "climate", "census",
         ]
 
     def test_set_stage_returns_same_relation(self):

@@ -187,5 +187,6 @@ def sus_census(
     )
 
     result = rel.query("_census_health", sql)
-    return set_stage(result, "enrichment")
+    # "census", not the generic "enrichment" (M34).
+    return set_stage(result, "census")
 

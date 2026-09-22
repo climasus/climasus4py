@@ -6,6 +6,7 @@ Pipeline stage: variables (optional, applied after standardize).
 
 from __future__ import annotations
 
+import warnings
 from typing import Any, cast
 
 import duckdb
@@ -27,6 +28,10 @@ AGE_LABELS_IBGE = [
     "60-64", "65-69", "70-74", "75-79", "80+"
 ]
 
+#: Kept only as the offline fallback for :func:`_detect_date_col`, which
+#: now delegates to ``sus_data_aggregate``'s detection so the two cannot
+#: disagree. Do not add names here: add them to
+#: ``templates/aggregate_config.json`` in climasus-data (M126).
 DATE_COLUMN_CANDIDATES: dict[str, list[str]] = {
     "SIM":    ["death_date", "DTOBITO"],
     "SINASC": ["birth_date", "DTNASC"],
@@ -274,10 +279,22 @@ def _dry_rainy_sql(month_expr: str, region: str, lang: str = "en") -> str:
 
 
 def _detect_date_col(columns: list[str], system: str | None = None) -> str | None:
-    system_base = (system or "").split("-")[0].upper()
-    candidates  = DATE_COLUMN_CANDIDATES.get(system_base, [])
-    candidates  = candidates + DATE_COLUMN_CANDIDATES["common"]
-    return next((c for c in candidates if c in columns), None)
+    """Detect the date column — the same way ``sus_data_aggregate`` does.
+
+    This used to walk ``DATE_COLUMN_CANDIDATES``, a module-local copy of
+    the list in ``templates/aggregate_config.json``. The two were
+    **identical**, and the copy meant the M123 fix — expanding each name
+    into every spelling of the same column — reached the aggregation and
+    not this function. Measured on a SIM frame standardized to
+    Portuguese: 4 variables created against 15 in English, because the
+    whole calendar and climate block was skipped for want of
+    ``data_obito``.
+
+    Delegating removes the copy instead of patching it. See M126.
+    """
+    from .aggregate import _agg_detect_date_col
+
+    return _agg_detect_date_col(columns, system)
 
 
 def _epi_week_sql(date_expr: str) -> str:
@@ -300,6 +317,9 @@ def sus_data_create_variables(
     create_climate_vars:  bool           = True,
     climate_region:       str | None     = None,
     hemisphere:           str            = "south",
+    date_col:             str | None     = None,
+    age_col:              str | None     = None,
+    system:               str | None     = None,
     lang:                 str            = "en",
     verbose:              bool           = True,
 ) -> duckdb.DuckDBPyRelation:
@@ -334,11 +354,32 @@ def sus_data_create_variables(
             (``"norte"``, ``"nordeste"``, ``"centro-oeste"``, ``"sudeste"``, ``"sul"``).
             If ``None``, uses astronomical seasons.
         hemisphere: ``"south"`` (default) or ``"north"``.
+        date_col: Name the date column instead of letting it be detected.
+            ``climasus4r`` has taken this all along, and without it
+            someone whose data the detector reads wrongly had no way out
+            (M57). Detection remains the default.
+        age_col: Name the age column, same contract as *date_col*.
+        system: DATASUS system, used to pick the per-system date
+            priority — SIM is dated by the death, SINAN by the
+            notification. Read from ``sus_meta`` when ``None``.
         lang: Output language — ``"en"``, ``"pt"`` or ``"es"``.
         verbose: Print progress messages.
 
     Returns:
         Lazy DuckDB relation with new derived columns appended.
+
+    Raises:
+        ValueError: If *date_col* or *age_col* names a column the
+            relation does not have — better than silently falling back
+            to detection and creating variables from another column.
+
+    Warns:
+        UserWarning: When no date column is found and the calendar and
+            climate variables are therefore skipped. This used to be a
+            ``verbose`` print only, and ``verbose`` is off in any
+            pipeline: measured on a Portuguese-standardized SIM frame,
+            the function produced 4 variables against 15 in English and
+            said nothing (M126).
 
     Example:
         >>> rel   = cs.sus_data_import("SIM-DO", "SE", 2023)
@@ -359,6 +400,18 @@ def sus_data_create_variables(
     if lang not in ("en", "pt", "es"):
         raise ValueError("lang must be 'en', 'pt' or 'es'")
 
+    # The per-system date priority is what dates a SIM series by the
+    # death and a SINAN one by the notification. The relation carries the
+    # system in sus_meta; reading it means an unqualified call gets the
+    # right one, the same reasoning as M21 in sus_data_aggregate. An
+    # explicit argument still wins.
+    if system is None:
+        from ._stage import get_meta
+
+        system = (get_meta(rel) or {}).get("system")
+        if verbose and system:
+            print(f"System (from sus_meta): {system}")
+
     conn    = get_connection()
     columns = schema_columns(rel)
     cfg_age = _age_groups_config()
@@ -368,14 +421,28 @@ def sus_data_create_variables(
     # BLOCK 1 — Age variables
     # ------------------------------------------------------------------
     if create_age_groups:
-        age_col = next(
-            (c for c in ("age_code", "age_years", "IDADE", "NU_IDADE_N",
-                 "codigo_idade", "edad_codigo") if c in columns),
-            None
-        )
+        # The caller's choice wins; detection is the default, never the
+        # only option (M57). The R function has taken `age_col` all
+        # along, so someone whose data the detector reads wrongly had a
+        # way out in R and none here.
+        if age_col is None:
+            # This walked a hardcoded tuple that did NOT include the
+            # names sus_data_standardize actually produces — and one of
+            # them, `edad_codigo`, had the words the wrong way round
+            # against the real `codigo_edad`, so it never matched
+            # anything. Measured: the function raised outright on a
+            # Spanish-standardized frame. The shared detector reads the
+            # metadata, which the M123 sweep made multilingual.
+            age_col = detect_age_column(columns)
+        elif age_col not in columns:
+            raise ValueError(
+                f"age_col={age_col!r} is not a column of this relation. "
+                f"Available: {sorted(columns)}"
+            )
         if age_col is None:
             raise ValueError(
-                "Age column not found. Run sus_data_standardize() before this function."
+                "Age column not found. Run sus_data_standardize() before this "
+                "function, or name the column with age_col=."
             )
         if verbose:
             print(f"Age column: {age_col}")
@@ -443,11 +510,30 @@ def sus_data_create_variables(
     # ------------------------------------------------------------------
     # BLOCK 2 — Calendar variables
     # ------------------------------------------------------------------
-    date_col = None
+    detectou_data = date_col
     if create_calendar_vars:
-        date_col = _detect_date_col(schema_columns(rel))
+        if detectou_data is None:
+            detectou_data = _detect_date_col(schema_columns(rel), system)
+        elif detectou_data not in schema_columns(rel):
+            raise ValueError(
+                f"date_col={detectou_data!r} is not a column of this "
+                f"relation. Available: {sorted(schema_columns(rel))}"
+            )
+        date_col = detectou_data
 
         if date_col is None:
+            # A `verbose` print is not enough for this one: the caller
+            # asked for calendar variables and silently gets none, and
+            # `verbose` is off in any pipeline. Measured before M126: a
+            # Portuguese-standardized SIM frame produced 4 variables
+            # against 15 in English, with nothing said.
+            warnings.warn(
+                "sus_data_create_variables: no date column found, so the "
+                "calendar and climate variables were NOT created. Name it "
+                "with date_col= if it is there under an unexpected name.",
+                UserWarning,
+                stacklevel=2,
+            )
             if verbose:
                 print("⚠ Date column not found — calendar variables skipped")
         else:

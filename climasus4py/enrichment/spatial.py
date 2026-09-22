@@ -130,8 +130,10 @@ def sus_spatial_join(
         ``DuckDBPyRelation`` with the health columns plus ``spatial_name``,
         ``geometry_wkt``, ``code_muni_7``, ``code_state``,
         ``abbrev_state``, ``name_state``, ``code_region`` and
-        ``name_region``. Registers ``stage="enrichment"`` in sus_meta
-        with a timestamped history entry.
+        ``name_region``. Registers ``stage="spatial"`` in sus_meta with a
+        timestamped history entry — it used to register the generic
+        ``"enrichment"``, which the climate and census joins wrote too,
+        so the three were indistinguishable afterwards (M34).
 
         The six geographic fields beyond name and geometry closed M8:
         analysis by state or region used to need a manual join, because
@@ -254,7 +256,11 @@ def sus_spatial_join(
 
     result = rel.query(vista, sql)
     result = result.set_alias("enrichment")
-    result = set_stage(result, "enrichment", _inherit_from=_original_rel)
+    # "spatial", not the generic "enrichment" the three joins all
+    # wrote: a spatial join, a climate join and a census join were
+    # indistinguishable in the metadata, and climasus4r tells them
+    # apart. See M34.
+    result = set_stage(result, "spatial", _inherit_from=_original_rel)
     result = add_history(
         result,
         f"Spatial join: {len(projecoes)} column(s) added "

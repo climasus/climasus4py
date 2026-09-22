@@ -2,6 +2,90 @@
 
 ## [Unreleased]
 
+### Fixed — `sus_data_create_variables` criava 4 variáveis de 15 em português
+
+Medido sobre o mesmo quadro do SIM padronizado:
+
+| idioma | variáveis criadas |
+|---|---|
+| inglês | 15 |
+| português | **4** — o bloco de calendário e clima pulado, em silêncio |
+| espanhol | **erro** |
+
+Duas causas, e as duas eram cópias de listas que o pacote já mantinha em outro lugar. O
+`_detect_date_col` andava por um `DATE_COLUMN_CANDIDATES` local, **idêntico byte a byte** ao
+`date_candidates` do `aggregate_config.json` — e a cópia fez a correção multilíngue chegar à
+agregação e não aqui. A idade usava uma tupla escrita à mão em vez do `detect_age_column` que o
+próprio arquivo já importava, e a tupla tinha `edad_codigo`, com as palavras na ordem trocada contra
+o `codigo_edad` real: um nome que nunca casou com nada.
+
+O silêncio era o pior dos dois. O bloco pulado só avisava por um `print` sob `verbose`, e `verbose`
+está desligado em qualquer pipeline. Agora é um `UserWarning`.
+
+### Added — `date_col` e `age_col` no `sus_data_create_variables`
+
+O R tem os dois desde sempre; sem eles, quem tivesse a detecção errando não tinha saída. A detecção
+continua sendo o default. Nomear uma coluna que não existe **levanta** em vez de cair de volta na
+detecção — cair de volta entregaria variáveis construídas a partir de outra coluna, sem nada
+indicando a troca.
+
+A função também passou a ler o `system` do `sus_meta`, como o `sus_data_aggregate` já fazia: a
+prioridade da data é por sistema, e o SIM é datado pelo óbito enquanto o SINAN é pela notificação.
+
+### Changed — os três enriquecimentos deixaram de gravar o mesmo estágio
+
+`sus_spatial_join`, `sus_climate_join` e `sus_census_join` gravavam todos `stage="enrichment"`, então
+depois de qualquer um deles o metadado não dizia qual havia rodado. Agora gravam `"spatial"`,
+`"climate"` e `"census"`, como no R. Metadado antigo continua legível.
+
+Junto vinha um defeito silencioso: o `assert_after` **retorna sem verificar** quando o estágio não
+está na lista canônica, e `enrichment` e `climate` eram escritos pelo pacote e não estavam nela — ou
+seja, toda checagem de ordem a jusante da agregação passava sem checar nada. Os três estágios
+entraram na lista, na ordem do R, e a checagem voltou a recusar de fato.
+
+Há agora um `R_STAGE_EQUIVALENTS` mapeando os nove estágios daqui para os dez do R, incluindo o único
+caso de granularidade diferente (`filter` ↔ `filter_cid` + `filter_demo`). **Não** renomeei
+`standardize` para `stand` nem `variables` para `derive`: as grafias do R não são melhores e a
+renomeação quebraria todo código que lê o metadado, inclusive Parquet já salvo.
+
+### Fixed — o pipeline documentado quebrava em português e espanhol
+
+```
+sus_data_standardize(lang="pt")   →  data_obito
+sus_data_aggregate(...)           →  ValueError: Date column not found.
+                                     Specify date_col= or run
+                                     sus_data_standardize() first.
+```
+
+A mensagem mandava rodar a função que você acabara de rodar. Num pacote brasileiro, `lang="pt"` é a
+escolha natural e `standardize → aggregate` é o caminho principal.
+
+Eram **duas listas de prioridade em inglês**, mantidas separadamente para o mesmo trabalho: o
+`role_priority` do `datasus_columns.json`, que os `detect_*_column` leem, e o
+`date_candidates`/`geo_candidates` do `aggregate_config.json`, que o `sus_data_aggregate` lê. O
+próprio `aggregate.py` advertia, duas funções abaixo, que "duas cópias de uma ordem de prioridade
+acabariam discordando".
+
+Medido antes: **26 de 44** combinações de sistema × idioma × papel não achavam a coluna — 12 em
+português, 12 em espanhol e 2 em inglês. Só o detector de município funcionava, e funcionava porque
+tinha sido o único a receber tratamento multilíngue.
+
+**A correção não foi traduzir as listas**, o que criaria uma terceira coisa para manter em sincronia.
+Cada nome passa a se expandir no seu **grupo de sinônimos** — `DTOBITO`, `death_date`, `data_obito` e
+`fecha_muerte` são a mesma coluna —, derivado dos dicionários. Isso tira a dimensão do idioma das
+listas em vez de multiplicá-las, e cobre os 43 sistemas sem enumerar nenhum.
+
+Medido depois, varrendo **os 43 sistemas × 3 idiomas × 5 papéis: 0 falhas.**
+
+`schema_version` do `datasus_columns.json` vai a **4**. Quem ficar no catálogo antigo recebe a lista
+corrigida embutida no pacote, com um aviso dizendo por quê.
+
+**O cuidado central foi a ordem.** `role_priority` é prioridade e o primeiro que casa vence; um frame
+do SIM tem data de óbito *e* de nascimento. Se `data_nascimento` entrasse antes de `data_obito`, uma
+série de mortalidade passaria a ser datada pelo nascimento — sem erro, sem aviso, com números
+plausíveis e décadas errados. Cada tradução entra logo após o bruto de onde veio, e há teste da
+invariante além do teste do caso.
+
 ### Added — o `sus_spatial_join` devolve estado e região, não só o polígono
 
 Ele devolvia `spatial_name` e `geometry_wkt` e mais nada, então qualquer análise por estado ou região

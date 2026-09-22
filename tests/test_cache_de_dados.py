@@ -30,7 +30,8 @@ import pytest
 from climasus4py.utils import data as _data
 
 #: As funções que o fixture do conftest limpa. Manter em sincronia.
-CACHEADAS = ("load_json", "load_datasus_columns_spec", "_municipio_meta")
+CACHEADAS = ("load_json", "load_datasus_columns_spec", "_municipio_meta",
+             "_column_synonym_index")
 
 
 @pytest.mark.parametrize("nome", CACHEADAS)
