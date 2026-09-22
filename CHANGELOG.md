@@ -2,6 +2,45 @@
 
 ## [Unreleased]
 
+### Added — o `sus_spatial_join` devolve estado e região, não só o polígono
+
+Ele devolvia `spatial_name` e `geometry_wkt` e mais nada, então qualquer análise por estado ou região
+exigia um join manual contra outra tabela. Passou a devolver também `code_muni_7`, `code_state`,
+`abbrev_state`, `name_state`, `code_region` e `name_region`, com `lang="pt"` por default, como no R.
+
+Os códigos de estado e região saem do **próprio código IBGE do município** — os dois primeiros
+dígitos e o primeiro — em vez de uma tabela de tradução que poderia divergir dele. Conferido
+um-para-um nos 27 estados.
+
+Quando o dado de saúde já tem uma coluna com um desses nomes, o campo é **pulado com aviso** e o
+valor original preservado. O R sufixa a colisão — o `year.x`/`year.y` dele é exatamente isso — e
+deixa duas colunas onde quem chamou esperava uma, sem dizer qual é qual.
+
+**Duas afirmações do registro (M8) não se confirmaram**, e cada uma mandava procurar no lugar errado:
+
+- Das "13 colunas geográficas" do R, `year.x`/`year.y` são artefato de join, `date` e
+  `astronomical_season` não são geográficas, e `name_region`/`code_region` vêm do `sus_census_join`,
+  outra função.
+- "O R também cria a coluna `date`" — não cria, **consome**. As únicas linhas com `date` no
+  `sus_spatial_join` do R apagam (`spatial_var$date <- NULL`) ou leem para o metadado temporal. Quem
+  cria é o passo de agregação, nos dois pacotes.
+
+### Fixed — juntar duas vezes deixou de quebrar com erro de recursão do DuckDB
+
+`sus_spatial_join` sobre o resultado de um `sus_spatial_join` falhava com `Binder Error: infinite
+recursion detected: attempting to recursively bind view "_spatial_health"`, porque o nome da view era
+fixo. Reexecutar uma célula de notebook sobre a variável já enriquecida é o caminho natural para cair
+nisso. O nome agora é único por chamada.
+
+### Fixed — o resultado da suíte de testes dependia da ordem
+
+`load_json` e irmãs são `lru_cache` sobre o *caminho relativo* apenas. Os testes que apontam o
+catálogo para um diretório temporário devolviam a variável de ambiente no fim, mas o arquivo falso
+ficava no cache pelo resto do processo, e todo teste seguinte o recebia. Medido contra o código
+commitado: um teste passava sozinho e falhava com `KeyError: 'schema_version'` quando outro módulo
+rodava antes. Um fixture `autouse` limpa os caches entre testes, e uma varredura falha se alguém
+acrescentar um `@lru_cache` novo sem registrá-lo.
+
 ### Fixed — o filtro `city=` nunca funcionou, em nenhuma versão
 
 **Leia se você já tentou usar `city=`.** Ele está documentado como paridade com o

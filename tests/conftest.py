@@ -26,6 +26,47 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _limpa_caches_de_dados():
+    """Clear the climasus-data caches between tests (M124).
+
+    Several tests point the data directory at a `tmp_path` holding a
+    stripped-down catalog — `test_lazy_enrichments` sets
+    `CLIMASUS_DATA_DIR` and resets `_DATA_DIR`, others patch `data_path`
+    directly. Restoring the env var and the module global, which
+    `monkeypatch` does, is **not enough**: `load_json` and its siblings
+    are `lru_cache`d on the *relative path* alone, so the fake file the
+    test loaded stays cached for the rest of the process and every later
+    test gets it.
+
+    Measured: `test_colunas_geograficas.py::test_o_metadado_declara_os_recortes`
+    passes alone and fails with `KeyError: 'schema_version'` when
+    `test_lazy_enrichments.py` runs first — against the committed code,
+    so this is not something a recent change introduced. The suite's
+    result depended on its order, which is also the shape of the M108
+    complaint this file was created for.
+
+    Clearing afterwards costs one file read per test that needs one.
+    """
+    yield
+    from climasus4py.utils import data as _data
+
+    for nome in ("load_json", "load_datasus_columns_spec", "_municipio_meta"):
+        alvo = getattr(_data, nome, None)
+        limpar = getattr(alvo, "cache_clear", None)
+        if limpar is not None:
+            limpar()
+
+    try:
+        import climasus_data as _cd
+    except ImportError:  # pragma: no cover - the package is a hard dependency
+        return
+    for nome in dir(_cd):
+        limpar = getattr(getattr(_cd, nome, None), "cache_clear", None)
+        if limpar is not None:
+            limpar()
+
+
+@pytest.fixture(autouse=True)
 def _fecha_figuras():
     """Close every matplotlib figure the test left open."""
     yield
