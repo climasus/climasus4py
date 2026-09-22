@@ -32,6 +32,7 @@ import pandas as pd
 from rich.console import Console
 
 from ..core.climate_inmet import _download_robust
+from ._netcdf import require_netcdf_stack
 
 console = Console(stderr=True)
 
@@ -330,6 +331,12 @@ def sus_grid_era5(
     if lang not in ("pt", "en", "es"):
         raise ValueError("'lang' must be one of 'pt', 'en', 'es'.")
     msg = _MESSAGES[lang]
+
+    # Antes de qualquer download: sem engine NetCDF a leitura
+    # falharia no FIM, depois de gastar o arquivo, com uma
+    # mensagem do proprio xarray apontando a documentacao dele.
+    # Ver M40.
+    require_netcdf_stack(lang)
 
     # --- years ---------------------------------------------------------
     if years is None:

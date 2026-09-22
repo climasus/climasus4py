@@ -46,6 +46,8 @@ import numpy as np
 import pandas as pd
 from rich.console import Console
 
+from ._netcdf import require_netcdf_stack
+
 if TYPE_CHECKING:
     import geopandas as gpd
 
@@ -375,6 +377,11 @@ def sus_grid_pollution_merra2(
     if lang not in ("pt", "en", "es"):
         raise ValueError("'lang' must be one of 'pt', 'en', 'es'.")
     msg = _MESSAGES[lang]
+
+    # Antes de qualquer download: sem engine NetCDF a leitura falharia no
+    # FIM, depois de gastar o arquivo, com uma mensagem do proprio xarray
+    # apontando a documentacao dele. Ver M40.
+    require_netcdf_stack(lang)
 
     # --- pollutants -------------------------------------------------------
     valid_pollutants = tuple(_VAR_MAP)

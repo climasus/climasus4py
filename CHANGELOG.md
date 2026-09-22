@@ -2,6 +2,72 @@
 
 ## [Unreleased]
 
+### Fixed — o filtro `city=` nunca funcionou, em nenhuma versão
+
+**Leia se você já tentou usar `city=`.** Ele está documentado como paridade com o
+`climasus4r::sus_data_filter_demographics(city=)` e não resolvia um único nome. Eram **três defeitos
+empilhados**, cada um escondendo o seguinte:
+
+1. O caminho do ativo não tinha o prefixo `assets/`, então levantava `FileNotFoundError` mandando
+   rodar `cs.update_climasus_data()` — que não podia ajudar, porque o arquivo estava lá desde
+   sempre, sob o outro prefixo.
+2. Corrigido o caminho, a lista de apelidos de coluna não incluía `code_muni`, que é o nome real.
+   Passava a levantar `ValueError: must have name and code columns`.
+3. Corrigidos os dois, os códigos saíam com **sete** dígitos e o `sus_filter` compara string exata
+   contra `CODMUNRES`, que tem **seis**. O filtro casava **zero linhas, sem erro nenhum** — uma
+   relação vazia, que é um número publicável e errado.
+
+**Por que sobreviveu:** os dois testes que cobriam o filtro mockavam o caminho inteiro — um trocava
+`data_path` por um diretório vazio, o outro substituía a função por `lambda _c: ["355030"]`. O
+defeito estava exatamente no pedaço que o mock removia.
+
+Aproveitando, a fonte também mudou para a que o R usa: `municipio_meta.parquet` (495 KB) em vez do
+arquivo de geometria, e com ela vieram três capacidades que o R tinha e faltavam aqui — aceitar
+**código** de 6 ou 7 dígitos como entrada, **nomear os estados** no aviso de homônimo (`Bom Jesus`
+casa com 5, em PB, PI, RN, RS e SC) e **sugerir a grafia certa** (`Recif` → "Did you mean: Recife?").
+
+**Uma mudança de resultado:** `city="Santarém"` agora resolve só o do Pará. O município 2513653 da
+Paraíba foi renomeado para **Joca Claudino** em 2010, e a fonte nova traz o nome vigente. Ele não se
+perdeu — responde por "Joca Claudino" e pelo código.
+
+### Changed — geometria simplificada por default: o Parquet de saída caiu ~12x
+
+O `sus_spatial_join` passou a juntar a geometria **simplificada**, que é a que o `climasus4r` recebe
+de `geobr::read_municipality(simplified = TRUE)`. Medido de ponta a ponta em 5.196 linhas: **45,3 MB
+→ 3,8 MB**. A resolução cheia continua no catálogo, a um argumento de distância
+(`simplified=False`).
+
+O registro (M9) propunha guardar a geometria em WKB ou numa tabela de dimensão separada. **Medi as
+duas antes de implementar, e nenhuma resolve:** WKB dá 44,6 MB contra 45,3 — ganho nenhum, porque o
+Parquet já dicionariza o WKT repetido e sob `zstd` o binário compacta *pior* que o texto; a tabela
+de dimensão dá 31,0 MB, o mesmo que só trocar a compressão, porque com 853 municípios distintos a
+geometria *única* já são 31 MB. E GeoParquet, que é o default do próprio R para objeto `sf`, dá
+**232,3 MB — cinco vezes pior**.
+
+A causa estava em uma palavra, no builder do catálogo: `geobr.read_municipality(simplified=False)`.
+
+**O que se perde, medido nos 5.570 municípios:** o ponto representativo — a única coisa que o
+`_match_spatial` extrai da geometria — anda uma mediana de **7,5 m**, e com a rede real do INMET
+**nenhum** município troca de estação mais próxima.
+
+### Fixed — as bordas estaduais do mapa não dependem mais de rede
+
+O `_map_load_states` chamava `geobr.read_state(year=2020)` — um download dentro de uma função de
+plot, embrulhado num `except Exception: return None`. Sem rede, as bordas simplesmente não eram
+desenhadas e a figura saía com cara de pronta. Agora lê o ativo local e, se algo falhar, avisa.
+
+### Fixed — as funções de raster falham antes do download, não depois
+
+`sus_grid_pdsi`, `sus_grid_era5` e `sus_grid_pollution_merra2` checam o *engine* de NetCDF na
+primeira linha. Antes, o `sus_grid_pdsi` baixava o arquivo do TerraClimate **com sucesso** e morria
+na leitura, com uma mensagem do `xarray` apontando a documentação dele — depois de o download estar
+pago.
+
+A mensagem nova nomeia o extra que resolve (`pip install 'climasus4py[grid]'`) e diz que o download
+**não começou**, em português, inglês e espanhol. A detecção pergunta ao `xarray`
+(`xr.backends.list_engines()`) em vez de só tentar importar: um engine se registra como plugin, e um
+pacote ser importável não é o mesmo que seu plugin ser carregável.
+
 ### Changed — **quebra de contrato** no `sus_pipeline`: as colunas de saída mudaram de nome
 
 **Leia se você consome a saída do `sus_pipeline` pelo nome das colunas.** O caminho rápido devolvia

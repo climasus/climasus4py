@@ -19,7 +19,7 @@ from ..core._guards import _unwrap_sus_relation
 from ..core._sql import quote_ident, sql_string
 from ..core._stage import add_history, set_stage
 from ..core.engine import get_connection
-from ..utils.data import data_path, detect_geo_column
+from ..utils.data import detect_geo_column, spatial_asset_path
 
 _REQUIRED_SPATIAL_COLS = {"geometry_wkt", "name"}
 
@@ -34,6 +34,7 @@ def sus_spatial_join(
     *,
     spatial_path: str | Path | None = None,
     geo_level: str = "municipality",
+    simplified: bool = True,
 ) -> duckdb.DuckDBPyRelation:
     """Join health data with Brazilian municipality or state spatial data (lazy).
 
@@ -48,9 +49,18 @@ def sus_spatial_join(
             recognised municipality column.
         spatial_path: Custom path to a spatial parquet that must contain
             ``code_muni``, ``name``, and ``geometry_wkt`` columns. Uses
-            the bundled municipalities parquet when ``None``.
+            the bundled municipalities parquet when ``None``, at the
+            resolution *simplified* selects.
         geo_level: Geographic level — ``"municipality"`` (default) or
             ``"state"``.
+        simplified: ``True`` (default) joins the simplified geometry,
+            which is what ``climasus4r`` gets from
+            ``geobr::read_municipality(simplified = TRUE)``. The polygon
+            is repeated on every health row, so the resolution decides
+            the size of anything you export: measured on 5,196 rows, a
+            Parquet of 2.1 MB simplified against 31.0 MB full (M9).
+            Pass ``False`` for full-resolution boundaries. Ignored when
+            *spatial_path* is given, since that names a file directly.
 
     Returns:
         ``DuckDBPyRelation`` with ``spatial_name`` and ``geometry_wkt``
@@ -73,7 +83,9 @@ def sus_spatial_join(
     rel = _unwrap_sus_relation(rel, "sus_spatial_join")
 
     if spatial_path is None:
-        resolved_path: Path = data_path("assets/spatial/municipalities.parquet")
+        resolved_path: Path = spatial_asset_path(
+            "municipalities", simplified=simplified
+        )
     else:
         resolved_path = Path(spatial_path)
 
@@ -109,6 +121,7 @@ def sus_spatial_join(
     result = add_history(
         result,
         f"Spatial join: municipality names and geometry_wkt added "
-        f"via {resolved_path.name}; geo_col={geo_col}; geo_level={geo_level}"
+        f"via {resolved_path.name}; geo_col={geo_col}; geo_level={geo_level}; "
+        f"simplified={simplified}"
     )
     return result

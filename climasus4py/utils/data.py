@@ -64,6 +64,81 @@ def data_path(relative: str) -> Path:
 
 
 # ---------------------------------------------------------------------------
+# Spatial assets — resolution (M9)
+# ---------------------------------------------------------------------------
+
+#: Spatial layers shipped at two resolutions by ``build_spatial.py``.
+SPATIAL_LAYERS: tuple[str, ...] = ("municipalities", "states", "regions")
+
+_AVISOU_SEM_SIMPLIFICADO: set[str] = set()
+
+
+def spatial_asset_path(layer: str = "municipalities", *, simplified: bool = True) -> Path:
+    """Path to a spatial asset, at simplified (default) or full resolution.
+
+    ``climasus4r`` reaches geometry through
+    ``geobr::read_municipality(simplified = TRUE)``, while this catalog's
+    builder passed ``simplified=False`` — so until 21/09/2026 every
+    geometry served here was far more detailed than the one the R package
+    works with. Measured consequence (M9): a 5,196-row
+    ``sus_spatial_join`` result wrote a 331.9 MB Parquet against R's
+    2.1 MB, because the municipality polygon is repeated on every health
+    row. Simplified geometry lands on R's number.
+
+    No consumer in this package needs the extra detail. The join derives
+    a representative point, the choropleth renders at state or national
+    scale, and the city-name lookup never reads geometry at all. Measured
+    on all 5,570 municipalities: the representative point moves a median
+    of 7.5 m, and with the real INMET network *no* municipality changes
+    its nearest station.
+
+    Args:
+        layer: One of :data:`SPATIAL_LAYERS`.
+        simplified: ``True`` (default) for the simplified asset, matching
+            R. ``False`` for the full-resolution one, which is still
+            shipped — the detail is available, it just is not the
+            default.
+
+    Returns:
+        Absolute path. Falls back to the full-resolution file, with a
+        one-time warning, when the simplified asset is absent — which
+        means an older ``climasus-data``. The fallback is silent about
+        nothing: the output is then ~10x larger than R's, and a caller
+        who is not told would look for the cause in their own code.
+
+    Raises:
+        ValueError: If *layer* is not a known spatial layer.
+    """
+    import warnings
+
+    if layer not in SPATIAL_LAYERS:
+        raise ValueError(
+            f"Unknown spatial layer {layer!r}. Known: {', '.join(SPATIAL_LAYERS)}"
+        )
+
+    cheio = data_path(f"assets/spatial/{layer}.parquet")
+    if not simplified:
+        return cheio
+
+    simples = data_path(f"assets/spatial/{layer}_simplified.parquet")
+    if simples.is_file():
+        return simples
+
+    if layer not in _AVISOU_SEM_SIMPLIFICADO:
+        _AVISOU_SEM_SIMPLIFICADO.add(layer)
+        warnings.warn(
+            f"{layer}_simplified.parquet not found in climasus-data; falling "
+            f"back to full-resolution {layer}.parquet. Geometry is then "
+            f"carried at ~16x the detail climasus4r uses, and any Parquet "
+            f"you export will be roughly 10x larger for the same rows "
+            f"(M9). Update climasus-data to get the simplified asset.",
+            UserWarning,
+            stacklevel=2,
+        )
+    return cheio
+
+
+# ---------------------------------------------------------------------------
 # JSON loading (cached)
 # ---------------------------------------------------------------------------
 
@@ -609,62 +684,151 @@ def detect_education_column(columns: list[str]) -> str | None:
     return _detect_column(columns, ["education", "education_2010", "ESC", "ESC2010"])
 
 
-def expand_city_to_codes(city: str | list[str]) -> list[str]:
-    """Resolve city name(s) to IBGE 6-digit municipality codes."""
+def _norm_city(s: str) -> str:
+    """Lowercase, accent-stripped, trimmed — for matching a typed name."""
     import unicodedata
-    import warnings
 
+    decomposed = unicodedata.normalize("NFKD", str(s))
+    return "".join(
+        ch for ch in decomposed if not unicodedata.combining(ch)
+    ).strip().lower()
+
+
+@lru_cache(maxsize=1)
+def _municipio_meta() -> Any:
+    """The municipality name/code table, cached for the process.
+
+    This is R's ``muni_meta``: ``assets/spatial/municipio_meta.parquet``,
+    495 KB of name, code, UF and the accent-free spellings. Until
+    21/09/2026 this lookup read the *geometry* asset instead — 150 MB
+    opened to translate two text columns — while
+    ``climasus4r::resolve_city_input_internal`` read this one all along.
+
+    Raises:
+        FileNotFoundError: If the asset is absent from climasus-data.
+    """
     import pandas as pd
 
-    parquet_path = data_path("spatial/municipalities.parquet")
-    if not parquet_path.is_file():
+    caminho = data_path("assets/spatial/municipio_meta.parquet")
+    if not caminho.is_file():
         raise FileNotFoundError(
-            "spatial/municipalities.parquet not found in climasus-data. "
+            f"municipio_meta.parquet not found in climasus-data "
+            f"(looked in {caminho.parent}). "
             "Run cs.update_climasus_data() to refresh."
         )
+    # `uf_code` is the abbreviation ("PA") and `uf` the numeric state
+    # code ("15") — the names read backwards, and R uses `uf_code` for
+    # exactly this display.
+    colunas = ["municipio", "name", "no_accents", "uf_code"]
+    import pyarrow.parquet as _pq
 
-    df = pd.read_parquet(parquet_path)
-
-    name_col = next(
-        (c for c in df.columns if c.lower() in ("municipality_name", "name", "nome", "municipio")),
-        None,
-    )
-    _code_aliases = ("municipality_code", "code", "codigo", "cod_mun", "codmun")
-    code_col = next(
-        (c for c in df.columns if c.lower() in _code_aliases),
-        None,
-    )
-    if name_col is None or code_col is None:
+    presentes = set(_pq.ParquetFile(caminho).schema_arrow.names)
+    faltando = [c for c in ("municipio", "name") if c not in presentes]
+    if faltando:
         raise ValueError(
-            f"municipalities.parquet must have name and code columns. "
-            f"Found: {list(df.columns)}"
+            f"municipio_meta.parquet must have {faltando} columns. "
+            f"Found: {sorted(presentes)}"
         )
+    df = pd.read_parquet(caminho, columns=[c for c in colunas if c in presentes])
+    df["_norm"] = df["name"].map(_norm_city)
+    if "no_accents" in df.columns:
+        df["_norm_sem_acento"] = df["no_accents"].map(_norm_city)
+    df["_codigo7"] = df["municipio"].astype(str)
+    return df
 
-    def _norm(s: str) -> str:
-        decomposed = unicodedata.normalize("NFKD", s)
-        return "".join(
-            ch for ch in decomposed if not unicodedata.combining(ch)
-        ).strip().lower()
 
+def expand_city_to_codes(city: str | list[str]) -> list[str]:
+    """Resolve city name(s) or IBGE code(s) to 6-digit municipality codes.
+
+    Mirrors ``climasus4r::resolve_city_input_internal``, which accepts a
+    name or a 6/7-digit code and resolves both against ``municipio_meta``.
+
+    Args:
+        city: One municipality, or a list. Each entry is either a name
+            (accents optional — ``"Sao Paulo"`` works) or an IBGE code
+            with 6 or 7 digits, as R accepts.
+
+    Returns:
+        Six-digit IBGE codes, deduplicated, in the order first seen. Six
+        digits because that is what the columns they are compared against
+        hold: ``sus_filter`` builds ``"CODMUNRES" IN (...)`` as an exact
+        string match, and ``CODMUNRES`` is six digits wide. Returning the
+        seven-digit code matched nothing and produced an empty relation
+        with no error at all (M121).
+
+    Raises:
+        ValueError: If a name or code resolves to nothing. The message
+            lists close spellings when there are any, which is what R
+            does through ``suggest_city_matches_internal`` — a bare "not
+            found" leaves the caller guessing between a typo and a
+            municipality that does not exist.
+
+    Example:
+        >>> expand_city_to_codes("Belo Horizonte")
+        ['310620']
+        >>> expand_city_to_codes("3106200")
+        ['310620']
+    """
+    import difflib
+    import warnings
+
+    df = _municipio_meta()
     city_list = [city] if isinstance(city, str) else list(city)
     all_codes: list[str] = []
 
-    for name in city_list:
-        _n = _norm(name)
-        mask = df[name_col].apply(lambda x, __n=_n: _norm(str(x)) == __n)
-        matches = df.loc[mask, code_col].astype(str).tolist()
-        if not matches:
-            raise ValueError(
-                f"City {name!r} not found in municipalities.parquet. "
-                "Check spelling or use municipality_code directly."
+    for entrada in city_list:
+        texto = str(entrada).strip()
+
+        # A code, 6 or 7 digits — what R's `grepl("^\\d{6,7}$")` accepts.
+        if texto.isdigit() and len(texto) in (6, 7):
+            if len(texto) == 7:
+                achados = df.loc[df["_codigo7"] == texto, "_codigo7"]
+            else:
+                achados = df.loc[df["_codigo7"].str[:6] == texto, "_codigo7"]
+            codigos = [c[:6] for c in achados.tolist()]
+            if not codigos:
+                raise ValueError(
+                    f"Municipality code {texto!r} not found in "
+                    f"municipio_meta.parquet."
+                )
+            all_codes.extend(codigos)
+            continue
+
+        alvo = _norm_city(texto)
+        mask = df["_norm"] == alvo
+        if "_norm_sem_acento" in df.columns and not mask.any():
+            mask = df["_norm_sem_acento"] == alvo
+        # Truncated to six digits — see Returns.
+        codigos = [c[:6] for c in df.loc[mask, "_codigo7"].tolist()]
+
+        if not codigos:
+            proximos = difflib.get_close_matches(
+                alvo, df["_norm"].tolist(), n=3, cutoff=0.8
             )
-        if len(matches) > 1:
+            sugestao = ""
+            if proximos:
+                nomes = df.loc[df["_norm"].isin(proximos), "name"].tolist()
+                sugestao = f" Did you mean: {', '.join(sorted(set(nomes))[:3])}?"
+            raise ValueError(
+                f"City {texto!r} not found in municipio_meta.parquet."
+                f"{sugestao} Check spelling or use municipality_code directly."
+            )
+
+        if len(codigos) > 1:
+            # Naming the states, as R does: "Santarém matches 2" is not
+            # actionable, "Santarém (PA, PB)" is.
+            ufs = (
+                df.loc[mask, "uf_code"].tolist()
+                if "uf_code" in df.columns else []
+            )
+            onde = f" ({', '.join(sorted(set(map(str, ufs))))})" if ufs else ""
             warnings.warn(
-                f"City {name!r} matches {len(matches)} municipalities "
-                f"(e.g. {matches[:3]}). All codes will be used for filtering.",
+                f"City {texto!r} matches {len(codigos)} municipalities"
+                f"{onde}: {codigos[:3]}. All codes will be used for "
+                f"filtering.",
                 UserWarning,
                 stacklevel=3,
             )
-        all_codes.extend(matches)
+        all_codes.extend(codigos)
 
     return list(dict.fromkeys(all_codes))

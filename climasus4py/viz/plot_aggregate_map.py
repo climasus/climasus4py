@@ -11,7 +11,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from ..utils.data import data_path, load_json
+from ..utils.data import data_path, load_json, spatial_asset_path
 
 # ---------------------------------------------------------------------------
 # Column candidates
@@ -116,9 +116,14 @@ def _map_load_geo():
     import geopandas as gpd
     from shapely import wkt
 
-    path = data_path("assets/spatial/municipalities.parquet")
+    # Simplified geometry (M9): a choropleth of Brazil renders at a scale
+    # where 100 m of boundary detail is well under one screen pixel, and
+    # the full-resolution file costs 150 MB and ~16x the vertices to draw
+    # the same picture. climasus4r never sees the extra detail either --
+    # every geobr call in its spatial path passes `simplified = TRUE`.
+    path = spatial_asset_path("municipalities")
     if not path.exists():
-        raise FileNotFoundError(f"municipalities.parquet not found: {path}")
+        raise FileNotFoundError(f"{path.name} not found: {path}")
 
     geo = pd.read_parquet(path)
     geo["geometry"] = geo["geometry_wkt"].apply(
@@ -130,11 +135,61 @@ def _map_load_geo():
 
 
 def _map_load_states():
+    """State borders for the basemap, from the bundled asset.
+
+    This used to call ``geobr.read_state(year=2020)`` — a network
+    download inside a plotting function, wrapped in a bare
+    ``except Exception: return None``. With no network, no geobr, or an
+    IBGE service hiccup, the borders simply were not drawn and the figure
+    came out looking finished. Same class as M40: a hidden requirement
+    that fails late and quietly. The states layer ships in
+    climasus-data, so there is nothing to download (M9).
+
+    Returns:
+        ``GeoDataFrame`` of state polygons, or ``None`` if neither the
+        bundled asset nor geobr can provide them — in which case the
+        caller draws the map without borders, as before.
+    """
+    import warnings
+
+    try:
+        import geopandas as gpd
+        from shapely import wkt
+
+        path = spatial_asset_path("states")
+        if path.is_file():
+            df = pd.read_parquet(path, columns=["geometry_wkt"])
+            geoms = [
+                wkt.loads(w) if isinstance(w, str) else None
+                for w in df["geometry_wkt"]
+            ]
+            return gpd.GeoDataFrame(
+                df.drop(columns=["geometry_wkt"]),
+                geometry=geoms,
+                crs="EPSG:4674",
+            ).to_crs("EPSG:4326")
+    except Exception as exc:  # pragma: no cover - depends on the asset
+        warnings.warn(
+            f"State borders: could not read the bundled states asset "
+            f"({type(exc).__name__}: {exc}); trying geobr.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    # Fallback for an older climasus-data without the asset. Still
+    # tolerant of failure, but no longer silent about it.
     try:
         import geobr
         gdf = geobr.read_state(year=2020)
         return gdf.to_crs("EPSG:4326")
-    except Exception:
+    except Exception as exc:
+        warnings.warn(
+            f"State borders omitted: no bundled states asset and geobr "
+            f"is unavailable ({type(exc).__name__}). The map is drawn "
+            f"without state outlines.",
+            UserWarning,
+            stacklevel=2,
+        )
         return None
 
 # ---------------------------------------------------------------------------

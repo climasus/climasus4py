@@ -474,11 +474,28 @@ class TestDropIgnored:
 
 class TestCityFilter:
     def test_city_raises_file_not_found_when_parquet_missing(self, sim_do_rel, tmp_path, monkeypatch):  # noqa: E501
-        """When municipalities.parquet is absent, raises FileNotFoundError."""
+        """When the municipality table is absent, raises FileNotFoundError.
+
+        The asset named here changed on 21/09/2026: the lookup reads
+        `municipio_meta.parquet` (495 KB of names and codes, which is
+        what climasus4r reads) instead of opening the 29.6 MB geometry
+        file to translate two text columns. See M121.
+
+        The cache has to be cleared for the monkeypatch to bite —
+        `_municipio_meta` is `lru_cache`d for the process, so by the time
+        this test runs the real table is very likely already loaded and
+        patching `data_path` alone would do nothing. This test used to
+        pass for the wrong reason: the path it exercised was broken
+        outright, so *any* call raised FileNotFoundError.
+        """
         import climasus4py.utils.data as _data
+        _data._municipio_meta.cache_clear()
         monkeypatch.setattr(_data, "data_path", lambda rel_path: tmp_path / rel_path)
-        with pytest.raises(FileNotFoundError, match="municipalities.parquet"):
-            sus_filter(sim_do_rel, city="São Paulo")
+        try:
+            with pytest.raises(FileNotFoundError, match="municipio_meta.parquet"):
+                sus_filter(sim_do_rel, city="São Paulo")
+        finally:
+            _data._municipio_meta.cache_clear()
 
     def test_city_filter_applies_resolved_codes(self, monkeypatch):
         """When expand_city_to_codes resolves correctly, filter is applied."""

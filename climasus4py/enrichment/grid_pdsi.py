@@ -33,6 +33,7 @@ import pandas as pd
 from rich.console import Console
 
 from ..core.climate_inmet import _download_robust
+from ._netcdf import require_netcdf_stack
 
 if TYPE_CHECKING:
     import geopandas as gpd
@@ -278,6 +279,12 @@ def sus_grid_pdsi(
     if lang not in ("pt", "en", "es"):
         raise ValueError("'lang' must be one of 'pt', 'en', 'es'.")
     msg = _MESSAGES[lang]
+
+    # Antes de qualquer download: sem engine NetCDF a leitura
+    # falharia no FIM, depois de gastar o arquivo, com uma
+    # mensagem do proprio xarray apontando a documentacao dele.
+    # Ver M40.
+    require_netcdf_stack(lang)
 
     # --- source -------------------------------------------------------------
     if source not in _VALID_SOURCES:
