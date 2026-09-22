@@ -60,6 +60,18 @@ def _declaradas() -> list[tuple[str, str, str]]:
 DECLARADAS = _declaradas()
 
 
+def _planilha() -> list[list[str]]:
+    """As linhas cruas da planilha, cabecalho incluido."""
+    if not PLANILHA.is_file():
+        return [[]]
+    return list(csv.reader(io.StringIO(
+        PLANILHA.read_text(encoding="utf-8-sig"), newline="")))
+
+
+#: Indice de coluna por nome, para as leituras crus abaixo.
+_COL: dict[str, int] = {c: i for i, c in enumerate(_planilha()[0])}
+
+
 @pytest.mark.skipif(not PLANILHA.is_file(), reason="planilha ausente")
 class TestPlanilhaContraNamespace:
 
@@ -132,3 +144,74 @@ class TestCoerenciaDoAll:
         assert p.returncode == 0, p.stderr[-500:]
         assert p.stdout.strip().endswith("False"), (
             "importar o pacote passou a carregar o PyMC")
+
+
+# ---------------------------------------------------------------------------
+# M32 — os metodos S3 do R entraram no controle de paridade
+# ---------------------------------------------------------------------------
+
+class TestMetodosS3:
+    """As 72 linhas `S3method()` do NAMESPACE do R.
+
+    A planilha foi montada a partir das 108 linhas `export()`, e os
+    metodos S3 ficaram de fora — mas metodo S3 **e** interface publica no
+    R: quem digita o nome do objeto para ver o `print`, ou chama
+    `summary(fit)`, esta usando a API. Foi uma lacuna de ESCOPO, nao um
+    defeito: a planilha estava certa sobre o que dizia cobrir, e cobria
+    menos do que existe.
+
+    Estes testes guardam o inventario. A lista de genericos e a contagem
+    vem do NAMESPACE do climasus4r instalado, medidos em 22/09/2026 —
+    sem depender do R em tempo de teste, que nao esta disponivel em toda
+    maquina.
+    """
+
+    #: generico -> quantos metodos, do NAMESPACE do climasus4r.
+    S3_ESPERADOS = {
+        "print": 25, "summary": 22, "tidy": 12, "coef": 4, "[": 2,
+        "vcov": 2, "$<-": 1, "[[": 1, "as.data.frame": 1, "predict": 1,
+        "rbind": 1,
+    }
+
+    def _linhas_s3(self):
+        return [l for l in _planilha()[1:]
+                if l[_COL["Categoria"]].strip() == "Metodo S3"]
+
+    def test_os_72_estao_na_planilha(self):
+        assert len(self._linhas_s3()) == sum(self.S3_ESPERADOS.values()) == 72
+
+    def test_a_distribuicao_por_generico_confere(self):
+        """Uma contagem total certa pode esconder duas trocadas."""
+        import collections
+
+        contagem = collections.Counter(
+            # rsplit: `as.data.frame.climasus_df` tem ponto no proprio
+            # nome do generico, entao cortar pelo primeiro daria "as".
+            l[_COL["Funcao R"]].rsplit(".", 1)[0]
+            for l in self._linhas_s3()
+        )
+        assert dict(contagem) == self.S3_ESPERADOS
+
+    def test_todo_metodo_tem_status(self):
+        for l in self._linhas_s3():
+            assert l[_COL["Status"]].strip(), l[_COL["Funcao R"]]
+            assert l[_COL["Melhoria (ID)"]].strip(), l[_COL["Funcao R"]]
+
+    def test_nenhum_metodo_duplicado(self):
+        nomes = [l[_COL["Funcao R"]] for l in self._linhas_s3()]
+        assert len(nomes) == len(set(nomes))
+
+    def test_a_lacuna_real_esta_nomeada(self):
+        """38 dos 72 sao `print`/`summary` sobre funcao que devolve dict.
+
+        E o unico grupo classificado como DIVERGENTE, e o numero importa:
+        se cair, alguem deu classe propria a alguma delas e a planilha
+        deve acompanhar; se subir, uma classe virou dict.
+        """
+        divergentes = [l for l in self._linhas_s3()
+                       if l[_COL["Status"]].startswith("DIVERGENTE")]
+        assert len(divergentes) == 38
+        for l in divergentes:
+            assert l[_COL["Funcao R"]].rsplit(".", 1)[0] in ("print", "summary")
+            # a lacuna e a mesma do M26, e o registro tem de dizer isso
+            assert "M26" in l[_COL["Melhoria (ID)"]]
