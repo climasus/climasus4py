@@ -38,8 +38,12 @@ DATE_COLUMN_CANDIDATES: dict[str, list[str]] = {
     "SIH":    ["admission_date", "DT_INTER"],
     "SINAN":  ["notification_date", "DT_NOTIFIC", "first_symptom_date", "DT_SIN_PRI"],
     "CNES":   ["update_date", "DT_COMPET"],
-    "common": ["death_date", "birth_date", "admission_date", "notification_date",
-               "date", "DTOBITO", "DT_NOTIFIC", "DT_INTER", "DTNASC"],
+    # Ordenada por CATEGORIA desde 26/09/2026, nao por frequencia: datas
+    # de EVENTO primeiro e nascimento por ultimo. Data de nascimento nao e
+    # data de evento, e com ela em segundo o sus_climate_aggregate casava
+    # o clima pelo nascimento num arquivo do SINAN (M127).
+    "common": ["death_date", "notification_date", "admission_date", "date",
+               "DTOBITO", "DT_NOTIFIC", "DT_INTER", "birth_date", "DTNASC"],
 }
 
 # ---------------------------------------------------------------------------

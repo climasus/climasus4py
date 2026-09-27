@@ -96,11 +96,96 @@ def _detect_muni(columns) -> str | None:
     return _detect_column(list(columns), _muni_candidates())
 
 
-def _date_candidates() -> list[str]:
-    """Date names, from the shared metadata."""
-    from ..utils.data import load_datasus_columns_spec
+#: The DATASUS system in force, and an explicit date column, for the
+#: current call. Same reasoning as :data:`_GEO_BASIS`: the nine strategies
+#: each detect the date column again on their own, and if the system
+#: reached some of them and not others they would key the climate join on
+#: different dates.
+_SYSTEM: ContextVar[str | None] = ContextVar("_SYSTEM", default=None)
+_DATE_COL: ContextVar[str | None] = ContextVar("_DATE_COL", default=None)
 
-    return list(load_datasus_columns_spec()["role_priority"]["date"])
+#: Warn once per process about an ambiguous date, not once per strategy.
+_AVISOU_DATA: set[str] = set()
+
+
+def _date_candidates() -> list[str]:
+    """Event-date names, most preferred first, for the system in force.
+
+    Reads ``templates/aggregate_config.json`` — the same per-system
+    priority ``sus_data_aggregate`` uses — instead of the flat
+    ``role_priority["date"]`` this module read until 26/09/2026.
+
+    That flat list is ordered ``death_date, ..., birth_date, ...,
+    notification_date``, with birth at position 6 and notification at 11.
+    A SINAN file carries ``DT_NASC`` beside ``DT_NOTIFIC``, so after
+    standardization this module picked the **birth** date and matched the
+    climate window against it — measured on a synthetic ramp, it returned
+    the January window where March was correct. No error, no warning, and
+    no parameter to override it (M127).
+
+    The distinction that matters is not the order but the **category**: a
+    date of birth is not an event date. ``climasus4r`` has this right in
+    ``detect_event_date_column_lazy``, whose list omits ``birth_date``
+    altogether — though nothing in that package calls it.
+    """
+    from ..core.aggregate import _agg_config
+    from ..utils.data import expand_column_synonyms
+
+    base = (_SYSTEM.get() or "").split("-")[0].upper()
+    cfg = _agg_config().get("date_candidates", {})
+    candidatos = list(cfg.get(base, [])) + list(cfg.get("common", []))
+    if not candidatos:
+        candidatos = ["death_date", "notification_date", "admission_date",
+                      "date", "DTOBITO", "DT_NOTIFIC", "DT_INTER"]
+    return expand_column_synonyms(list(dict.fromkeys(candidatos)))
+
+
+def _detect_date(columns) -> str | None:
+    """The event-date column, honouring the call's system and override.
+
+    Used in place of ``detect_date_column`` inside this module so all
+    nine strategies resolve the same column.
+
+    Warns once per process when more than one candidate is present and
+    the choice had to be made — which is the situation that produced
+    M127, and it used to be silent.
+    """
+    import warnings
+
+    cols = list(columns)
+
+    explicito = _DATE_COL.get()
+    if explicito is not None:
+        if explicito not in cols:
+            raise ValueError(
+                f"date_col={explicito!r} is not a column of health_data. "
+                f"Available: {sorted(cols)}")
+        return explicito
+
+    candidatos = _date_candidates()
+    presentes = [c for c in candidatos if c in cols]
+    if not presentes:
+        return None
+
+    escolhida = presentes[0]
+    if len(presentes) > 1:
+        chave = f"{_SYSTEM.get()}|{escolhida}|{','.join(presentes[1:3])}"
+        if chave not in _AVISOU_DATA:
+            _AVISOU_DATA.add(chave)
+            warnings.warn(
+                f"sus_climate_aggregate: health_data has more than one date "
+                f"column ({', '.join(presentes)}); matching climate against "
+                f"{escolhida!r}"
+                + (f", the event date for {_SYSTEM.get()}"
+                   if _SYSTEM.get() else
+                   " — pass system= so the choice follows the DATASUS system,"
+                   " or date_col= to name it yourself")
+                + ". Exposure matched to the wrong date is not visible in the "
+                  "result (M127).",
+                UserWarning,
+                stacklevel=3,
+            )
+    return escolhida
 
 
 _STATION_CANDIDATES = ["station_code", "wmo_code"]
@@ -436,7 +521,7 @@ def _validate_climate_data(climate_data) -> None:
 
 
 def _validate_date_overlap(health_data, climate_data) -> None:
-    date_col = next((c for c in _date_candidates() if c in health_data.columns), None)
+    date_col = _detect_date(health_data.columns)
     if date_col is None:
         return
     row = health_data.aggregate(
@@ -782,7 +867,7 @@ def _drop_internals(result: duckdb.DuckDBPyRelation) -> duckdb.DuckDBPyRelation:
 
 
 def _join_exact(health_data, climate_data, climate_vars):
-    date_col = detect_date_column(list(health_data.columns))
+    date_col = _detect_date(health_data.columns)
     muni_col = _detect_muni(health_data.columns)
     vars_av  = [v for v in climate_vars if v in climate_data.schema.names]
     rules    = _build_agg_rules(vars_av)
@@ -809,7 +894,7 @@ def _join_exact(health_data, climate_data, climate_vars):
 
 def _join_moving_window(health_data, climate_data, climate_vars,
                         window_days, min_obs=0.7):
-    date_col    = detect_date_column(list(health_data.columns))
+    date_col    = _detect_date(health_data.columns)
     muni_col    = _detect_muni(health_data.columns)
     vars_av     = [v for v in climate_vars if v in climate_data.schema.names]
     rules       = _build_agg_rules(vars_av)
@@ -853,7 +938,7 @@ def _join_moving_window(health_data, climate_data, climate_vars,
 
 
 def _join_discrete_lag(health_data, climate_data, climate_vars, lag_days):
-    date_col = detect_date_column(list(health_data.columns))
+    date_col = _detect_date(health_data.columns)
     muni_col = _detect_muni(health_data.columns)
     vars_av  = [v for v in climate_vars if v in climate_data.schema.names]
     conn     = get_connection()
@@ -898,7 +983,7 @@ def _join_distributed_lag(health_data, climate_data, climate_vars, max_lag):
 
 def _join_offset_window(health_data, climate_data, climate_vars,
                         offset_days, min_obs=0.7):
-    date_col    = detect_date_column(list(health_data.columns))
+    date_col    = _detect_date(health_data.columns)
     muni_col    = _detect_muni(health_data.columns)
     vars_av     = [v for v in climate_vars if v in climate_data.schema.names]
     rules       = _build_agg_rules(vars_av)
@@ -936,7 +1021,7 @@ def _join_offset_window(health_data, climate_data, climate_vars,
 
 def _join_degree_days(health_data, climate_data, window_days,
                       temp_base, gdd_temp_var="tair_dry_bulb_c", min_obs=0.7):
-    date_col    = detect_date_column(list(health_data.columns))
+    date_col    = _detect_date(health_data.columns)
     muni_col    = _detect_muni(health_data.columns)
     window_size = window_days + 1
     tb_str      = str(temp_base).replace(".", "p")
@@ -975,7 +1060,7 @@ def _join_degree_days(health_data, climate_data, window_days,
 def _join_threshold_exceedance(health_data, climate_data, climate_vars,
                                 window_days, threshold_value,
                                 threshold_direction="above", min_obs=0.7):
-    date_col    = detect_date_column(list(health_data.columns))
+    date_col    = _detect_date(health_data.columns)
     muni_col    = _detect_muni(health_data.columns)
     vars_av     = [v for v in climate_vars if v in climate_data.schema.names]
     window_size = window_days + 1
@@ -1039,7 +1124,7 @@ def _join_cold_wave_exceedance(health_data, climate_data, climate_vars,
 
 def _join_weighted_window(health_data, climate_data, climate_vars,
                            window_days, weights=None, min_obs=0.7):
-    date_col    = detect_date_column(list(health_data.columns))
+    date_col    = _detect_date(health_data.columns)
     muni_col    = _detect_muni(health_data.columns)
     vars_av     = [v for v in climate_vars if v in climate_data.schema.names]
     rules       = _build_agg_rules(vars_av)
@@ -1100,7 +1185,7 @@ def _join_weighted_window(health_data, climate_data, climate_vars,
 
 
 def _join_seasonal(health_data, climate_data, climate_vars, min_days=60):
-    date_col = detect_date_column(list(health_data.columns))
+    date_col = _detect_date(health_data.columns)
     muni_col = _detect_muni(health_data.columns)
     vars_av  = [v for v in climate_vars if v in climate_data.schema.names]
     rules    = _build_agg_rules(vars_av)
@@ -1181,6 +1266,8 @@ def sus_climate_aggregate(
     min_obs: float = 0.7,
     min_days: int = 60,
     geo_basis: str | None = None,
+    date_col: str | None = None,
+    system: str | None = None,
     verbose: bool = True,
 ) -> duckdb.DuckDBPyRelation:
     """Integrate climate and health data using 10 temporal strategies.
@@ -1221,6 +1308,15 @@ def sus_climate_aggregate(
         min_obs: Minimum proportion of valid observations in window (0-1).
             Default: 0.7.
         min_days: Minimum days per station for ``seasonal``. Default: 60.
+        date_col: Name the health date column instead of detecting it.
+            The escape hatch that was missing when this function matched
+            climate against the wrong date and offered no way to correct
+            it (M127). Raises if the column is not there, rather than
+            falling back to detection.
+        system: DATASUS system, which decides **which date is the event
+            date** — death for SIM, notification for SINAN, admission for
+            SIH, birth for SINASC. Read from ``sus_meta`` when ``None``;
+            an explicit argument wins.
         geo_basis: Which municipality column to key the spatial match on:
             ``"residence"``, ``"occurrence"``, ``"notification"`` or
             ``"unspecified"``. ``None`` (default) walks the declared
@@ -1261,6 +1357,29 @@ def sus_climate_aggregate(
     if geo_basis is not None:
         municipality_candidates(geo_basis)   # valida o nome cedo
     _token_basis = _GEO_BASIS.set(geo_basis)
+
+    # Mesma logica para a data (M127). O sistema decide qual data e a do
+    # EVENTO -- obito no SIM, notificacao no SINAN, internacao no SIH --
+    # e a relacao ja carrega essa informacao no sus_meta, como o
+    # sus_data_aggregate ja reconhecia desde o M21. Argumento explicito
+    # vence o metadado.
+    if system is None:
+        from ..core._stage import get_meta
+
+        # O metadado vive num WeakKeyDictionary indexado pela relacao, e
+        # entrada que nao e relacao nem e hashavel -- um DataFrame aqui
+        # levantava "unhashable type: 'DataFrame'" ANTES da validacao de
+        # tipo, trocando uma mensagem que diz o que fazer por uma que nao
+        # diz nada. Ler o sistema e conveniencia; quem reclama de entrada
+        # errada e o validador, alguns passos adiante.
+        try:
+            system = (get_meta(health_data) or {}).get("system")
+        except TypeError:
+            system = None
+        if verbose and system:
+            print(f"System (from sus_meta): {system}")
+    _token_system = _SYSTEM.set(system)
+    _token_date = _DATE_COL.set(date_col)
     try:
         _VALID_STRATEGIES = {
             "exact", "moving_window", "discrete_lag", "distributed_lag",
@@ -1366,7 +1485,7 @@ def sus_climate_aggregate(
         )
 
         # --- Block 9: metadata dict ---
-        date_col = next((c for c in _date_candidates() if c in result.columns), None)
+        date_col = _detect_date(result.columns)
         new_cols = [c for c in result.columns if c not in health_data.columns]
 
         match_rate = None
@@ -1426,6 +1545,8 @@ def sus_climate_aggregate(
         return result
     finally:
         _GEO_BASIS.reset(_token_basis)
+        _SYSTEM.reset(_token_system)
+        _DATE_COL.reset(_token_date)
 
 
 def sus_climate_info(result: duckdb.DuckDBPyRelation) -> None:
