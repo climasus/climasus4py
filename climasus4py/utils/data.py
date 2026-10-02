@@ -230,12 +230,20 @@ _FALLBACK_DATASUS_COLUMNS: dict[str, Any] = {
     # frame dated by the death, as it always was. The translations are
     # derived from dictionaries/*/columns.json, never invented.
     "role_priority": {
+        # Ordenada por CATEGORIA desde 02/10/2026, nao por
+        # frequencia: datas de EVENTO primeiro e nascimento por
+        # ultimo. Uma data de nascimento nao e uma data de evento,
+        # e com ela em sexto o clima era casado pelo nascimento num
+        # arquivo do SINAN (M127). Os quatro nomes de SINAN e CNES
+        # que o aggregate_config ja tratava como candidatos e esta
+        # lista nao declarava entraram junto (M125).
         "date": [
-            "death_date", "date", "DTOBITO", "data_obito", "fecha_muerte",
-            "DTNASC", "birth_date", "data_nascimento", "fecha_nacimiento",
-            "admission_date", "DT_NOTIFIC", "notification_date",
-            "data_notificacao", "fecha_notificacion", "DT_INTER",
-            "data_internacao", "fecha_internacion", "fecha_ingreso",
+            "death_date", "data_obito", "fecha_muerte", "DTOBITO",
+            "notification_date", "data_notificacao", "fecha_notificacion",
+            "DT_NOTIFIC", "first_symptom_date", "DT_SIN_PRI",
+            "admission_date", "data_internacao", "fecha_internacion",
+            "fecha_ingreso", "DT_INTER", "update_date", "DT_COMPET", "date",
+            "birth_date", "data_nascimento", "fecha_nacimiento", "DTNASC"
         ],
         "cause": [
             "underlying_cause", "cause", "CAUSABAS", "causa_basica",
@@ -314,7 +322,7 @@ def load_datasus_columns_spec() -> dict[str, Any]:
         return _FALLBACK_DATASUS_COLUMNS.copy()
 
     versao = int(data.get("schema_version") or 1)
-    if versao >= 4:
+    if versao >= 5:
         return data
 
     import warnings
@@ -354,6 +362,17 @@ def load_datasus_columns_spec() -> dict[str, Any]:
         # translations are spread across all six.
         corrigido["role_priority"] = dict(
             _FALLBACK_DATASUS_COLUMNS["role_priority"])
+
+    if versao < 5:
+        faltando.append(
+            "a role_priority.date ordered by frequency, with birth_date "
+            "ahead of notification and admission -- so a SINAN frame was "
+            "dated by the patient's BIRTH (M127) -- and missing the four "
+            "SINAN/CNES names the aggregate_config already treated as "
+            "candidates (M125)")
+        papeis = dict(corrigido.get("role_priority") or {})
+        papeis["date"] = _FALLBACK_DATASUS_COLUMNS["role_priority"]["date"]
+        corrigido["role_priority"] = papeis
 
     warnings.warn(
         "climasus-data publishes metadata/datasus_columns.json at "

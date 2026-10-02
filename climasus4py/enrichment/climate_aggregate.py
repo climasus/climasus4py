@@ -104,6 +104,11 @@ def _detect_muni(columns) -> str | None:
 _SYSTEM: ContextVar[str | None] = ContextVar("_SYSTEM", default=None)
 _DATE_COL: ContextVar[str | None] = ContextVar("_DATE_COL", default=None)
 
+#: Distancia maxima, em km, entre municipio e estacao. `None` desliga o
+#: guarda e restaura o comportamento anterior, que era aceitar qualquer
+#: distancia em silencio.
+_MAX_DIST: ContextVar[float | None] = ContextVar("_MAX_DIST", default=None)
+
 #: Warn once per process about an ambiguous date, not once per strategy.
 _AVISOU_DATA: set[str] = set()
 
@@ -812,24 +817,89 @@ def _match_spatial(climate_data: pa.Table, health_data: duckdb.DuckDBPyRelation,
         stations["latitude"].to_pylist(),
     ])
 
-    # KD-Tree nearest station
-    tree                = cKDTree(station_coords)
-    distances_deg, idxs = tree.query(centroids, k=1)
-    distances_km        = distances_deg * 111.0
+    # KD-Tree sobre a ESFERA, nao sobre graus (M130).
+    #
+    # Antes isto montava a arvore sobre pares (lon, lat) crus e convertia
+    # com `distances_deg * 111.0`. Dois erros no mesmo lugar. O numero
+    # saia errado -- na latitude de Sao Paulo um grau de longitude vale
+    # 102,4 km e nao 111,2, uns 8% a menos --, mas o pior era a ESCOLHA:
+    # duas estacoes que empatam no espaco de graus, uma a um grau ao
+    # norte e outra a um grau a leste, estao de fato a 111,2 e 102,4 km,
+    # e o cKDTree desempatava pela ordem do indice. Mesma familia do M84,
+    # que registramos no R.
+    #
+    # Em cartesianas na esfera unitaria a distancia de corda e monotonica
+    # com a geodesica, entao o vizinho mais proximo fica EXATO -- e a
+    # corda converte para arco sem aproximacao nenhuma:
+    # d = 2R·asin(corda/2). Continua sendo uma arvore KD, com o mesmo
+    # custo. O `sf::st_nearest_feature` do R ja fazia a coisa certa.
+    def _esfera(lonlat: np.ndarray) -> np.ndarray:
+        lon = np.radians(lonlat[:, 0])
+        lat = np.radians(lonlat[:, 1])
+        return np.column_stack([
+            np.cos(lat) * np.cos(lon),
+            np.cos(lat) * np.sin(lon),
+            np.sin(lat),
+        ])
+
+    _R_TERRA_KM = 6371.0
+    centroids_arr = np.asarray(centroids, dtype=float)
+    tree = cKDTree(_esfera(station_coords))
+    cordas, idxs = tree.query(_esfera(centroids_arr), k=1)
+    # corda -> arco. O clip protege de corda marginalmente > 2 por
+    # arredondamento, que faria o arcsin devolver NaN.
+    distances_km = 2.0 * _R_TERRA_KM * np.arcsin(
+        np.clip(cordas / 2.0, 0.0, 1.0))
     station_codes_list  = stations["station_code"].to_pylist()
 
+    codigos = munic_df["code_muni"].tolist()
+    escolhidas = [station_codes_list[i] for i in idxs]
+
+    # Guarda de distancia (M129). Casar um municipio com a estacao mais
+    # proxima e so isso: a MAIS PROXIMA. Nada obriga que ela esteja
+    # perto. Medido sobre SIM-DO SP 2023 filtrado: 29 das 5.196 linhas
+    # sao de residentes de outros estados, entre elas Para e Ceara, e o
+    # municipio do Para acabava casado com uma estacao de Sao Paulo a
+    # ~2.800 km. Nem este pacote nem o climasus4r recusavam ou
+    # sinalizavam -- os dois imprimiam o maximo num log que passa batido,
+    # e o numero seguia adiante como se fosse exposicao.
+    limite = _MAX_DIST.get()
+    fora = (distances_km > limite) if limite is not None else np.zeros(
+        len(distances_km), dtype=bool)
+    if limite is not None and fora.any():
+        import warnings
+
+        piores = sorted(
+            ((float(d), c) for d, c, f in zip(distances_km, codigos, fora) if f),
+            reverse=True)[:3]
+        warnings.warn(
+            f"sus_climate_aggregate: {int(fora.sum())} of {len(codigos)} "
+            f"municipality(ies) have no station within max_distance_km="
+            f"{limite:g}; their climate columns are NULL. Farthest: "
+            + ", ".join(f"{c} at {d:.0f} km" for d, c in piores)
+            + ". A station this far away is not this municipality's weather "
+              "(M129).",
+            UserWarning,
+            stacklevel=3,
+        )
+        codigos = [c for c, f in zip(codigos, fora) if not f]
+        escolhidas = [s for s, f in zip(escolhidas, fora) if not f]
+        distances_km = distances_km[~fora]
+
     mun_station_map = pa.table({
-        "code_muni":    pa.array(munic_df["code_muni"].tolist(), type=pa.string()),
-        "station_code": pa.array([station_codes_list[i] for i in idxs], type=pa.string()),
+        "code_muni":    pa.array(codigos, type=pa.string()),
+        "station_code": pa.array(escolhidas, type=pa.string()),
         "distance_km":  pa.array(distances_km.tolist(), type=pa.float32()),
     })
 
-    if verbose:
+    if verbose and len(distances_km):
         d = distances_km
         print(f"  Spatial matching: {len(mun_station_map)} municipality(ies) → "
               f"{len(stations)} station(s)")
         print(f"  Distance (km): min={d.min():.1f} | "
-              f"median={np.median(d):.1f} | max={d.max():.1f}")
+              f"median={np.median(d):.1f} | max={d.max():.1f}"
+              + (f" | dropped beyond {limite:g}: {int(fora.sum())}"
+                 if limite is not None and fora.any() else ""))
 
     con.register("map", mun_station_map)
     result = con.execute(f"""
@@ -1268,6 +1338,7 @@ def sus_climate_aggregate(
     geo_basis: str | None = None,
     date_col: str | None = None,
     system: str | None = None,
+    max_distance_km: float | None = None,
     verbose: bool = True,
 ) -> duckdb.DuckDBPyRelation:
     """Integrate climate and health data using 10 temporal strategies.
@@ -1317,6 +1388,15 @@ def sus_climate_aggregate(
             date** — death for SIM, notification for SINAN, admission for
             SIH, birth for SINASC. Read from ``sus_meta`` when ``None``;
             an explicit argument wins.
+        max_distance_km: Refuse a station farther than this from the
+            municipality, leaving its climate columns NULL and warning
+            with the worst offenders named. ``None`` (default) keeps
+            the previous behaviour, which accepted any distance in
+            silence -- measured on SIM-DO SP 2023, a resident of Para
+            was matched to a Sao Paulo station ~2,800 km away, and
+            neither this package nor ``climasus4r`` said anything
+            beyond printing the maximum in a log (M129). A station that
+            far is not that municipality's weather.
         geo_basis: Which municipality column to key the spatial match on:
             ``"residence"``, ``"occurrence"``, ``"notification"`` or
             ``"unspecified"``. ``None`` (default) walks the declared
@@ -1380,6 +1460,7 @@ def sus_climate_aggregate(
             print(f"System (from sus_meta): {system}")
     _token_system = _SYSTEM.set(system)
     _token_date = _DATE_COL.set(date_col)
+    _token_dist = _MAX_DIST.set(max_distance_km)
     try:
         _VALID_STRATEGIES = {
             "exact", "moving_window", "discrete_lag", "distributed_lag",
@@ -1547,6 +1628,7 @@ def sus_climate_aggregate(
         _GEO_BASIS.reset(_token_basis)
         _SYSTEM.reset(_token_system)
         _DATE_COL.reset(_token_date)
+        _MAX_DIST.reset(_token_dist)
 
 
 def sus_climate_info(result: duckdb.DuckDBPyRelation) -> None:

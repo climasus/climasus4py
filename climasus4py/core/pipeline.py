@@ -166,7 +166,14 @@ def _build_fast_sql(
     test_rel = conn.read_parquet(str(parquet_paths[0]))
     columns = test_rel.columns
 
-    date_col = detect_date_column(columns)
+    # A MESMA deteccao por sistema que a linha do municipio logo abaixo
+    # ja usava. Ate 02/10/2026 a data vinha pela lista generica enquanto
+    # o municipio vinha pela do sistema -- inconsistencia no mesmo bloco,
+    # e com o mesmo efeito do M127: num arquivo do SINAN, que traz
+    # DT_NASC ao lado de DT_NOTIFIC, a serie saia datada pelo NASCIMENTO.
+    from .aggregate import _agg_detect_date_col
+
+    date_col = _agg_detect_date_col(list(columns), system)
     if not date_col:
         return None
 
