@@ -275,3 +275,20 @@ def _copy_to(rel: duckdb.DuckDBPyRelation, path: Path, fmt: str, opts: str) -> N
         conn.execute(f"COPY {view_name} TO {dest} (FORMAT {fmt}, {opts})")
     finally:
         conn.unregister(view_name)
+
+
+#: O nome do R, para quem chega de lá.
+#:
+#: O `climasus4r` chama esta função de `sus_data_export`. É **apelido e
+#: não renomeação**: o `sus_export` continua sendo o nome canônico, está
+#: no `__all__`, na documentação e em receitas RAP já escritas, e trocá-lo
+#: quebraria quem o usa.
+#:
+#: Alinhar os nomes por completo não é possível, e por isso o apelido é a
+#: resposta certa em vez de meia renomeação. Das quatro divergências de
+#: nome entre os pacotes, duas não têm como ser resolvidas: o `sus_filter`
+#: funde o `sus_data_filter_cid` e o `sus_data_filter_demographics` do R,
+#: então não pode receber nenhum dos dois nomes sem mentir sobre o que
+#: faz; e `predict.climasus_ml` é sintaxe de método S3, que não existe em
+#: Python. Ver M131.
+sus_data_export = sus_export

@@ -87,7 +87,7 @@ from .enrichment.socio_indicators import (
 from .enrichment.spatial import sus_spatial_join
 from .io.cache import sus_cache_clear, sus_cache_info
 from .io.convert import sus_as_arrow, sus_as_duckdb, sus_as_relation
-from .io.export import sus_export
+from .io.export import sus_data_export, sus_export
 from .io.materialize import materialize
 from .io.read import sus_data_read
 from .utils import update_climasus_data
@@ -145,6 +145,8 @@ __all__ = [
     "sus_sql",
     # I/O
     "sus_export",
+    "sus_data_export",   # apelido: o nome que o R usa
+
     # Conversions that carry sus_meta across a format boundary. The file
     # writers of the same family are not separate functions here: R's
     # write_parquet_climasus / write_duckdb_climasus are
