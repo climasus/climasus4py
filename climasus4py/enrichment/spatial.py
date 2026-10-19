@@ -11,6 +11,7 @@ the relation stays lazy until the user calls ``.df()`` or
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from uuid import uuid4
 
@@ -23,6 +24,104 @@ from ..core.engine import get_connection
 from ..utils.data import detect_geo_column, load_json, spatial_asset_path
 
 _REQUIRED_SPATIAL_COLS = {"geometry_wkt", "name"}
+
+
+def _mapa_de_bases() -> dict[str, list[str]]:
+    """``municipality_by_basis`` from the shared metadata, without the key
+    that holds the fallback order.
+
+    Read from ``climasus-data`` rather than copied here: a second copy of
+    a priority list is exactly what produced M119 and M138.
+    """
+    cfg = load_json("metadata/datasus_columns.json")
+    mapa = cfg.get("municipality_by_basis", {})
+    return {k: v for k, v in mapa.items() if k != "_fallback_order"}
+
+
+def _bases_validas() -> set[str]:
+    return set(_mapa_de_bases())
+
+
+def _apelidos_de_base() -> dict[str, str]:
+    """Every accepted spelling of a basis → its canonical English key.
+
+    The keys of ``municipality_by_basis`` are English, but the package is
+    trilingual and ``sus_filter`` already takes values in the three
+    languages (``sex="Masculino"``), so ``basis=`` had to as well.
+    Portuguese is also what ``climasus4r`` calls these internally — its
+    ``geo_groups`` are ``residencia``, ``ocorrencia``, ``notificacao``,
+    ``generico`` — so whoever comes from the R side types those first.
+
+    Read from ``climasus-data`` rather than hardcoded, for the same
+    reason the column lists are (M119, M138).
+    """
+    from ..utils.data import _norm_city
+
+    cfg = load_json("metadata/datasus_columns.json")
+    mapa: dict[str, str] = {}
+    for canonica, grafias in cfg.get("basis_aliases", {}).items():
+        if canonica.startswith("_"):
+            continue
+        for g in grafias:
+            mapa[_norm_city(g)] = canonica
+    # The canonical keys always resolve, even if an alias list is missing.
+    for canonica in _mapa_de_bases():
+        mapa.setdefault(_norm_city(canonica), canonica)
+    return mapa
+
+
+def _base_da_coluna(coluna: str) -> str | None:
+    """Which basis owns *coluna*, or ``None`` if no basis claims it."""
+    for base in _mapa_de_bases():
+        if coluna in _colunas_da_base(base):
+            return base
+    return None
+
+
+def resolve_join_col(
+    join_col: str, colunas: list[str]
+) -> tuple[str | None, str | None]:
+    """Resolve *join_col* to ``(coluna, base)``.
+
+    Accepts three things, in this order:
+
+    1. **A basis** — ``"residence"``, ``"residencia"``, ``"ocorrência"``,
+       ``"generico"``… Accent- and case-insensitive. The column is then
+       resolved from the data, so the caller need not know which of the
+       four spellings of that column the frame happens to carry.
+    2. **A column name a basis claims** — ``"CODMUNRES"``,
+       ``"residence_municipality_code"``. This is the form
+       ``climasus4r::sus_spatial_join(join_col=)`` takes, so a value
+       copied from R code works here unchanged.
+    3. **Any other column present in the data** — same permissiveness as
+       R, which only checks ``join_col %in% names(df)``.
+
+    Returns ``(None, base)`` when a basis was named but the data has no
+    column of it: the caller decides whether that warns or raises.
+    """
+    from ..utils.data import _norm_city
+
+    apelidos = _apelidos_de_base()
+    base = apelidos.get(_norm_city(join_col))
+    if base is not None:
+        return detect_geo_column(colunas, level="municipality",
+                                 basis=base), base
+
+    if join_col in colunas:
+        return join_col, _base_da_coluna(join_col)
+
+    raise ValueError(
+        f"join_col={join_col!r} is neither a basis nor a column of this "
+        f"data. Pass a basis — {sorted(apelidos)} — or the name of a "
+        f"column that is present. Available geographic columns: "
+        f"{[c for c in colunas if _base_da_coluna(c)]}."
+    )
+
+
+def _colunas_da_base(basis: str) -> set[str]:
+    from ..utils.data import expand_column_synonyms
+
+    return set(expand_column_synonyms(_mapa_de_bases().get(basis, [])))
 
 
 def _sql_path(p: Path) -> str:
@@ -96,6 +195,7 @@ def sus_spatial_join(
     spatial_path: str | Path | None = None,
     geo_level: str = "municipality",
     simplified: bool = True,
+    join_col: str | None = None,
     lang: str = "pt",
 ) -> duckdb.DuckDBPyRelation:
     """Join health data with Brazilian municipality or state spatial data (lazy).
@@ -123,6 +223,39 @@ def sus_spatial_join(
             Parquet of 2.1 MB simplified against 31.0 MB full (M9).
             Pass ``False`` for full-resolution boundaries. Ignored when
             *spatial_path* is given, since that names a file directly.
+        join_col: Which municipality the geometry comes from. Same name
+            as ``climasus4r::sus_spatial_join(join_col=)``, and it takes
+            the R form plus two more:
+
+            - a **basis** — ``"residence"``, ``"occurrence"``,
+              ``"notification"``, ``"unspecified"``, or the Portuguese
+              and Spanish spellings (``"residencia"``, ``"ocorrência"``,
+              ``"notificacion"``, ``"generico"``), accent- and
+              case-insensitive. Preferred: the same column has four
+              spellings depending on the stage, and naming the basis
+              spares the caller from knowing which one the frame carries.
+            - a **column name a basis claims** — ``"CODMUNRES"``,
+              ``"residence_municipality_code"``. This is what R takes, so
+              a value copied from R code works unchanged.
+            - **any other column present in the data**, which is all R
+              checks.
+
+            ``None`` (default) keeps the shared detection order, which is
+            residence first.
+
+            **The choice is not cosmetic.** Measured on SIM-DO/SP/2023,
+            residence and occurrence disagree on **20.4%** of records
+            (1,059 of 5,196), and the disagreement crosses state lines:
+            a resident of Planalto/SP who died in Boa Vista/RR gets the
+            polygon of Planalto under ``"residence"`` and of Boa Vista
+            under ``"occurrence"``.
+
+            Residence is the default because this is a health **and
+            climate** package: what matters is the climate the person
+            was exposed to, not the municipality they happened to die
+            in. ``climasus4r`` chooses the opposite — its
+            ``priority_order`` puts occurrence in the first three
+            positions (M137).
         lang: Language of the ``name_state`` and ``name_region`` labels —
             ``"pt"`` (default, as in R), ``"en"`` or ``"es"``.
 
@@ -183,9 +316,35 @@ def sus_spatial_join(
             f"Available columns: {sorted(spatial_cols)}"
         )
 
-    geo_col = (
-        detect_geo_column(list(rel.columns), level="municipality") or "municipality_code"
-    )
+    colunas = list(rel.columns)
+
+    # `basis` was accepted by detect_geo_column all along and no public
+    # function passed it, so the caller had no way to ask for occurrence
+    # even when occurrence was what they wanted (M137).
+    if join_col is not None:
+        geo_col, base_pedida = resolve_join_col(join_col, colunas)
+
+        # Naming a basis the data cannot satisfy is a silent wrong answer,
+        # so it warns — but it falls back to the *shared detection order*,
+        # not to the literal "municipality_code": that name is a last
+        # resort for data with no recognised column at all, and using it
+        # here produced a binder error against a column that does not
+        # exist.
+        if geo_col is None:
+            geo_col = detect_geo_column(colunas, level="municipality")
+            warnings.warn(
+                f"sus_spatial_join: join_col={join_col!r} resolves to the "
+                f"{base_pedida!r} basis, but this data has no column of "
+                f"it; the geometry is being joined on {geo_col!r} instead. "
+                f"Residence and occurrence disagree on about 20% of SIM "
+                f"records, so this is not a cosmetic fallback (M137).",
+                UserWarning,
+                stacklevel=2,
+            )
+    else:
+        geo_col = detect_geo_column(colunas, level="municipality")
+
+    geo_col = geo_col or "municipality_code"
 
     p_sql = _sql_path(resolved_path)
     h_geo = quote_ident(geo_col)
@@ -223,8 +382,6 @@ def sus_spatial_join(
         projecoes.append(f'{expr} AS "{nome}"')
 
     if puladas:
-        import warnings
-
         warnings.warn(
             f"sus_spatial_join: health data already has "
             f"{', '.join(puladas)}; kept the existing column(s) instead of "

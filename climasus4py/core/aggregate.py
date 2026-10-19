@@ -253,6 +253,7 @@ def sus_data_aggregate(
     complete_dates: bool = False,
     date_col: str | None = None,
     system: str | None = None,
+    join_col: str | None = None,
     lang: str = "en",
     verbose: bool = True,
 ) -> duckdb.DuckDBPyRelation | pd.DataFrame:
@@ -278,6 +279,26 @@ def sus_data_aggregate(
         date_col: Date column name. Auto-detected by system if ``None``.
         system: SUS system identifier for smart column naming and geo
             detection, e.g. ``"SIM-DO"``, ``"SINAN-DENGUE"``.
+        join_col: Which municipality the counts are grouped by. Takes a
+            basis (``"residence"``, ``"ocorrência"``, ``"generico"``… in
+            any of the three languages), a column name (``"CODMUNRES"``,
+            the form ``climasus4r`` takes), or any column present in the
+            data. ``None`` (default) follows ``geo_candidates[system]``,
+            which for **SIM is occurrence** — a mortality series is
+            aggregated by place of occurrence, as the R's
+            ``system_priority`` also declares — and residence for every
+            other system.
+
+            Pass the same value to :func:`sus_spatial_join`, or the
+            geometry comes from one municipality and the count from
+            another: residence and occurrence disagree on 20.4% of
+            SIM-DO/SP/2023 records, and the disagreement crosses state
+            lines (M137).
+
+            Unlike *system*, naming a basis the data cannot satisfy
+            raises instead of falling back: silently aggregating by
+            another geography is the failure this parameter exists to
+            prevent.
         lang: Output language for column names — ``"en"`` (default),
             ``"pt"``, ``"es"``.
         verbose: Print progress messages.
@@ -349,7 +370,27 @@ def sus_data_aggregate(
     # ------------------------------------------------------------------
     # 2. Geographic column
     # ------------------------------------------------------------------
-    geo_col = _agg_detect_geo_col(columns, system)
+    # `basis` is the counterpart of the one on sus_spatial_join. Until
+    # 19/10 the two disagreed: the join grouped the geometry by residence
+    # and this grouped the counts by occurrence for SIM, so a choropleth
+    # drew one municipality's count over another's polygon in the ~20% of
+    # records where the two differ (M138).
+    if join_col is not None:
+        from ..enrichment.spatial import resolve_join_col
+
+        # Takes a basis in any of the three languages, a column name (the
+        # form R takes), or any column present — see resolve_join_col.
+        geo_col, base_pedida = resolve_join_col(join_col, columns)
+        if geo_col is None:
+            raise ValueError(
+                f"join_col={join_col!r} resolves to the {base_pedida!r} "
+                f"basis, but this data has no column of it. Available "
+                f"geographic columns: "
+                f"{[c for c in _agg_geo_candidates(system) if c in columns]}."
+            )
+    else:
+        geo_col = _agg_detect_geo_col(columns, system)
+
     if verbose and geo_col:
         print(f"Geographic column: {geo_col}")
 

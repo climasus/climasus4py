@@ -245,10 +245,48 @@ def _astronomical_season_sql(month_expr: str, lang: str = "en", hemisphere: str 
     return f"CASE {cases} ELSE NULL END"
 
 
+def regioes_climaticas() -> list[str]:
+    """The region names ``climate_region`` accepts, from the shared config."""
+    return sorted(_seasonal_config()["climatic"]["regions"])
+
+
+def valida_regiao_climatica(region: str) -> str:
+    """Return *region* normalised, or raise naming the valid values.
+
+    **Why this raises instead of falling back.** Until 19/10/2026 an
+    unknown region produced no error and no warning: ``regions.get(r, {})``
+    gave an empty dict, the three month lists came out empty, and
+    ``_climatic_season_sql`` returned the literal ``"NULL"``. The two
+    seasonal columns were still created — and were **100% null**, measured
+    at 334,303 of 334,303 rows with ``climate_region="subtropical"``.
+
+    That is the worst of the three options: the schema says the
+    information is there and it is not, so a ``groupby`` on the column
+    returns an empty frame with nothing to explain it. Warning and
+    leaving the column null still leaves the null column to contaminate
+    the analysis, and substituting a default region would invent a
+    seasonality the caller never asked for and never learns about.
+
+    ``climasus4r`` also raises here, with ``índice fora dos limites`` —
+    correct behaviour, unhelpful message. This one names the valid
+    values and the way out.
+    """
+    r = str(region).lower().strip()
+    validas = _seasonal_config()["climatic"]["regions"]
+    if r not in validas:
+        raise ValueError(
+            f"climate_region={region!r} is not recognised. "
+            f"Valid values: {', '.join(sorted(validas))}. "
+            f"Omit the parameter to use the astronomical season, which "
+            f"does not depend on a region."
+        )
+    return r
+
+
 def _climatic_season_sql(month_expr: str, region: str, lang: str = "en") -> str:
     cfg = _seasonal_config()["climatic"]
     labels = cfg["labels"][lang]
-    r = region.lower().strip()
+    r = valida_regiao_climatica(region)
     reg = cfg["regions"].get(r, {})
     if "note" in reg:
         return f"'{labels['no_dry']}'"
@@ -268,7 +306,7 @@ def _climatic_season_sql(month_expr: str, region: str, lang: str = "en") -> str:
 def _dry_rainy_sql(month_expr: str, region: str, lang: str = "en") -> str:
     cfg = _seasonal_config()["climatic"]
     labels = cfg["labels"][lang]
-    r = region.lower().strip()
+    r = valida_regiao_climatica(region)
     reg = cfg["regions"].get(r, {})
     if "note" in reg:
         return f"'{labels['no_dry']}'"
@@ -415,6 +453,12 @@ def sus_data_create_variables(
         system = (get_meta(rel) or {}).get("system")
         if verbose and system:
             print(f"System (from sus_meta): {system}")
+
+    # Validated here, before any work: an unknown region used to produce
+    # two columns that were 100% null, with no error and no warning, and
+    # the failure only showed up when someone grouped by them (M141).
+    if climate_region is not None:
+        climate_region = valida_regiao_climatica(climate_region)
 
     conn    = get_connection()
     columns = schema_columns(rel)

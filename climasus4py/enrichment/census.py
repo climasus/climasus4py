@@ -159,14 +159,17 @@ def sus_census(
                 stacklevel=2,
             )
 
-    if year == 2010:
-        warnings.warn(
-            "census_2010.parquet contém dados SINTÉTICOS (seed=2010). "
-            "Não use em análises ou publicações. Substitua por dados reais "
-            "do IBGE antes de qualquer uso científico.",
-            UserWarning,
-            stacklevel=2,
-        )
+    # The synthetic-data warning that used to stand here was removed on
+    # 19/10/2026, when census_2010.parquet stopped being generated data
+    # and became the real IBGE Census: scripts/build_census.py aggregates
+    # censobr's 20,635,472 person-level records to municipality level,
+    # producing the same 34 variables climasus4r produces, under the same
+    # names. Verified against the R's own output: 34 of 34 columns
+    # identical across the 350 municipalities both sides covered (M139,
+    # M140).
+    #
+    # The file it replaced was runif() with seed=2010 — São Paulo capital
+    # came out 32.65% urban when the capital is 100% urban by definition.
 
     census_read = f"read_parquet({_sql_path(census_dir / f'census_{year}.parquet')})"
 
