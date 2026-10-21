@@ -135,23 +135,44 @@ class TestEstrategiasTemporais:
         assert (df[col].dropna() >= 0).all()
 
     def test_excedencia_conta_dias_e_proporcao(self, saude, clima):
-        """A funcao devolve `nexcN_gtXpY_<var>` (contagem) e `pexc...`
+        """A funcao devolve `nexcN_gtX_<var>` (contagem) e `pexc...`
         (proporcao). O limiar 22 fica no meio da serie, que vai de 15 a
         25 -- com 25 a contagem seria zero em toda linha e o teste nao
         diria nada.
+
+        O NOME e `gt22` e nao `gt22p0`: o climasus4r escreve o limiar com
+        `as.character(22)`, que da "22", e nos escreviamos `str(22.0)`,
+        que dava "22.0" e virava "22p0". O `p` em si e convencao do
+        proprio R -- ele faz `gsub("\\\\.", "p", ...)` --, so que para
+        valor FRACIONARIO. Para inteiro os dois nomes agora coincidem.
         """
         df = cs.sus_climate_aggregate(
             saude, clima, temporal_strategy="threshold_exceedance",
             window_days=7, threshold_value=22.0,
             climate_vars=["tair_dry_bulb_c"], verbose=False,
         ).df()
-        n_col = "nexc7_gt22p0_tair_dry_bulb_c"
-        p_col = "pexc7_gt22p0_tair_dry_bulb_c"
+        n_col = "nexc7_gt22_tair_dry_bulb_c"
+        p_col = "pexc7_gt22_tair_dry_bulb_c"
 
         assert n_col in df.columns and p_col in df.columns
         assert df[n_col].dropna().between(0, 8).all()
         assert df[p_col].dropna().between(0, 1).all()
         assert df[n_col].max() > 0            # o limiar de fato e cruzado
+
+    def test_limiar_fracionario_mantem_o_p(self, saude, clima):
+        """Com limiar fracionario o `p` fica, porque o ponto nao pode.
+
+        Um ponto no nome da coluna exige aspas em SQL e quebraria o
+        `AS`. O R escreve `gt22p5` aqui tambem, no threshold -- so o
+        degree_days e a onda de frio dele e que deixam o ponto escapar.
+        """
+        df = cs.sus_climate_aggregate(
+            saude, clima, temporal_strategy="threshold_exceedance",
+            window_days=7, threshold_value=22.5,
+            climate_vars=["tair_dry_bulb_c"], verbose=False,
+        ).df()
+        assert "nexc7_gt22p5_tair_dry_bulb_c" in df.columns
+        assert "pexc7_gt22p5_tair_dry_bulb_c" in df.columns
 
     def test_a_proporcao_e_a_contagem_sobre_a_janela(self, saude, clima):
         df = cs.sus_climate_aggregate(
@@ -159,11 +180,39 @@ class TestEstrategiasTemporais:
             window_days=7, threshold_value=22.0,
             climate_vars=["tair_dry_bulb_c"], verbose=False,
         ).df()
-        n = df["nexc7_gt22p0_tair_dry_bulb_c"]
-        p = df["pexc7_gt22p0_tair_dry_bulb_c"]
+        n = df["nexc7_gt22_tair_dry_bulb_c"]
+        p = df["pexc7_gt22_tair_dry_bulb_c"]
         valido = n.notna() & p.notna() & (p > 0)
 
         assert (n[valido] / p[valido]).round(6).nunique() == 1
+
+    def test_a_onda_de_frio_tem_prefixo_proprio_e_mantem_a_janela(
+            self, saude, clima):
+        """`ncoldN_ltX_<var>`, com o N que o R perde pelo caminho.
+
+        O prefixo `ncold`/`pcold` e do climasus4r. O tamanho da janela
+        NAO e: la o `.validate_window_days` devolve NULL para toda
+        estrategia fora de uma lista de quatro, e `cold_wave_exceedance`
+        ficou de fora dela. O `paste0("ncold", NULL, ...)` engole o NULL
+        e o R emite `ncold_lt12_<var>`, sem numero -- e, pior, com a
+        janela degenerada as seis colunas dele saem 100% NA (M155).
+
+        Este teste existe para que ninguem "alinhe" o nome ao do R sem
+        ler o M155 antes: copiar `ncold_lt...` seria copiar um nome que
+        esconde qual janela foi usada.
+        """
+        df = cs.sus_climate_aggregate(
+            saude, clima, temporal_strategy="cold_wave_exceedance",
+            window_days=7, threshold_value=22.0,
+            climate_vars=["tair_dry_bulb_c"], verbose=False,
+        ).df()
+        n_col = "ncold7_lt22_tair_dry_bulb_c"
+        p_col = "pcold7_lt22_tair_dry_bulb_c"
+
+        assert n_col in df.columns and p_col in df.columns
+        assert "ncold_lt22_tair_dry_bulb_c" not in df.columns
+        # e, ao contrario do R, o resultado nao e uma coluna vazia
+        assert df[n_col].notna().any()
 
 
 class TestValidacao:

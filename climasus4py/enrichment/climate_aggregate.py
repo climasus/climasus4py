@@ -961,6 +961,29 @@ def _health_view(conn, health_data, muni_col, date_col, view_name):
     """)
 
 
+def _rotulo_num(v) -> str:
+    """O número como o climasus4r o escreve dentro de um nome de coluna.
+
+    O R faz ``as.character(30)`` e recebe ``"30"``; nós fazíamos
+    ``str(30.0)`` e recebíamos ``"30.0"``, que virava ``"30p0"``. Daí
+    sairmos ``nexc14_gt30p0_tair_max_c`` onde o R sai
+    ``nexc14_gt30_tair_max_c`` -- mesma conta, nome diferente, e a
+    comparação acusando uma divergência que não existe. Aqui o ``.0`` de
+    um valor inteiro desaparece e os dois nomes passam a coincidir, que
+    é o caso de todo limiar e toda temperatura-base usados na prática.
+
+    Para valor FRACIONÁRIO os dois não convergem, e não dá para
+    convergir: o ``.join_threshold_exceedance`` do R troca o ponto por
+    ``p`` e produz ``gt30p5``, mas o ``.join_degree_days`` e o
+    ``.join_cold_wave_exceedance`` **não trocam** e produzem
+    ``tbase18.5`` e ``lt12.5`` -- um ponto no nome da coluna, que em SQL
+    exige aspas e aqui quebraria o ``AS``. Mantemos o ``p`` nos três,
+    que é a forma que o próprio R usa num deles.
+    """
+    f = float(v)
+    return str(int(f)) if f.is_integer() else str(f).replace(".", "p")
+
+
 def _on_keys(a: str, b: str) -> str:
     """Join condition on the (municipality, date) pair.
 
@@ -1145,8 +1168,9 @@ def _join_degree_days(health_data, climate_data, window_days,
     date_col    = _detect_date(health_data.columns)
     muni_col    = _detect_muni(health_data.columns)
     window_size = window_days + 1
-    tb_str      = str(temp_base).replace(".", "p")
-    col_name    = f"gdd_w{window_days}_tbase{tb_str}"
+    # gdd_w14tbase18, sem sublinhado antes de "tbase" -- e como o R
+    # monta: paste0("gdd_w", window_days, "tbase", temp_base).
+    col_name    = f"gdd_w{window_days}tbase{_rotulo_num(temp_base)}"
     conn        = get_connection()
     conn.register("_h_dd", health_data)
     conn.register("_c_dd", climate_data)
@@ -1180,22 +1204,31 @@ def _join_degree_days(health_data, climate_data, window_days,
 
 def _join_threshold_exceedance(health_data, climate_data, climate_vars,
                                 window_days, threshold_value,
-                                threshold_direction="above", min_obs=0.7):
+                                threshold_direction="above", min_obs=0.7,
+                                prefixos=("nexc", "pexc")):
+    """Conta e proporção de dias além do limiar, na janela.
+
+    ``prefixos`` existe por causa da onda de frio: o
+    ``.join_cold_wave_exceedance`` do R não reaproveita o nome do
+    ``.join_threshold_exceedance``, usa ``ncold``/``pcold`` próprios.
+    Aqui a conta continua sendo uma só, como já era, e só o rótulo muda.
+    """
     date_col    = _detect_date(health_data.columns)
     muni_col    = _detect_muni(health_data.columns)
     vars_av     = [v for v in climate_vars if v in climate_data.schema.names]
     window_size = window_days + 1
     op          = ">" if threshold_direction == "above" else "<"
     dir_lbl     = "gt" if threshold_direction == "above" else "lt"
-    thr_lbl     = str(threshold_value).replace(".", "p")
+    thr_lbl     = _rotulo_num(threshold_value)
+    pre_n, pre_p = prefixos
     conn        = get_connection()
     conn.register("_h_te", health_data)
     conn.register("_c_te", climate_data)
     _health_view(conn, health_data, muni_col, date_col, "_h_te_id")
     col_names, agg_ex, cnt_ex = [], [], []
     for v in vars_av:
-        n_col = f"nexc{window_days}_{dir_lbl}{thr_lbl}_{v}"
-        p_col = f"pexc{window_days}_{dir_lbl}{thr_lbl}_{v}"
+        n_col = f"{pre_n}{window_days}_{dir_lbl}{thr_lbl}_{v}"
+        p_col = f"{pre_p}{window_days}_{dir_lbl}{thr_lbl}_{v}"
         col_names += [n_col, p_col]
         agg_ex += [
             f"SUM(CASE WHEN c.{v} {op} {threshold_value} THEN 1.0 ELSE 0.0 END) AS {n_col}",
@@ -1236,12 +1269,40 @@ def _join_threshold_exceedance(health_data, climate_data, climate_vars,
 
 def _join_cold_wave_exceedance(health_data, climate_data, climate_vars,
                                 window_days, threshold_value, min_obs=0.7):
+    """Onda de frio: a mesma conta do limiar, com nome próprio.
+
+    O prefixo ``ncold``/``pcold`` vem do climasus4r, que tem função
+    separada para isto e não reaproveita o ``nexc``/``pexc`` do limiar,
+    embora a conta seja idêntica.
+
+    O TAMANHO DA JANELA NO NOME, porém, NÃO vem dele -- e aqui a
+    divergência é deliberada. O R emite ``ncold_lt12_<var>``, sem o
+    ``14``, porque o ``window_days`` nunca chega nesta função: o
+    ``.validate_window_days`` dele devolve ``NULL`` para toda estratégia
+    fora de ``c("moving_window", "degree_days", "threshold_exceedance",
+    "weighted_window")``, e ``cold_wave_exceedance`` ficou de fora da
+    lista embora precise de janela. Em R, ``paste0("ncold", NULL, ...)``
+    engole o ``NULL`` em silêncio, e é daí que o ``14`` some.
+
+    Não é só o nome. Com ``window_days`` nulo, ``window_size <-
+    window_days + 1L`` vira ``integer(0)`` e a janela também. MEDIDO em
+    SIM-DO/SP/2023 respiratory+Male+15-64, threshold 12 °C: as seis
+    colunas do R saem com **0 valores não-NA em 5.196 linhas** -- a
+    estratégia inteira devolve vazio, sem erro e sem aviso. O controle,
+    ``threshold_exceedance`` com ``threshold_direction="below"`` e os
+    mesmos parâmetros, devolve 4.926 valores reais (M155).
+
+    Copiar ``ncold_lt12_`` seria copiar a impressão digital do defeito:
+    um nome que esconde qual janela foi usada. A nossa usa uma de
+    verdade, então ela aparece no nome.
+    """
     return _join_threshold_exceedance(
         health_data, climate_data, climate_vars,
         window_days=window_days,
         threshold_value=threshold_value,
         threshold_direction="below",
         min_obs=min_obs,
+        prefixos=("ncold", "pcold"),
     )
 
 
@@ -1625,6 +1686,25 @@ def sus_climate_aggregate(
             "seasonal":            lambda: _join_seasonal(health_data, climate_matched, climate_vars_resolved, min_days),
         }
         result = dispatch[temporal_strategy]()
+
+        # O clima do PRÓPRIO DIA do evento, ao lado do que a estratégia
+        # produziu. O climasus4r faz exatamente isto, e é por isso que o
+        # resultado dele traz seis colunas novas onde o nosso trazia
+        # três:
+        #
+        #     if (temporal_strategy != "exact") {
+        #         df_agg <- suppressMessages(.join_exact(df_agg, ...))
+        #     }
+        #
+        # Não é sobra nem engano dele: a exposição NO dia do óbito e a
+        # exposição na janela anterior respondem perguntas diferentes, e
+        # quem usa a janela normalmente quer as duas à mão. Em `exact` o
+        # valor do dia já É o resultado, então não se repete.
+        #
+        # Diferente do R, isto não fica calado: a contagem de colunas
+        # novas do resumo final passa a incluí-las.
+        if temporal_strategy != "exact":
+            result = _join_exact(result, climate_matched, climate_vars_resolved)
 
         # --- sus_meta ---
         result = set_stage(result, "climate", _inherit_from=health_data)
