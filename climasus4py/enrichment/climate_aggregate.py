@@ -917,22 +917,67 @@ def _match_spatial(climate_data: pa.Table, health_data: duckdb.DuckDBPyRelation,
 # ---------------------------------------------------------------------------
 
 def _health_view(conn, health_data, muni_col, date_col, view_name):
-    """Register health data with row_id, _muni_join, _date_join."""
+    """Register health data keyed on (municipality, date).
+
+    Creates two views: ``{view_name}`` with every health row, and
+    ``{view_name}_k`` with the DISTINCT ``(_muni_join, _date_join)``
+    pairs. The strategies compute their climate aggregate over the key
+    view and join it back to the row view on the pair.
+
+    There used to be a ``ROW_NUMBER() OVER ()`` here, named ``_row_id``,
+    used as the join key between a row and its own climate aggregate.
+    Two things made that wrong. A window function with no ``ORDER BY``
+    has no defined ordering; and this is a VIEW, so it is re-evaluated
+    on every reference -- and every strategy referenced it twice in the
+    same query, once directly and once through the aggregate. The two
+    branches numbered the rows differently, so ``ON h._row_id =
+    c._row_id`` matched row 37 of one numbering with row 37 of the
+    other, which are different people.
+
+    Measured on SIM-DO SP 2023 filtered, offset_window [3,14]: **2.917
+    of 5.197 rows -- 56% -- carried another row's climate**. The error
+    was stable across runs, because the plan is stable, and invisible in
+    any summary, because the multiset of values is correct; only the
+    assignment is wrong. What exposed it: deaths in the same
+    municipality on the same day got different windows. Sao Paulo on
+    2023-05-01, eight deaths, rainfall from 2,4 mm to 416,8 mm.
+
+    The pair replaces the counter because it is what the window actually
+    depends on, it is stable by construction, and it is smaller: 3.824
+    groups against 5.197 rows on the same data.
+    """
     conn.register(f"_{view_name}_src", health_data)
     conn.execute(f"""
         CREATE OR REPLACE TEMP VIEW {view_name} AS
         SELECT
-            ROW_NUMBER() OVER () AS _row_id,
             LEFT(CAST({muni_col} AS VARCHAR), 6) AS _muni_join,
             CAST({date_col} AS DATE)             AS _date_join,
             *
         FROM _{view_name}_src
     """)
+    conn.execute(f"""
+        CREATE OR REPLACE TEMP VIEW {view_name}_k AS
+        SELECT DISTINCT _muni_join, _date_join FROM {view_name}
+    """)
+
+
+def _on_keys(a: str, b: str) -> str:
+    """Join condition on the (municipality, date) pair.
+
+    ``IS NOT DISTINCT FROM`` and not ``=``: a health row with no
+    municipality or no date has NULL in the key, and plain equality
+    would drop it from its own aggregate. With NULL-safe equality it
+    keeps the row and gets the aggregate of the NULL group, which is
+    empty -- so the climate columns come out NULL, which is the right
+    answer for a row that cannot be placed in space or time.
+    """
+    return (f"{a}._muni_join IS NOT DISTINCT FROM {b}._muni_join "
+            f"AND {a}._date_join IS NOT DISTINCT FROM {b}._date_join")
 
 
 def _drop_internals(result: duckdb.DuckDBPyRelation) -> duckdb.DuckDBPyRelation:
     final = [c for c in result.columns
-             if c not in ("_row_id", "_muni_join", "_date_join")]
+             if c not in ("_muni_join", "_date_join")]
     return result.select(", ".join(final))
 
 
@@ -982,15 +1027,16 @@ def _join_moving_window(health_data, climate_data, climate_vars,
     _health_view(conn, health_data, muni_col, date_col, "_h_mw_id")
     conn.execute(f"""
         CREATE OR REPLACE TEMP VIEW _mw_agg AS
-        SELECT h._row_id, {", ".join(agg_exprs)}, COUNT(*) AS _n_obs
-        FROM _h_mw_id h
+        SELECT h._muni_join, h._date_join,
+               {", ".join(agg_exprs)}, COUNT(*) AS _n_obs
+        FROM _h_mw_id_k h
         LEFT JOIN (SELECT CAST(code_muni AS VARCHAR) AS code_muni,
                           CAST(date AS DATE) AS date,
                           {", ".join(vars_av)} FROM _c_mw) c
             ON  h._muni_join = c.code_muni
             AND c.date BETWEEN h._date_join - INTERVAL ({window_days}) DAYS
                            AND h._date_join
-        GROUP BY h._row_id
+        GROUP BY h._muni_join, h._date_join
     """)
     min_sql = ", ".join(
         f"CASE WHEN (_n_obs::FLOAT/{window_size})>={min_obs} THEN {col} ELSE NULL END AS {col}"
@@ -998,11 +1044,11 @@ def _join_moving_window(health_data, climate_data, climate_vars,
     )
     conn.execute(f"""
         CREATE OR REPLACE TEMP VIEW _mw_filt AS
-        SELECT _row_id, {min_sql} FROM _mw_agg
+        SELECT _muni_join, _date_join, {min_sql} FROM _mw_agg
     """)
     result = conn.sql(
         f"SELECT h.*, {', '.join(f'c.{col}' for col in col_names)} "
-        f"FROM _h_mw_id h LEFT JOIN _mw_filt c ON h._row_id = c._row_id"
+        f"FROM _h_mw_id h LEFT JOIN _mw_filt c ON {_on_keys('h', 'c')}"
     )
     return _drop_internals(result)
 
@@ -1026,14 +1072,15 @@ def _join_discrete_lag(health_data, climate_data, climate_vars, lag_days):
     for lag in sorted(lag_days):
         conn.execute(f"""
             CREATE OR REPLACE TEMP VIEW _lag_{lag} AS
-            SELECT h._row_id, {", ".join(f"c.{v} AS {v}_lag{lag}" for v in vars_av)}
-            FROM _h_dl_id h
+            SELECT h._muni_join, h._date_join,
+                   {", ".join(f"c.{v} AS {v}_lag{lag}" for v in vars_av)}
+            FROM _h_dl_id_k h
             LEFT JOIN _c_dl_agg c
                 ON h._muni_join = c.code_muni
                 AND c.date = h._date_join - INTERVAL ({lag}) DAYS
         """)
     lag_joins = "\n".join(
-        f"LEFT JOIN _lag_{lag} l{lag} ON h._row_id = l{lag}._row_id"
+        f"LEFT JOIN _lag_{lag} l{lag} ON {_on_keys('h', f'l{lag}')}"
         for lag in sorted(lag_days)
     )
     lag_cols = ", ".join(
@@ -1067,24 +1114,26 @@ def _join_offset_window(health_data, climate_data, climate_vars,
     _health_view(conn, health_data, muni_col, date_col, "_h_ow_id")
     conn.execute(f"""
         CREATE OR REPLACE TEMP VIEW _ow_agg AS
-        SELECT h._row_id, {", ".join(agg_exprs)}, COUNT(*) AS _n_obs
-        FROM _h_ow_id h
+        SELECT h._muni_join, h._date_join,
+               {", ".join(agg_exprs)}, COUNT(*) AS _n_obs
+        FROM _h_ow_id_k h
         LEFT JOIN (SELECT CAST(code_muni AS VARCHAR) AS code_muni,
                           CAST(date AS DATE) AS date,
                           {", ".join(vars_av)} FROM _c_ow) c
             ON  h._muni_join = c.code_muni
             AND c.date BETWEEN h._date_join - INTERVAL ({w2}) DAYS
                            AND h._date_join - INTERVAL ({w1}) DAYS
-        GROUP BY h._row_id
+        GROUP BY h._muni_join, h._date_join
     """)
     min_sql = ", ".join(
         f"CASE WHEN (_n_obs::FLOAT/{window_size})>={min_obs} THEN {col} ELSE NULL END AS {col}"
         for col in col_names
     )
-    conn.execute(f"CREATE OR REPLACE TEMP VIEW _ow_filt AS SELECT _row_id, {min_sql} FROM _ow_agg")
+    conn.execute("CREATE OR REPLACE TEMP VIEW _ow_filt AS "
+                 f"SELECT _muni_join, _date_join, {min_sql} FROM _ow_agg")
     result = conn.sql(
         f"SELECT h.*, {', '.join(f'c.{col}' for col in col_names)} "
-        f"FROM _h_ow_id h LEFT JOIN _ow_filt c ON h._row_id = c._row_id"
+        f"FROM _h_ow_id h LEFT JOIN _ow_filt c ON {_on_keys('h', 'c')}"
     )
     return _drop_internals(result)
 
@@ -1102,27 +1151,27 @@ def _join_degree_days(health_data, climate_data, window_days,
     _health_view(conn, health_data, muni_col, date_col, "_h_dd_id")
     conn.execute(f"""
         CREATE OR REPLACE TEMP VIEW _gdd_agg AS
-        SELECT h._row_id,
+        SELECT h._muni_join, h._date_join,
                SUM(GREATEST(0.0, c.{gdd_temp_var} - {temp_base})) AS {col_name},
                COUNT(c.{gdd_temp_var}) AS _n_obs
-        FROM _h_dd_id h
+        FROM _h_dd_id_k h
         LEFT JOIN (SELECT CAST(code_muni AS VARCHAR) AS code_muni,
                           CAST(date AS DATE) AS date, {gdd_temp_var} FROM _c_dd) c
             ON  h._muni_join = c.code_muni
             AND c.date BETWEEN h._date_join - INTERVAL ({window_days}) DAYS
                            AND h._date_join
-        GROUP BY h._row_id
+        GROUP BY h._muni_join, h._date_join
     """)
     conn.execute(f"""
         CREATE OR REPLACE TEMP VIEW _gdd_filt AS
-        SELECT _row_id,
+        SELECT _muni_join, _date_join,
                CASE WHEN (_n_obs::FLOAT/{window_size})>={min_obs}
                     THEN {col_name} ELSE NULL END AS {col_name}
         FROM _gdd_agg
     """)
     result = conn.sql(
         f"SELECT h.*, c.{col_name} FROM _h_dd_id h "
-        f"LEFT JOIN _gdd_filt c ON h._row_id = c._row_id"
+        f"LEFT JOIN _gdd_filt c ON {_on_keys('h', 'c')}"
     )
     return _drop_internals(result)
 
@@ -1154,15 +1203,16 @@ def _join_threshold_exceedance(health_data, climate_data, climate_vars,
         cnt_ex.append(f"COUNT(c.{v}) AS _n_{v}")
     conn.execute(f"""
         CREATE OR REPLACE TEMP VIEW _te_agg AS
-        SELECT h._row_id, {", ".join(agg_ex)}, {", ".join(cnt_ex)}
-        FROM _h_te_id h
+        SELECT h._muni_join, h._date_join,
+               {", ".join(agg_ex)}, {", ".join(cnt_ex)}
+        FROM _h_te_id_k h
         LEFT JOIN (SELECT CAST(code_muni AS VARCHAR) AS code_muni,
                           CAST(date AS DATE) AS date,
                           {", ".join(vars_av)} FROM _c_te) c
             ON  h._muni_join = c.code_muni
             AND c.date BETWEEN h._date_join - INTERVAL ({window_days}) DAYS
                            AND h._date_join
-        GROUP BY h._row_id
+        GROUP BY h._muni_join, h._date_join
     """)
     min_sql = ", ".join(
         f"CASE WHEN (_n_{v}::FLOAT/{window_size})>={min_obs} "
@@ -1173,10 +1223,11 @@ def _join_threshold_exceedance(health_data, climate_data, climate_vars,
                            col_names[::2],
                            col_names[1::2])
     )
-    conn.execute(f"CREATE OR REPLACE TEMP VIEW _te_filt AS SELECT _row_id, {min_sql} FROM _te_agg")
+    conn.execute("CREATE OR REPLACE TEMP VIEW _te_filt AS "
+                 f"SELECT _muni_join, _date_join, {min_sql} FROM _te_agg")
     result = conn.sql(
         f"SELECT h.*, {', '.join(f'c.{col}' for col in col_names)} "
-        f"FROM _h_te_id h LEFT JOIN _te_filt c ON h._row_id = c._row_id"
+        f"FROM _h_te_id h LEFT JOIN _te_filt c ON {_on_keys('h', 'c')}"
     )
     return _drop_internals(result)
 
@@ -1216,16 +1267,16 @@ def _join_weighted_window(health_data, climate_data, climate_vars,
         w = weights[lag]
         conn.execute(f"""
             CREATE OR REPLACE TEMP VIEW _ww_lag_{lag} AS
-            SELECT h._row_id,
+            SELECT h._muni_join, h._date_join,
                    {", ".join(f"c.{v}*{w} AS {v}_w{lag}" for v in vars_av)},
                    {", ".join(f"CASE WHEN c.{v} IS NOT NULL THEN {w} ELSE 0.0 END AS {v}_sw{lag}" for v in vars_av)}
-            FROM _h_ww_id h
+            FROM _h_ww_id_k h
             LEFT JOIN _c_ww_agg c
                 ON h._muni_join = c.code_muni
                 AND c.date = h._date_join - INTERVAL ({lag}) DAYS
         """)
     lag_joins = "\n".join(
-        f"LEFT JOIN _ww_lag_{lag} l{lag} ON h._row_id = l{lag}._row_id"
+        f"LEFT JOIN _ww_lag_{lag} l{lag} ON {_on_keys('h', f'l{lag}')}"
         for lag in range(window_size)
     )
     col_names = []
