@@ -1028,7 +1028,8 @@ def _join_moving_window(health_data, climate_data, climate_vars,
     conn.execute(f"""
         CREATE OR REPLACE TEMP VIEW _mw_agg AS
         SELECT h._muni_join, h._date_join,
-               {", ".join(agg_exprs)}, COUNT(*) AS _n_obs
+               {", ".join(agg_exprs)},
+               {", ".join(f"COUNT(c.{v}) AS _n_{v}" for v in vars_av)}
         FROM _h_mw_id_k h
         LEFT JOIN (SELECT CAST(code_muni AS VARCHAR) AS code_muni,
                           CAST(date AS DATE) AS date,
@@ -1039,8 +1040,8 @@ def _join_moving_window(health_data, climate_data, climate_vars,
         GROUP BY h._muni_join, h._date_join
     """)
     min_sql = ", ".join(
-        f"CASE WHEN (_n_obs::FLOAT/{window_size})>={min_obs} THEN {col} ELSE NULL END AS {col}"
-        for col in col_names
+        f"CASE WHEN (_n_{v}::FLOAT/{window_size})>={min_obs} THEN {col} ELSE NULL END AS {col}"
+        for v, col in zip(vars_av, col_names)
     )
     conn.execute(f"""
         CREATE OR REPLACE TEMP VIEW _mw_filt AS
@@ -1115,7 +1116,8 @@ def _join_offset_window(health_data, climate_data, climate_vars,
     conn.execute(f"""
         CREATE OR REPLACE TEMP VIEW _ow_agg AS
         SELECT h._muni_join, h._date_join,
-               {", ".join(agg_exprs)}, COUNT(*) AS _n_obs
+               {", ".join(agg_exprs)},
+               {", ".join(f"COUNT(c.{v}) AS _n_{v}" for v in vars_av)}
         FROM _h_ow_id_k h
         LEFT JOIN (SELECT CAST(code_muni AS VARCHAR) AS code_muni,
                           CAST(date AS DATE) AS date,
@@ -1126,8 +1128,8 @@ def _join_offset_window(health_data, climate_data, climate_vars,
         GROUP BY h._muni_join, h._date_join
     """)
     min_sql = ", ".join(
-        f"CASE WHEN (_n_obs::FLOAT/{window_size})>={min_obs} THEN {col} ELSE NULL END AS {col}"
-        for col in col_names
+        f"CASE WHEN (_n_{v}::FLOAT/{window_size})>={min_obs} THEN {col} ELSE NULL END AS {col}"
+        for v, col in zip(vars_av, col_names)
     )
     conn.execute("CREATE OR REPLACE TEMP VIEW _ow_filt AS "
                  f"SELECT _muni_join, _date_join, {min_sql} FROM _ow_agg")
@@ -1269,7 +1271,8 @@ def _join_weighted_window(health_data, climate_data, climate_vars,
             CREATE OR REPLACE TEMP VIEW _ww_lag_{lag} AS
             SELECT h._muni_join, h._date_join,
                    {", ".join(f"c.{v}*{w} AS {v}_w{lag}" for v in vars_av)},
-                   {", ".join(f"CASE WHEN c.{v} IS NOT NULL THEN {w} ELSE 0.0 END AS {v}_sw{lag}" for v in vars_av)}
+                   {", ".join(f"CASE WHEN c.{v} IS NOT NULL THEN {w} ELSE 0.0 END AS {v}_sw{lag}" for v in vars_av)},
+                   {", ".join(f"CASE WHEN c.{v} IS NOT NULL THEN 1 ELSE 0 END AS {v}_p{lag}" for v in vars_av)}
             FROM _h_ww_id_k h
             LEFT JOIN _c_ww_agg c
                 ON h._muni_join = c.code_muni
@@ -1287,7 +1290,15 @@ def _join_weighted_window(health_data, climate_data, climate_vars,
         rule    = rules[v]
         v_sum   = "+".join(f"COALESCE(l{lag}.{v}_w{lag},0.0)" for lag in range(window_size))
         sw_sum  = "+".join(f"COALESCE(l{lag}.{v}_sw{lag},0.0)" for lag in range(window_size))
-        n_valid = "+".join(f"CASE WHEN l{lag}.{v}_sw{lag}>0 THEN 1 ELSE 0 END" for lag in range(window_size))
+        # A contagem sai de _p, a presenca do valor, e nao de _sw, que e
+        # o PESO quando o valor existe. Com _sw a cobertura de um lag de
+        # peso zero some: o valor esta la, o CASE da 0.0, e a linha e
+        # anulada por min_obs como se o dado faltasse. Nos pesos padrao
+        # (linspace 1,0 -> 0,1) nenhum e zero, entao so aparecia em
+        # weights= dado a mao -- justamente onde zerar um lag e a forma
+        # natural de exclui-lo da ponderacao sem exclui-lo da janela.
+        # Mesma familia do M143: contar outra coisa que nao o valor.
+        n_valid = "+".join(f"COALESCE(l{lag}.{v}_p{lag},0)" for lag in range(window_size))
         expr = (f"SUM" if rule == "sum" else "AVG")
         if rule == "sum":
             wwin_exprs.append(
@@ -1428,7 +1439,14 @@ def sus_climate_aggregate(
         weights: Weights for ``weighted_window`` (size ``window_days + 1``).
             Auto-generates linear decay 1.0 → 0.1 if ``None``.
         min_obs: Minimum proportion of valid observations in window (0-1).
-            Default: 0.7.
+            Default: 0.7. Counted **per climate variable**: a day the
+            station recorded temperature but not rainfall counts as an
+            observation of temperature and not of rainfall, so each
+            column is gated by its own coverage. Until 21/10/2026
+            ``moving_window`` and ``offset_window`` counted joined rows
+            instead, one number shared by every variable, which let a
+            sum over 3 actual readings pass the gate and come out
+            labelled as a 12-day accumulation (M143).
         min_days: Minimum days per station for ``seasonal``. Default: 60.
         date_col: Name the health date column instead of detecting it.
             The escape hatch that was missing when this function matched
