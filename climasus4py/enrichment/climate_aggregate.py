@@ -16,6 +16,7 @@ Pipeline
 
 from __future__ import annotations
 
+import itertools
 import warnings
 from collections.abc import Sequence
 from contextvars import ContextVar
@@ -961,6 +962,12 @@ def _health_view(conn, health_data, muni_col, date_col, view_name):
     """)
 
 
+#: Numera as tabelas de resultado, para cada chamada de
+#: :func:`sus_climate_aggregate` ter a sua e nenhuma alcançar a da
+#: outra. O porquê está no comentário do snapshot, lá embaixo.
+_SERIE_RESULTADO = itertools.count()
+
+
 def _rotulo_num(v) -> str:
     """O número como o climasus4r o escreve dentro de um nome de coluna.
 
@@ -1547,8 +1554,18 @@ def sus_climate_aggregate(
         verbose: Print progress messages.
 
     Returns:
-        ``DuckDBPyRelation`` with health data enriched with climate columns.
-        Lazy — materialise with ``.df()`` or ``cs.materialize()``.
+        ``DuckDBPyRelation`` with health data enriched with climate columns,
+        over a temp table that this call owns. Read it with ``.df()`` or
+        ``cs.materialize()``, as usual.
+
+        It is **not** lazy, and that is deliberate: the strategies build
+        their result over temp views of fixed name on a singleton
+        connection, so a later call would replace the views a pending
+        relation still points at and hand it another call's data. The
+        snapshot is what makes two aggregates in the same session safe —
+        including two with different strategies. See the comment at the
+        snapshot for what was measured.
+
         Use ``cs.sus_climate_info(result)`` to inspect metadata.
 
     Example:
@@ -1705,6 +1722,37 @@ def sus_climate_aggregate(
         # novas do resumo final passa a incluí-las.
         if temporal_strategy != "exact":
             result = _join_exact(result, climate_matched, climate_vars_resolved)
+
+        # SNAPSHOT, e ele é obrigatório para a correção acima ser segura.
+        #
+        # Toda estratégia monta o resultado sobre TEMP VIEWs de nome
+        # fixo, criadas com CREATE OR REPLACE, numa conexão que é
+        # singleton. A relação devolvida é lazy: ela guarda os NOMES, não
+        # os dados. Então uma segunda chamada substitui as views da
+        # primeira, e a primeira relação -- se ainda não tiver sido
+        # materializada -- passa a ler o dado da segunda.
+        #
+        # Antes isso só mordia quem chamasse a MESMA estratégia duas
+        # vezes, porque os nomes de view são distintos entre elas. Ao
+        # fazer todas passarem pelo _join_exact, todas passaram a
+        # terminar em `FROM _h_ex`, e `register("_h_ex", ...)` substitui
+        # o anterior: a última chamada sequestrava TODAS as pendentes.
+        # MEDIDO: montando cinco estratégias e materializando depois, as
+        # cinco devolviam as colunas da quinta -- não dado errado, a
+        # relação virava outra estratégia.
+        #
+        # A TEMP TABLE resolve a classe inteira: nome único por chamada e
+        # dado copiado na hora, então nada do que vier depois alcança
+        # este resultado. O custo é materializar aqui em vez de no
+        # `.df()` do usuário -- e é uma linha por evento de saúde, o
+        # mesmo tamanho que ele materializaria de qualquer jeito.
+        alvo = f"_climasus_agg_{next(_SERIE_RESULTADO)}"
+        conn_snap = get_connection()
+        conn_snap.execute(
+            f"CREATE OR REPLACE TEMP TABLE {alvo} AS "
+            f"SELECT * FROM ({result.sql_query()})"
+        )
+        result = conn_snap.sql(f"SELECT * FROM {alvo}")
 
         # --- sus_meta ---
         result = set_stage(result, "climate", _inherit_from=health_data)

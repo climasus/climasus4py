@@ -214,6 +214,49 @@ class TestEstrategiasTemporais:
         # e, ao contrario do R, o resultado nao e uma coluna vazia
         assert df[n_col].notna().any()
 
+    def test_uma_chamada_nao_sequestra_a_outra(self, saude, clima):
+        """Monta CINCO agregados e so depois materializa os cinco.
+
+        As estrategias constroem o resultado sobre TEMP VIEWs de nome
+        FIXO, com CREATE OR REPLACE, numa conexao singleton. Se o
+        resultado fosse devolvido lazy, a segunda chamada substituiria as
+        views da primeira e a primeira passaria a ler o dado da segunda.
+
+        MEDIDO antes do snapshot: as cinco relacoes devolviam as colunas
+        da QUINTA -- nao era dado errado, a relacao virava outra
+        estrategia. Este teste falha se alguem tirar a TEMP TABLE de
+        nome unico em nome de "voltar a ser lazy".
+        """
+        casos = [
+            ("moving_window",   {"window_days": 7}),
+            ("offset_window",   {"offset_days": [3, 7]}),
+            ("discrete_lag",    {"lag_days": [0, 2]}),
+            ("degree_days",     {"window_days": 7, "temp_base": 18.0}),
+            ("weighted_window", {"window_days": 7}),
+        ]
+        comum = dict(health_data=saude, climate_data=clima,
+                     climate_vars=["tair_dry_bulb_c"], verbose=False)
+
+        # uma de cada vez, materializando na hora: a referencia
+        esperado = {}
+        for est, extra in casos:
+            d = cs.sus_climate_aggregate(temporal_strategy=est,
+                                         **comum, **extra).df()
+            esperado[est] = sorted(c for c in d.columns
+                                   if c not in saude.columns)
+
+        # agora TODAS montadas antes de qualquer materializacao
+        rels = {est: cs.sus_climate_aggregate(temporal_strategy=est,
+                                              **comum, **extra)
+                for est, extra in casos}
+        for est, _ in casos:
+            d = rels[est].df()
+            obtido = sorted(c for c in d.columns if c not in saude.columns)
+            assert obtido == esperado[est], (
+                f"{est} devolveu {obtido}, esperado {esperado[est]} -- "
+                f"uma chamada sobrescreveu a outra"
+            )
+
 
 class TestValidacao:
     def test_recusa_saude_que_nao_e_relacao(self, clima):
