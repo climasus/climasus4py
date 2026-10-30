@@ -118,7 +118,29 @@ def _agg_detect_date_col(columns: list[str], system: str | None = None) -> str |
     # in no list anywhere, and the error told the caller to run the
     # standardize they had just run (M123). Order is preserved, so SIM is
     # still dated by the death and not the birth.
-    return next((c for c in expand_column_synonyms(candidates) if c in columns), None)
+    achada = next(
+        (c for c in expand_column_synonyms(candidates) if c in columns), None)
+    if achada is not None:
+        return achada
+
+    # Nothing matched, so fall back to the package-wide priority list.
+    #
+    # templates/aggregate_config.json is a REFINEMENT per system, not the
+    # whole truth, and it has no SIA section — so a standardized SIA
+    # frame, which carries competence_date and processing_date plainly
+    # named, got None here and sus_data_create_variables skipped the
+    # entire calendar block: 15 variables missing, with a warning and no
+    # error (M163). The config lives in climasus-data, which is verified
+    # by checksum and needs a release; role_priority has a bundled
+    # fallback and already knows the SIA dates.
+    #
+    # This can only ADD a result where there was None — every path that
+    # already found a column returns above — so no system that worked
+    # changes its answer. The order is the same category-first order the
+    # config uses: event dates first, birth date last.
+    from ..utils.data import detect_date_column
+
+    return detect_date_column(columns)
 
 
 def _agg_geo_candidates(system: str | None = None) -> list[str]:

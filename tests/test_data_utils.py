@@ -38,6 +38,40 @@ class TestDecodeAgeSql:
         assert self._decode("030") == 0
 
     # ---------------------------------------------------------------
+    # M167 — a idade do SIA é ano puro, não código unidade+quantidade
+    # ---------------------------------------------------------------
+
+    def _decode_col(self, coluna: str, valor: str) -> int | None:
+        conn = get_connection()
+        expr = decode_age_sql(coluna)
+        return conn.sql(
+            f"SELECT {expr} FROM (SELECT '{valor}' AS \"{coluna}\")"
+        ).fetchone()[0]
+
+    @pytest.mark.parametrize(
+        "coluna",
+        ["PA_IDADE", "patient_age", "idade_paciente", "edad_paciente"],
+    )
+    def test_a_idade_do_sia_e_lida_em_anos(self, coluna):
+        """063 é 63 anos, e não "unidade 0, quantidade 63".
+
+        Pela regra do SIM o dígito 0 significa MINUTOS, então toda idade
+        do SIA caía em 0 anos: medido em SIA-PA/AC/janeiro de 2023, as
+        72.654 linhas na faixa 0-4 contra 7.165 / 6.512 / 46.746 /
+        12.231 no climasus4r, que lê a coluna como ano.
+        """
+        assert self._decode_col(coluna, "063") == 63
+        assert self._decode_col(coluna, "010") == 10
+        assert self._decode_col(coluna, "109") == 109
+        assert self._decode_col(coluna, "000") == 0
+
+    def test_a_mesma_string_continua_sendo_codigo_fora_do_sia(self):
+        """A troca é por COLUNA, não global: o SIM não pode mudar."""
+        assert self._decode("063") == 0      # unidade 0 = minutos
+        assert self._decode("109") == 0      # unidade 1 = horas
+        assert self._decode("463") == 63     # unidade 4 = anos
+
+    # ---------------------------------------------------------------
     # M6 — sentinela de idade desconhecida
     # ---------------------------------------------------------------
 

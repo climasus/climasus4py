@@ -157,12 +157,72 @@ def test_o_catalogo_publica_schema_version_5() -> None:
     assert int(publicado["schema_version"]) >= 5
 
 
-def test_o_fallback_acompanha_o_publicado() -> None:
-    """Divergir aqui é comportar-se diferente conforme o catálogo exista."""
+def test_o_fallback_nao_fica_atras_do_publicado() -> None:
+    """A cópia embutida pode ir À FRENTE do catálogo, nunca atrás.
+
+    Era uma igualdade, e a igualdade valia enquanto cada correção saía
+    junto com um release do climasus-data. O M163 acrescentou as duas
+    datas do SIA aqui sem poder publicá-las lá — o catálogo é um
+    repositório da organização e é conferido por checksum —, então o
+    embutido lidera por uma versão. Essa é a situação para a qual os
+    ramos ``versao < N`` existem: com o catálogo na 5, o ramo da 6
+    devolve a lista corrigida, e o comportamento é o MESMO com ou sem
+    climasus-data presente. É isso que o teste logo abaixo verifica.
+
+    O que continua proibido, e é o que a docstring antiga queria dizer,
+    é o embutido FICAR PARA TRÁS: perder um nome que o catálogo publica,
+    ou trocar a ordem relativa de dois deles. Uma instalação sem
+    climasus-data detectaria a coluna errada, que é o defeito do M127
+    por outro caminho.
+    """
     publicado = json.loads(
         data_path("metadata/datasus_columns.json").read_text(encoding="utf-8")
     )["role_priority"]["date"]
-    assert publicado == _FALLBACK_DATASUS_COLUMNS["role_priority"]["date"]
+    embutido = _FALLBACK_DATASUS_COLUMNS["role_priority"]["date"]
+
+    faltando = [nome for nome in publicado if nome not in embutido]
+    assert not faltando, f"o embutido perdeu nomes do publicado: {faltando}"
+
+    # Mesma ordem relativa: a lista é uma PRIORIDADE, e inverter dois
+    # nomes troca a coluna escolhida sem tirar nenhum.
+    posicoes = [embutido.index(nome) for nome in publicado]
+    assert posicoes == sorted(posicoes), (
+        "o embutido reordenou nomes do publicado: "
+        f"{[publicado[i] for i in range(len(posicoes))]}"
+    )
+
+
+def test_catalogo_na_versao_5_recebe_as_datas_do_sia(monkeypatch) -> None:
+    """Quem não atualizar o catálogo não fica sem as datas do SIA (M163).
+
+    Na 5 o role_priority não nomeia nenhuma coluna de data do SIA, então
+    ``detect_date_column`` devolvia None num quadro do SIA e o bloco de
+    calendário inteiro era pulado — 15 variáveis a menos, com aviso e
+    sem erro.
+    """
+    from climasus4py.utils import data as _data
+
+    antigo = json.loads(
+        data_path("metadata/datasus_columns.json").read_text(encoding="utf-8"))
+    antigo["schema_version"] = 5
+
+    _data.load_datasus_columns_spec.cache_clear()
+    _data._AVISOU_SCHEMA.discard("5")
+    monkeypatch.setattr(_data, "load_json", lambda rel: antigo)
+    try:
+        with pytest.warns(UserWarning, match="M163"):
+            spec = _data.load_datasus_columns_spec()
+        d = spec["role_priority"]["date"]
+        assert "competence_date" in d
+        assert "processing_date" in d
+        # Competência antes de processamento: é o mês a que a produção
+        # se refere, não o mês em que o DATASUS a processou.
+        assert d.index("competence_date") < d.index("processing_date")
+        assert spec["role_priority"]["age"].index("patient_age") < \
+            spec["role_priority"]["age"].index("mother_age")
+    finally:
+        _data.load_datasus_columns_spec.cache_clear()
+        _data._AVISOU_SCHEMA.discard("5")
 
 
 def test_catalogo_na_versao_4_recebe_a_lista_corrigida(monkeypatch) -> None:

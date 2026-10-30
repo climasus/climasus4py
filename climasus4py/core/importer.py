@@ -264,6 +264,56 @@ def _cache_partition_id(system: str, uf: str) -> str:
     return uf
 
 
+#: Systems whose files are partitioned by a UF that is NOT the patient's,
+#: and the raw column that holds the patient's municipality.
+#:
+#: A SIH-RD file for Acre holds the admissions *billed by Acre hospitals*,
+#: which include patients resident elsewhere; a SIA-PA file is partitioned
+#: the same way. So ``uf="AC"`` returned rows from outside Acre, while
+#: ``climasus4r`` filtered them out — its import log says so out loud,
+#: "Filtro lazy de UF na coluna 'PA_MUNPCN'".
+#:
+#: Measured on SIH-RD AC+RR+AP, 2022-2023, months 1/6/11: 69.586 rows here
+#: against 67.084 in R, and the 2.502 extra were exactly the rows whose
+#: residence municipality starts with neither 12, 14 nor 16 (M164).
+#:
+#: SIM-DO, SINASC and CNES-ST are NOT here, and that is measured too, not
+#: assumed: on SP 2023 and Sul 2023 both packages returned the same count
+#: to the row, because DATASUS already partitions those by residence.
+#: Adding them would filter on a column that is already pure and cost a
+#: scan for nothing.
+_RESIDENCE_FILTER_COLUMNS: dict[str, tuple[str, ...]] = {
+    "SIH": ("MUNIC_RES", "MUN_RES"),
+    "SIA": ("PA_MUNPCN",),
+}
+
+
+def _residence_filter_expression(system: str, ufs: list[str],
+                                 columns: list[str]) -> str | None:
+    """UF filter on the patient's municipality, for the systems that need it.
+
+    Returns ``None`` when the system is not one of them, when every UF was
+    asked for, or when none of the candidate columns is in the file — a
+    layout that changed should drop the filter, never raise.
+    """
+    candidatas = _RESIDENCE_FILTER_COLUMNS.get(system.split("-")[0].upper())
+    if not candidatas:
+        return None
+
+    uf_codes = load_uf_codes()
+    requested = {uf.upper() for uf in ufs}
+    if requested == set(uf_codes):
+        return None
+
+    col = next((c for c in candidatas if c in columns), None)
+    if col is None:
+        return None
+
+    prefixes = [f"{int(uf_codes[uf]['code']):02d}" for uf in sorted(requested)]
+    values = ", ".join(f"'{p}'" for p in prefixes)
+    return f'LEFT(CAST("{col}" AS VARCHAR), 2) IN ({values})'
+
+
 def _state_filter_expression(system: str, ufs: list[str]) -> str | None:
     system_meta = _system_source(system)
     filter_meta = system_meta.get("partition_filter")
@@ -830,6 +880,12 @@ def sus_data_import(
     filter_expr = _state_filter_expression(system, ufs)
     if filter_expr:
         rel = rel.filter(filter_expr)
+    # Second filter, for the systems partitioned by the FACILITY's UF
+    # rather than the patient's — see _RESIDENCE_FILTER_COLUMNS.
+    residencia_expr = _residence_filter_expression(
+        system, ufs, list(rel.columns))
+    if residencia_expr:
+        rel = rel.filter(residencia_expr)
     rel = set_stage(rel, "import", system=system, rel_type="health")
     rel = add_history(rel, f"Imported DATASUS {system} ({', '.join(ufs)}) via FTP (climasus4py)")
     return rel

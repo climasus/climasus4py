@@ -212,11 +212,39 @@ _FALLBACK_DATASUS_COLUMNS: dict[str, Any] = {
         "CODIFICADO", "ESC", "ESC2010", "ESCFALAGR1", "ESCMAE2010",
         "ESCMAEAGR1",
     ],
+    # Six systems since schema_version 6, against the four published at 5 —
+    # and of those four, two named a column that is not in the file (M162).
+    #
+    # WHAT WAS MEASURED, on real 2023 extracts. `NU_NOTIFIC` appears in no
+    # section of dictionaries/*/columns.json at all: the signature pointed
+    # at a column this package has never heard of, so SINAN could not be
+    # detected by any file. `NUMERODN` is in the SIM section as well as
+    # SINASC, and is absent from the 2023 SINASC layout, which carries
+    # `NUMEROLOTE` instead. SIA and CNES had no signature whatsoever.
+    #
+    # Consequence, before the fix: 0 of 118 SINAN columns, 0 of 208 CNES
+    # and 0 of 60 SIA were translated, in silence — see the note on the
+    # system resolution in sus_data_standardize.
+    #
+    # Every name ADDED here was checked to appear in exactly one section
+    # of dictionaries/pt-en/columns.json, so no file can match two
+    # systems. The SIA names collide only with other SIA-* sections,
+    # which resolve to the same family.
+    #
+    # The two old names are KEPT, last in their lists, because a layout
+    # this package has not seen may still carry them — removing a working
+    # signature to fix a broken one would trade one silence for another.
+    # `NUMERODN` is also in the SIM section, which is why it comes after
+    # the three exclusive SINASC names and why SIM-DO is tested first:
+    # order decides, and detect_system returns the first match.
     "system_signatures": {
         "SIM-DO":      {"any_of": ["CAUSABAS", "DTOBITO"]},
-        "SIH-RD":      {"any_of": ["DIAG_PRINC"]},
-        "SINAN-DENGUE":{"any_of": ["NU_NOTIFIC"]},
-        "SINASC":      {"any_of": ["NUMERODN"]},
+        "SIH-RD":      {"any_of": ["DIAG_PRINC", "ANO_CMPT"]},
+        "SINASC":      {"any_of": ["LOCNASC", "APGAR5", "CODANOMAL",
+                                   "NUMERODN"]},
+        "SINAN-DENGUE":{"any_of": ["ID_AGRAVO", "NU_NOTIFIC"]},
+        "SIA-PA":      {"any_of": ["PA_CODUNI", "PA_IDADE", "PA_PROC_ID"]},
+        "CNES-ST":     {"any_of": ["VINC_SUS", "ATENDAMB"]},
     },
     # Every role lists the raw DATASUS name AND its standardized form in
     # the three languages, each translation placed immediately after the
@@ -242,16 +270,50 @@ _FALLBACK_DATASUS_COLUMNS: dict[str, Any] = {
             "notification_date", "data_notificacao", "fecha_notificacion",
             "DT_NOTIFIC", "first_symptom_date", "DT_SIN_PRI",
             "admission_date", "data_internacao", "fecha_internacion",
-            "fecha_ingreso", "DT_INTER", "update_date", "DT_COMPET", "date",
+            "fecha_ingreso", "DT_INTER",
+            # SIA, added at schema_version 6 (M163). Its two dates were in
+            # no list at all, so detect_date_column returned None on every
+            # SIA frame and sus_data_create_variables skipped the calendar
+            # block with a warning. COMPETENCE comes before PROCESSING
+            # because the competence month is the one the production
+            # refers to; the processing month is when DATASUS handled it,
+            # and can fall in a later month than the care itself.
+            #
+            # Both are YYYYMM, not YYYYMMDD — six digits naming a month,
+            # not a day. sus_data_standardize resolves them to the FIRST
+            # day of that month; see the note there.
+            "competence_date", "data_competencia", "fecha_competencia",
+            "PA_CMP",
+            "processing_date", "data_processamento", "fecha_procesamiento",
+            "PA_MVM",
+            "update_date", "DT_COMPET", "date",
             "birth_date", "data_nascimento", "fecha_nacimiento", "DTNASC"
         ],
         "cause": [
             "underlying_cause", "cause", "CAUSABAS", "causa_basica",
             "DIAG_PRINC", "primary_diagnosis", "diagnostico_principal",
         ],
+        # The SUBJECT's own age first, the MOTHER's last, and the gap
+        # between them is the point of the ordering.
+        #
+        # `patient_age` (SIA's PA_IDADE) was missing entirely until
+        # schema_version 6, so a standardized SIA frame — which has the
+        # column, plainly named — failed with "Could not determine age"
+        # unless the caller passed age_col= by hand (M163). climasus4r
+        # has the same gap, from two different hardcoded lists.
+        #
+        # The four mother's-age spellings at the end are a FALLBACK and
+        # nothing more. On a SINASC frame they are the only age present,
+        # and the age variables then describe the mother, not the
+        # newborn — both packages do this, neither says so. Registered as
+        # a question for the creator (M166); do not reorder to "fix" it
+        # here without that conversation, because the two packages
+        # agreeing is worth more right now than either being right.
         "age": [
             "age", "age_years", "age_code", "IDADE", "codigo_idade", "idade",
-            "codigo_edad", "edad", "IDADEMAE", "mother_age", "idade_mae",
+            "codigo_edad", "edad",
+            "patient_age", "idade_paciente", "edad_paciente", "PA_IDADE",
+            "IDADEMAE", "mother_age", "idade_mae",
             "edad_madre",
         ],
         "sex": [
@@ -300,6 +362,15 @@ _FALLBACK_DATASUS_COLUMNS: dict[str, Any] = {
 }
 
 
+#: schema_versions already reported by :func:`load_datasus_columns_spec`.
+#:
+#: The lru_cache below would already hold the warning to one call, but
+#: only while it lasts: the integrity tests clear the caches to re-read
+#: the checkout, and the warning came back each time. A module-level
+#: record outlives that.
+_AVISOU_SCHEMA: set[str] = set()
+
+
 @lru_cache(maxsize=1)
 def load_datasus_columns_spec() -> dict[str, Any]:
     """Load DATASUS column specs, with fallback for older climasus-data.
@@ -322,7 +393,7 @@ def load_datasus_columns_spec() -> dict[str, Any]:
         return _FALLBACK_DATASUS_COLUMNS.copy()
 
     versao = int(data.get("schema_version") or 1)
-    if versao >= 5:
+    if versao >= 6:
         return data
 
     import warnings
@@ -374,15 +445,45 @@ def load_datasus_columns_spec() -> dict[str, Any]:
         papeis["date"] = _FALLBACK_DATASUS_COLUMNS["role_priority"]["date"]
         corrigido["role_priority"] = papeis
 
-    warnings.warn(
-        "climasus-data publishes metadata/datasus_columns.json at "
-        f"schema_version {data.get('schema_version')!r}, which has "
-        + "; and ".join(faltando)
-        + ". Using the corrected lists bundled with climasus4py instead; "
-        "run update_climasus_data() to get the published ones.",
-        UserWarning,
-        stacklevel=2,
-    )
+    if versao < 6:
+        faltando.append(
+            "system_signatures for four systems only, two of them naming a "
+            "column the files do not have -- NU_NOTIFIC is in no dictionary "
+            "section at all and NUMERODN is absent from the 2023 SINASC "
+            "layout -- and none at all for SIA and CNES, so a SIA, CNES, "
+            "SINAN or SINASC frame could not be identified and came out of "
+            "sus_data_standardize with its raw DATASUS column names, in "
+            "silence: 0 of 118 SINAN columns, 0 of 208 CNES, 0 of 60 SIA "
+            "(M162); and a role_priority with no SIA age or date column, so "
+            "a standardized SIA frame could neither find patient_age nor "
+            "build any calendar variable (M163)")
+        corrigido["system_signatures"] = dict(
+            _FALLBACK_DATASUS_COLUMNS["system_signatures"])
+        papeis = dict(corrigido.get("role_priority") or {})
+        for chave in ("age", "date"):
+            papeis[chave] = _FALLBACK_DATASUS_COLUMNS["role_priority"][chave]
+        corrigido["role_priority"] = papeis
+
+    # Once per process, not once per call. This function is reached from
+    # every detector in the package — detect_system, detect_age_column,
+    # detect_date_column, the geographic ones — so a pipeline calls it
+    # dozens of times, and the condition it reports is STATIC: the
+    # installed climasus-data does not change mid-run. Warning each time
+    # buried the message in its own repetition, and turned any caller
+    # running under `simplefilter("error")` into a failure that had
+    # nothing to do with what that caller was testing.
+    chave = str(data.get("schema_version"))
+    if chave not in _AVISOU_SCHEMA:
+        _AVISOU_SCHEMA.add(chave)
+        warnings.warn(
+            "climasus-data publishes metadata/datasus_columns.json at "
+            f"schema_version {data.get('schema_version')!r}, which has "
+            + "; and ".join(faltando)
+            + ". Using the corrected lists bundled with climasus4py instead; "
+            "run update_climasus_data() to get the published ones.",
+            UserWarning,
+            stacklevel=2,
+        )
     return corrigido
 
 
@@ -662,6 +763,22 @@ def period_bound(value: str, *, end: bool = False):
     return (period.end_time if end else period.start_time).normalize()
 
 
+#: Age columns whose three digits are YEARS, not a DATASUS unit+amount
+#: code — see :func:`decode_age_sql`.
+#:
+#: Only SIA's patient age is listed, in the four spellings
+#: ``sus_data_standardize`` can produce, and the list stays this narrow
+#: on purpose. ``age`` and ``age_years`` are NOT here even though their
+#: names promise years: SIH writes ``IDADE`` beside ``COD_IDADE``, where
+#: the unit lives in the companion column, and nothing has been measured
+#: about which systems feed those names with what. Widening this set
+#: without a count against ``climasus4r`` would trade a known defect for
+#: an unknown one.
+_IDADE_EM_ANOS: frozenset[str] = frozenset({
+    "PA_IDADE", "patient_age", "idade_paciente", "edad_paciente",
+})
+
+
 def decode_age_sql(age_col: str) -> str:
     """Return a DuckDB SQL expression that decodes SIM-DO coded age to years.
 
@@ -684,7 +801,21 @@ def decode_age_sql(age_col: str) -> str:
     would discard a legitimately coded age. Rejecting an out-of-range unit
     digit covers ``999`` and any other undecodable code without guessing
     at short numeric values.
+
+    NOT EVERY THREE-DIGIT DATASUS AGE IS CODED THIS WAY, which is the
+    trap :data:`_IDADE_EM_ANOS` exists for. SIA's ``PA_IDADE`` is the
+    patient's age in YEARS, zero-padded to three digits — ``063`` is 63
+    years old, not "unit 0, amount 63". Run through the rule above, the
+    leading ``0`` reads as *minutes* and every such row collapses to 0
+    years. Measured on SIA-PA/AC/January 2023, 72.654 rows: all of them
+    landed in the ``0-4`` band, against 7.165 / 6.512 / 46.746 / 12.231
+    across the four default bands in ``climasus4r`` — which reads the
+    column as plain years and is right. Reading it as years here
+    reproduces those four counts to the row (M167).
     """
+    if age_col in _IDADE_EM_ANOS:
+        return f'TRY_CAST(TRIM(CAST("{age_col}" AS VARCHAR)) AS INTEGER)'
+
     v = f'TRIM(CAST("{age_col}" AS VARCHAR))'
     return (
         f"CASE"

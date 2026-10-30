@@ -6,11 +6,13 @@ Pipeline stage: "standardize" (registered in sus_meta after processing).
 
 from __future__ import annotations
 
+import warnings
+
 import duckdb
 
 from ..utils.data import detect_system, load_json
 from ._guards import _assert_lazy
-from ._stage import add_history, set_stage
+from ._stage import add_history, get_meta, set_stage
 from .engine import get_connection, schema_columns
 
 # ---------------------------------------------------------------------------
@@ -43,6 +45,63 @@ def _code_column_widths() -> dict[str, int]:
     declarados = load_datasus_columns_spec().get(
         "all_identifier_columns") or {}
     return {col: int(w) for col, w in declarados.items() if w}
+
+
+def _date_parse_expr(col: str) -> str:
+    """SQL that turns *col* into a DATE, whatever shape DATASUS wrote it in.
+
+    Three shapes, tried in order, and the order is the whole design:
+
+    1. ``YYYYMM`` — six digits naming a MONTH, resolved to its first day.
+    2. ``DDMMYYYY`` — the usual DATASUS string, ``05012023``.
+    3. Anything DuckDB casts on its own, which covers an ISO string and a
+       column that is already a DATE.
+
+    Shape 1 exists for SIA, whose ``PA_CMP`` (competence) and ``PA_MVM``
+    (processing) are month-granularity: ``202301`` means January 2023, not
+    a day. Neither of the other two parses it — ``TRY_CAST('202301' AS
+    DATE)`` is NULL.
+
+    WHY IT GOES FIRST, which is not obvious and was measured. ``%d%m%Y``
+    does not require four digits for the year, so on a six-digit string
+    it reads the first two as the day and the LAST TWO as the year:
+    ``201012``, meaning October 2010, comes back as 20/10/0012. That bites
+    exactly the competence months from 2000 to 2012, where digits three
+    and four happen to form a valid month — about a third of the range SIA
+    has published. Putting the month shape first costs nothing, because
+    its guards make it decline anything that is not a plausible
+    ``YYYYMM``: the year must read 1900-2100, and ``%Y%m`` itself rejects
+    a month outside 01-12.
+
+    What the guards deliberately do NOT catch is a genuine ``DDMMYY``
+    column — ``010223`` falls through to shape 2 and comes back as year
+    23. That is unchanged from before this helper existed, no column in
+    the candidate lists is written that way, and the shape-based fallback
+    below only converts a column when 100% of its values parse.
+
+    WHAT THE FIRST OF THE MONTH COSTS. It is a convention, not a fact: the
+    source does not record a day, and every SIA row in a month lands on
+    the same date. Day-of-week, is_weekend and the epidemiological week
+    derived from it describe the convention and not the care. Anything
+    that aggregates by month, quarter or year is unaffected. The
+    alternative was to leave the column as text, which is what produced
+    the silent damage this replaces: ``detect_date_column`` found nothing,
+    the calendar block was skipped, and the frame came back without the
+    15 variables the caller asked for. climasus4r does not get this far —
+    it reaches ``as.Date("202301")`` and raises "character string is not
+    in a standard unambiguous format" (M163).
+
+    """
+    bruto = f'CAST("{col}" AS VARCHAR)'
+    return (
+        f"COALESCE("
+        f"CASE WHEN LENGTH({bruto}) = 6 "
+        f"AND TRY_CAST(SUBSTR({bruto}, 1, 4) AS INTEGER) BETWEEN 1900 AND 2100 "
+        f"THEN TRY_STRPTIME({bruto}, '%Y%m')::DATE END, "
+        f"TRY_STRPTIME({bruto}, '%d%m%Y')::DATE, "
+        f'TRY_CAST("{col}" AS DATE)'
+        f")"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -248,12 +307,49 @@ def sus_data_standardize(
 
     columns = schema_columns(rel)
 
+    # ------------------------------------------------------------------
+    # Which DATASUS system is this? Three sources, in order of trust.
+    # ------------------------------------------------------------------
+    # 1. What the caller said.
+    # 2. What sus_data_import RECORDED. It knows the system exactly — it
+    #    was an argument — and writes it to the stage metadata
+    #    (importer.py, set_stage(..., system=system)), which
+    #    sus_data_clean_encoding carries forward with _inherit_from.
+    # 3. Guessing from the column names, which is all that is left for a
+    #    relation that never went through sus_data_import — a parquet
+    #    opened by hand, say.
+    #
+    # Until 27/10/2026 only (3) existed, and when it failed the code took
+    # the DuckDB ALIAS as the system name. For a relation read from files
+    # that alias is `parquet_5957eec4d0d15e67`. _load_column_dict then
+    # looked for a section by that name, found none, fell back to COMMON's
+    # 15 entries — and said nothing. Measured on 2023 extracts: 0 of 118
+    # SINAN columns translated, 0 of 208 CNES, 0 of 60 SIA, where
+    # climasus4r translated 116, 89 and 60. The pipeline then ran on raw
+    # column names and produced plausible wrong numbers: a SINAN frame
+    # dated by the string in DT_NOTIFIC, a SINASC frame aged from
+    # IDADEMAE (M162).
+    #
+    # The alias is gone as a source. A name that was never a system is
+    # worse than no name: with None, _load_column_dict merges every
+    # section and still translates most of the file, and the warning
+    # below tells the caller what to do about the rest.
+    if system is None:
+        system = get_meta(rel).get("system") if get_meta(rel) else None
     if system is None:
         system = detect_system(columns)
-        if system is None:
-            alias = getattr(rel, 'alias', None)
-            if alias and alias != 'unknown':
-                system = alias
+    if system is None:
+        warnings.warn(
+            "sus_data_standardize: could not tell which DATASUS system "
+            "this is — neither recorded by sus_data_import nor "
+            "recognisable from the column names. Falling back to the "
+            "merged dictionary of every system, which translates most "
+            "columns but can pick the wrong code book for a categorical "
+            "one. Pass system= (e.g. system='SIA-PA') to remove the "
+            "guesswork.",
+            UserWarning,
+            stacklevel=2,
+        )
 
     # ------------------------------------------------------------------
     # 0. Fixed-width codes back to zero-padded strings
@@ -327,24 +423,20 @@ def sus_data_standardize(
         # ES
         "fecha_muerte", "fecha_nacimiento", "fecha_ingreso", "fecha_alta",
         "fecha_notificacion", "fecha_primeros_sintomas",
+        # SIA — month-granularity, see _date_parse_expr
+        "competence_date", "data_competencia", "fecha_competencia",
+        "processing_date", "data_processamento", "fecha_procesamiento",
         # DATASUS original (if not renamed)
         "DTOBITO", "DTNASC", "DT_INTER", "DT_SAIDA",
         "DT_NOTIFIC", "DT_SIN_PRI", "DTINVESTIG", "DTCONCASO",
-        "DTCADASTRO", "DTRECEBIM",
+        "DTCADASTRO", "DTRECEBIM", "PA_CMP", "PA_MVM",
     ]
 
     for dc in date_candidates:
         if dc in new_columns:
             rel = rel.project(
                 ", ".join(
-                    (
-                        f"COALESCE("
-                        f"TRY_STRPTIME(CAST(\"{dc}\" AS VARCHAR), '%d%m%Y')::DATE, "
-                        f"TRY_CAST(\"{dc}\" AS DATE)"
-                        f") AS \"{dc}\""
-                    )
-                    if c == dc
-                    else f'"{c}"'
+                    f'{_date_parse_expr(dc)} AS "{dc}"' if c == dc else f'"{c}"'
                     for c in new_columns
                 )
             )
@@ -377,10 +469,7 @@ def sus_data_standardize(
         )
         if not parece_data:
             continue
-        expr = (
-            f'COALESCE(TRY_STRPTIME(CAST("{col}" AS VARCHAR), \'%d%m%Y\')::DATE, '
-            f'TRY_CAST("{col}" AS DATE))'
-        )
+        expr = _date_parse_expr(col)
         try:
             total, convertidos = rel.aggregate(
                 f'COUNT("{col}") AS n, COUNT({expr}) AS ok'

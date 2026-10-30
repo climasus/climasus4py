@@ -224,20 +224,61 @@ def test_o_catalogo_publica_schema_version_4() -> None:
     assert int(publicado["schema_version"]) >= 4
 
 
-def test_o_fallback_acompanha_o_publicado() -> None:
+def test_o_fallback_nao_fica_atras_do_publicado() -> None:
     """A cópia embutida não pode ficar para trás da publicada.
 
     Ela existe para instalação sem climasus-data, e uma divergência aqui
     significa comportamento diferente conforme o catálogo esteja
     presente — o tipo de diferença que ninguém procura.
+
+    Era uma igualdade por papel. Deixou de ser quando o M163 acrescentou
+    as colunas de idade e data do SIA ao embutido sem poder publicá-las
+    no catálogo, que é repositório da organização e conferido por
+    checksum: o embutido passou a liderar por uma versão, e é para isso
+    que os ramos ``versao < N`` existem. O que o teste guarda é o
+    sentido da frase acima — ficar PARA TRÁS, perdendo um nome que o
+    catálogo publica ou invertendo a ordem de dois deles — e não a
+    igualdade literal.
     """
     publicado = json.loads(
         data_path("metadata/datasus_columns.json").read_text(encoding="utf-8")
     )["role_priority"]
     embutido = _FALLBACK_DATASUS_COLUMNS["role_priority"]
-    assert set(publicado) == set(embutido)
-    for papel in publicado:
-        assert publicado[papel] == embutido[papel], papel
+
+    assert set(publicado) <= set(embutido), (
+        "o embutido não cobre todos os papéis publicados: "
+        f"{sorted(set(publicado) - set(embutido))}"
+    )
+    for papel, nomes in publicado.items():
+        faltando = [n for n in nomes if n not in embutido[papel]]
+        assert not faltando, f"{papel} perdeu: {faltando}"
+        posicoes = [embutido[papel].index(n) for n in nomes]
+        assert posicoes == sorted(posicoes), f"{papel} reordenou o publicado"
+
+
+def test_o_fallback_cobre_todo_sistema_que_o_dicionario_traduz() -> None:
+    """Sem assinatura, um sistema sai do standardize com os nomes crus.
+
+    É o M162 em uma linha: SIA e CNES tinham seção de dicionário
+    completa e nenhuma assinatura, então ``detect_system`` não os
+    reconhecia e o standardize caía na COMMON de 15 entradas — 0 de 60
+    colunas traduzidas no SIA, 0 de 208 no CNES.
+    """
+    assinaturas = _FALLBACK_DATASUS_COLUMNS["system_signatures"]
+    familias = {s.split("-")[0] for s in assinaturas}
+    assert {"SIM", "SIH", "SINASC", "SINAN", "SIA", "CNES"} <= familias
+
+    # Nenhuma coluna pode valer para dois sistemas: a primeira que casar
+    # decide, e um empate faria a escolha depender da ordem do dict.
+    vistos: dict[str, str] = {}
+    for sistema, spec in assinaturas.items():
+        for coluna in spec["any_of"]:
+            anterior = vistos.get(coluna)
+            # NUMERODN é o caso conhecido — está também na seção do SIM,
+            # e fica por último no SINASC justamente por isso.
+            assert anterior is None or coluna == "NUMERODN", (
+                f"{coluna} assina {anterior} e {sistema}")
+            vistos[coluna] = sistema
 
 
 def test_catalogo_na_versao_3_recebe_a_lista_corrigida(monkeypatch) -> None:
