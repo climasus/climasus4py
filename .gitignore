@@ -14,6 +14,11 @@ venv/
 output/
 dados/
 *.parquet
+
+# Armazenamento temporario do DuckDB. Ele cria .tmp/ na pasta de trabalho
+# quando uma consulta transborda para disco -- rodar a Etapa B deixou 3,4 MB
+# de duckdb_temp_storage_*.tmp aqui. Sao arquivos de sessao, nao do pacote.
+.tmp/
 # ...except test fixtures. The blanket *.parquet rule silently kept the
 # frozen R reference for the indicator parity tests out of the repo, so
 # those tests passed locally and would fail on a fresh clone with a
