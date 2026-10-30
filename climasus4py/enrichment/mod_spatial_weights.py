@@ -112,6 +112,86 @@ _MESSAGES: dict[str, dict[str, str]] = {
 
 _DEFAULT_SNAP = 1e-3
 
+#: Folga usada só para escolher os pares CANDIDATOS a vizinho, antes do
+#: teste de ``snap``. É a contrapartida da imprecisão que o s2 injeta no
+#: ``st_intersects()`` do lado do R -- a ajuda do ``spdep::poly2nb`` diz
+#: que, em geometria esférica, o ``snap`` vale só para confirmar o
+#: vizinho, e os candidatos saem do ``st_intersects()``.
+#:
+#: O valor é o default geográfico que o próprio ``poly2nb`` documenta
+#: (~10 mm). Não é número ajustado a dedo: varrido em SP, MG e BA contra
+#: o R, qualquer folga de 1e-8 a 1e-6 dá o mesmo resultado, e é o melhor
+#: resultado -- SP e MG exatos, BA com 6 de 2.374. Abaixo disso a BA
+#: perde 24; a partir de 1e-5 MG deixa de ser exato; em 1e-4 os três
+#: pioram juntos. 1e-7 fica no meio do platô.
+_CANDIDATE_EPS = 1e-7
+
+
+def _poly2nb_snap(
+    geoms: Any,
+    row_names: list[str],
+    snap: float,
+    queen: bool,
+) -> dict[str, list[str]]:
+    """Contiguidade com tolerância, como ``spdep::poly2nb(snap=)``.
+
+    O ``libpysal.weights.Queen``/``Rook`` só liga dois polígonos quando
+    eles COMPARTILHAM vértice -- coordenada idêntica, bit a bit.
+    Fronteira digitalizada em escalas diferentes não tem coordenada
+    idêntica, tem coordenada PRÓXIMA, e cada vão de micrograu sumia com
+    um vizinho sem avisar. O grafo do Python era um SUBCONJUNTO ESTRITO
+    do do R: 3.520 arestas contra 3.600 em SP, 3.658 contra 4.778 em MG
+    (23% a menos) e 1.674 contra 2.374 na BA (29%). E 333 das 3.520 em
+    comum em SP ainda saíam com PESO errado, porque o estilo ``"W"``
+    divide por cardinalidade (M172).
+
+    A regra aqui é a da ajuda do ``poly2nb``, ao pé da letra: *"boundary
+    points less than `snap` distance apart are considered to indicate
+    contiguity"*, com ``criterion`` de 1 ponto (queen) ou 2 (rook).
+
+    Args:
+        geoms: Sequência de geometrias shapely, já reparadas.
+        row_names: Identificador de cada geometria, na mesma ordem.
+        snap: Distância em unidades do CRS. Pontos de fronteira a menos
+            que isso indicam contiguidade.
+        queen: ``True`` basta um ponto próximo; ``False`` exige dois.
+
+    Returns:
+        ``dict`` de identificador para a lista ordenada de vizinhos.
+    """
+    import numpy as np
+    import shapely
+    from scipy.spatial import cKDTree
+
+    criterio = 1 if queen else 2
+    n = len(row_names)
+    arr = np.asarray(geoms, dtype=object)
+
+    # Os vértices de cada polígono -- todos os anéis, todas as partes.
+    pontos = [shapely.get_coordinates(g) for g in arr]
+    arvores = [cKDTree(p) if len(p) else None for p in pontos]
+
+    # Candidatos: quem quase se toca. Ver _CANDIDATE_EPS.
+    pares = shapely.STRtree(arr).query(
+        arr, predicate="dwithin", distance=_CANDIDATE_EPS
+    ).T
+
+    vizinhos: dict[int, set[int]] = {i: set() for i in range(n)}
+    for i, j in pares:
+        if i >= j or arvores[i] is None or arvores[j] is None:
+            continue
+        # Consulta a árvore do polígono com MENOS vértices, com os pontos
+        # do outro: mesma conta, menos trabalho.
+        a, b = (i, j) if len(pontos[i]) <= len(pontos[j]) else (j, i)
+        proximos = arvores[a].query_ball_point(pontos[b], r=snap)
+        if sum(len(v) for v in proximos) >= criterio:
+            vizinhos[i].add(j)
+            vizinhos[j].add(i)
+
+    return {
+        row_names[i]: sorted(row_names[j] for j in vizinhos[i]) for i in range(n)
+    }
+
 
 def sus_mod_spatial_weights(
     municipalities: Any,
@@ -144,14 +224,59 @@ def sus_mod_spatial_weights(
         Municipal boundaries digitised at different scales often have
         small gaps or overlaps at shared borders. R's
         ``spdep::poly2nb()`` accepts a ``snap`` distance tolerance so
-        that boundaries within that distance are treated as touching.
-        ``libpysal.weights.Queen``/``Rook`` build contiguity from exact
-        polygon topology and have **no equivalent tolerance
-        parameter** — *snap* is accepted here for signature parity
-        with R, and its resolved value (``1e-3`` when ``None``, mirroring
-        R's default) is only used in the progress message. This is a
-        known behavioural gap versus R for geometries with tiny digitising
-        gaps; see ``IDEIAS.md``.
+        that boundaries within that distance are treated as touching,
+        and its help states the rule plainly: *"boundary points less
+        than `snap` distance apart are considered to indicate
+        contiguity"*, needing one such point for queen and two for rook.
+
+        ``libpysal.weights.Queen``/``Rook`` take a stricter view: they
+        link two polygons only when a vertex is **shared**, i.e. the
+        coordinate is identical bit for bit. Boundaries digitised at
+        different scales do not have identical coordinates, they have
+        *near* ones. So *snap* used to be accepted here **for signature
+        parity only**, its value reaching nothing but the progress
+        message — which printed ``snap = 0.001`` while the code snapped
+        nothing.
+
+        That gap was measured on 30/10/2026 and closed (M172). Fed the
+        identical WKT, with the bounding boxes matching on every
+        municipality in all four corners — so the divergence was purely
+        algorithmic — the two packages disagreed, and by far more than
+        the first state suggested::
+
+            queen       R      this, before   this, after
+            SP      3,600    3,520 (-80)        3,600   exact
+            MG      4,778    3,658 (-1,120)     4,778   exact
+            BA      2,374    1,674 (-700)       2,376   +4/-2
+
+        Minas Gerais was losing 23% of its links and Bahia 29%. São
+        Paulo's 2% was the *benign* case, and was the only one measured
+        before, which is how the gap passed for rounding.
+
+        The damage did not stop at the missing links. Style ``"W"``
+        divides by cardinality, so one lost neighbour reweights every
+        other neighbour of that municipality: in SP, **333 of the 3,520
+        links the two sides had in common carried a different weight**,
+        9.5% of the matrix. The total of the weights matched exactly
+        (644 either side), because the row-standardisation itself was
+        right — checking the sum would have revealed nothing.
+
+        :func:`_poly2nb_snap` closes it. Exact against R on SP and MG,
+        queen and rook; Bahia still differs on 6 of 2,374 directed
+        links (0.25%), all sub-metre knife-edge cases — two pairs at
+        4e-10 and 2e-9 degrees that this links and R does not, and one
+        pair 0.36 m apart whose closest approach is mid-segment rather
+        than vertex to vertex. ``snap=0`` asks for the exact-topology
+        path instead.
+
+        **What snap does not do**: it does not close a 111 m gap, here
+        or in R, although ``1e-3`` degrees is the default on both
+        sides. Measured in R with two squares and a growing gap, under
+        ``snap = 1e-3``: gaps of 0 and 1e-9 become contiguity, 1e-7
+        (1 cm) and above do not. For spherical geometry the candidate
+        pairs come from ``st_intersects()``, with s2's own tolerance,
+        and *snap* only confirms them. ``tests/test_spatial_weights_snap.py``
+        pins that contract to a ten-case matrix taken from climasus4r.
 
     Weight styles:
         * ``"W"`` (default) — row-standardised: each neighbour weight
@@ -192,10 +317,11 @@ def sus_mod_spatial_weights(
         queen: If ``True`` (default), Queen contiguity is used (shared
             edge or vertex). If ``False``, Rook contiguity (shared
             edge only).
-        snap: Distance tolerance conceptually passed to the R
-            neighbour-detection step. ``None`` (default) resolves to
-            ``1e-3``. See **Snap distance** above for the current
-            limitation in the Python port.
+        snap: Distance tolerance for neighbour detection, in the units
+            of the CRS. Boundary points less than this far apart count
+            as contiguity. ``None`` (default) resolves to ``1e-3``,
+            mirroring R; ``0`` asks for exact topology instead. See
+            **Snap distance** above.
         zero_policy: If ``True`` (default), municipalities with no
             neighbours ("islands") are allowed and reported via a
             warning. If ``False``, a ``ValueError`` is raised when
@@ -321,10 +447,21 @@ def sus_mod_spatial_weights(
             "[cyan]INFO[/]  " + msg["step_nb"].format(type_nb=type_nb, snap_val=snap_val)
         )
 
-    contiguity_cls = Queen if queen else Rook
-    w_bin = contiguity_cls.from_dataframe(
-        municipalities, ids=row_names, silence_warnings=True
-    )
+    if snap_val and snap_val > 0:
+        # O caminho com tolerância, que é o do R. Ver _poly2nb_snap e M172.
+        w_bin = PysalW(
+            dict(_poly2nb_snap(
+                municipalities.geometry.values, row_names, snap_val, queen
+            )),
+            id_order=list(row_names),
+            silence_warnings=True,
+        )
+    else:
+        # snap=0 pede topologia exata, que é o que o libpysal faz nativamente.
+        contiguity_cls = Queen if queen else Rook
+        w_bin = contiguity_cls.from_dataframe(
+            municipalities, ids=row_names, silence_warnings=True
+        )
 
     # -- detect islands --------------------------------------------------------
     cardinalities = w_bin.cardinalities  # dict id -> neighbour count
