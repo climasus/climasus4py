@@ -144,7 +144,7 @@ def sus_data_clean_encoding(
         from ..utils.data import decode_age_sql
 
         rel = conn.sql(
-            f"SELECT *, ({decode_age_sql(age_col)}) AS __age_years FROM rel")
+            f"SELECT *, ({decode_age_sql(age_col, columns)}) AS __age_years FROM rel")
         rel = rel.filter(
             f'__age_years IS NULL OR (__age_years >= {lo} AND __age_years <= {hi})'
         )

@@ -47,15 +47,46 @@ def _code_column_widths() -> dict[str, int]:
     return {col: int(w) for col, w in declarados.items() if w}
 
 
+def _yyyymmdd_shape_sql(bruto: str) -> str:
+    """SQL condition: *bruto* (a VARCHAR expression) is shaped ``YYYYMMDD``.
+
+    Eight characters, the first four a year in 1900-2100 and the next two
+    a month 01-12. A genuine ``DDMMYYYY`` date can never satisfy it: its
+    characters 5-6 are the start of its year — 19, 20 or 21 for any real
+    date — and none of those is a month. So the test splits the two
+    shapes without looking at the data, and the day is left to strptime,
+    which rejects 30 February and the like. Shared with the fast path of
+    ``sus_pipeline`` (``core/pipeline.py``), which parses dates on its own.
+    """
+    return (
+        f"(LENGTH({bruto}) = 8 "
+        f"AND TRY_CAST(SUBSTR({bruto}, 1, 4) AS INTEGER) BETWEEN 1900 AND 2100 "
+        f"AND TRY_CAST(SUBSTR({bruto}, 5, 2) AS INTEGER) BETWEEN 1 AND 12)"
+    )
+
+
 def _date_parse_expr(col: str) -> str:
     """SQL that turns *col* into a DATE, whatever shape DATASUS wrote it in.
 
-    Three shapes, tried in order, and the order is the whole design:
+    Four shapes, tried in order, and the order is the whole design:
 
     1. ``YYYYMM`` — six digits naming a MONTH, resolved to its first day.
-    2. ``DDMMYYYY`` — the usual DATASUS string, ``05012023``.
-    3. Anything DuckDB casts on its own, which covers an ISO string and a
+    2. ``YYYYMMDD`` — eight digits, year first: SIH, SINAN and CNES.
+    3. ``DDMMYYYY`` — the usual DATASUS string, ``05012023``: SIM, SINASC.
+    4. Anything DuckDB casts on its own, which covers an ISO string and a
        column that is already a DATE.
+
+    Shape 2 was missing until 05/11/2026 (M181), and its absence was
+    silent. ``20230113`` (DT_INTER, SIH) read as ``DDMMYYYY`` gives month
+    23 and became NULL; ``20080710`` gave day 20, month 08, year 0710 and
+    became 0710-08-20 — an absurd date, not a null. Measured: admission,
+    discharge and birth dates of SIH-RD 0% equal to climasus4r, the SINAN
+    notification date NULL in all 73,778 rows, and the calendar
+    variables of both systems 100% NULL — so neither could be joined to
+    climate. When a value has the ``YYYYMMDD`` shape (see
+    ``_yyyymmdd_shape_sql``) it is parsed ONLY that way: an invalid day
+    such as ``20080732`` comes back NULL instead of falling through to
+    ``DDMMYYYY`` and becoming 0732-08-20.
 
     Shape 1 exists for SIA, whose ``PA_CMP`` (competence) and ``PA_MVM``
     (processing) are month-granularity: ``202301`` means January 2023, not
@@ -94,13 +125,15 @@ def _date_parse_expr(col: str) -> str:
     """
     bruto = f'CAST("{col}" AS VARCHAR)'
     return (
-        f"COALESCE("
+        f"CASE WHEN {_yyyymmdd_shape_sql(bruto)} "
+        f"THEN TRY_STRPTIME({bruto}, '%Y%m%d')::DATE "
+        f"ELSE COALESCE("
         f"CASE WHEN LENGTH({bruto}) = 6 "
         f"AND TRY_CAST(SUBSTR({bruto}, 1, 4) AS INTEGER) BETWEEN 1900 AND 2100 "
         f"THEN TRY_STRPTIME({bruto}, '%Y%m')::DATE END, "
         f"TRY_STRPTIME({bruto}, '%d%m%Y')::DATE, "
         f'TRY_CAST("{col}" AS DATE)'
-        f")"
+        f") END"
     )
 
 

@@ -362,7 +362,7 @@ def sus_filter(
             conditions.append('"age_years" < 999')
             rel = rel.filter(" AND ".join(conditions))
         else:
-            decoded    = decode_age_sql(age_col)
+            decoded    = decode_age_sql(age_col, columns)
             conditions = []
             if age_min is not None:
                 conditions.append(f'({decoded}) >= {age_min}')

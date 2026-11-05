@@ -514,7 +514,8 @@ def sus_data_create_variables(
         ]
 
         vn = cfg_age["variable_names"]
-        decoded = decode_age_sql(age_col)
+        # `columns` lets the decoder find SIH's unit companion (M180).
+        decoded = decode_age_sql(age_col, columns)
 
         # age_years
         all_cols = ", ".join(f'"{c}"' for c in columns)
@@ -601,9 +602,15 @@ def sus_data_create_variables(
                     EXTRACT(QUARTER FROM {date_expr})                       AS "{vn['quarter']}",
                     EXTRACT(DOY     FROM {date_expr})                       AS "{vn['day_of_year']}",
                     ((DAYOFWEEK({date_expr}) + 6) % 7) + 1                 AS "{vn['day_of_week']}",
-                    CASE WHEN ((DAYOFWEEK({date_expr}) + 6) % 7) + 1 >= 6
+                    -- M183: no ELSE branch reachable by a NULL date. With
+                    -- "ELSE FALSE" / "ELSE 2", a missing date came out as
+                    -- a weekday of the 2nd semester (SIH: semester 54% and
+                    -- is_weekend 77% equal to climasus4r, which gives NA).
+                    CASE WHEN {date_expr} IS NULL THEN NULL
+                         WHEN ((DAYOFWEEK({date_expr}) + 6) % 7) + 1 >= 6
                          THEN TRUE ELSE FALSE END                           AS "{vn['is_weekend']}",
-                    CASE WHEN EXTRACT(MONTH FROM {date_expr}) <= 6
+                    CASE WHEN {date_expr} IS NULL THEN NULL
+                         WHEN EXTRACT(MONTH FROM {date_expr}) <= 6
                          THEN 1 ELSE 2 END                                  AS "{vn['semester']}",
                     ({_epi_week_sql(date_expr)})                            AS "{vn['epi_week']}",
                     ({_month_name_sql(month_expr, lang)})                   AS "{vn['month_name']}",

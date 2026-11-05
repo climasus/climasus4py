@@ -779,7 +779,48 @@ _IDADE_EM_ANOS: frozenset[str] = frozenset({
 })
 
 
-def decode_age_sql(age_col: str) -> str:
+#: SIH age columns and the companion column that holds their UNIT — see
+#: :func:`decode_age_sql`.
+#:
+#: SIH splits the DATASUS age in two: ``IDADE`` is the amount and
+#: ``COD_IDADE`` the unit (2 days, 3 months, 4 years, 5 years past 100).
+#: The names are the four spellings ``sus_data_standardize`` produces for
+#: the pair, read from the SIH section of each ``columns.json``. The unit
+#: is only used when the companion is actually present, so SIM's ``IDADE``
+#: — a self-contained three-digit code with no companion — is untouched.
+_UNIDADE_DA_IDADE: dict[str, str] = {
+    "IDADE": "COD_IDADE",
+    "age": "age_unit_code",
+    "idade": "codigo_unidade_idade",
+    "edad": "codigo_unidad_edad",
+}
+
+
+def _decode_age_with_unit_sql(age_col: str, unit_col: str) -> str:
+    """Age in years from SIH's amount + unit pair (M180).
+
+    Each unit was checked against the age climasus4r computes from the
+    birth and admission dates, on SIH-RD AC+RR+AP 2022-2023 (67.084
+    rows): unit 2 carries 0-30 with 0-30 days between the dates, unit 3
+    carries 1-11 with 28-364 days, unit 4 carries 1-99 and matches the
+    years, and unit 5 carries 0-14 where the dates give 100-114 — so 5
+    means 100 PLUS the amount. Any other unit returns NULL rather than a
+    guess.
+    """
+    n = f'TRY_CAST(TRIM(CAST("{age_col}" AS VARCHAR)) AS INTEGER)'
+    u = f'TRIM(CAST("{unit_col}" AS VARCHAR))'
+    return (
+        f"CASE {u}"
+        f"  WHEN '2' THEN CASE WHEN {n} IS NULL THEN NULL ELSE 0 END"
+        f"  WHEN '3' THEN CAST(FLOOR({n} / 12) AS INTEGER)"
+        f"  WHEN '4' THEN {n}"
+        f"  WHEN '5' THEN 100 + {n}"
+        f"  ELSE NULL"
+        f" END"
+    )
+
+
+def decode_age_sql(age_col: str, columns: list[str] | None = None) -> str:
     """Return a DuckDB SQL expression that decodes SIM-DO coded age to years.
 
     The DATASUS encoding is three digits: the first is the unit (0 minutes,
@@ -812,13 +853,55 @@ def decode_age_sql(age_col: str) -> str:
     across the four default bands in ``climasus4r`` — which reads the
     column as plain years and is right. Reading it as years here
     reproduces those four counts to the row (M167).
+
+    SIH KEEPS THE UNIT IN ANOTHER COLUMN (M180). Its ``IDADE`` is the bare
+    amount and ``COD_IDADE`` says whether it counts days, months or years,
+    so ``4`` may be a four-month-old. Read alone, that ``4`` came back as
+    4 years: 4.147 of 67.084 SIH-RD rows (6,2%), every baby under one
+    year and every centenarian, measured against climasus4r. Pass
+    *columns* and the companion is used when present; see
+    :data:`_UNIDADE_DA_IDADE`.
+
+    SINAN WRITES FOUR DIGITS (M179). ``NU_IDADE_N`` is the same unit +
+    amount code with a three-digit amount — ``4028`` is 28 years. It used
+    to fall through to the plain cast and come back as 4.028 years, which
+    put all 73.778 SINAN-DENGUE notifications in ``60+``. A four-digit
+    number is never a plain age in years, so this branch cannot catch a
+    value that was right before. The rule is climasus4r's
+    ``decode_datasus_age_vectorized``: units 1 and 2 are 0 years, 3 is
+    months divided by 12, 4 is years, 5 is 100 plus the amount, anything
+    else is NULL.
+
+    Args:
+        age_col: The age column to decode.
+        columns: Columns of the relation. Only used to find the SIH unit
+            companion of *age_col*; ``None`` keeps the single-column
+            behaviour.
+
+    Returns:
+        A SQL expression yielding age in whole years, or NULL.
     """
     if age_col in _IDADE_EM_ANOS:
         return f'TRY_CAST(TRIM(CAST("{age_col}" AS VARCHAR)) AS INTEGER)'
 
+    unidade = _UNIDADE_DA_IDADE.get(age_col)
+    if columns is not None and unidade in columns:
+        return _decode_age_with_unit_sql(age_col, unidade)
+
     v = f'TRIM(CAST("{age_col}" AS VARCHAR))'
+    q = f"TRY_CAST(SUBSTR({v}, 2) AS INTEGER)"
     return (
         f"CASE"
+        f"  WHEN LENGTH({v}) = 4 AND SUBSTR({v}, 1, 1) IN ('1', '2')"
+        f"    THEN 0"
+        f"  WHEN LENGTH({v}) = 4 AND SUBSTR({v}, 1, 1) = '3'"
+        f"    THEN CAST(FLOOR({q} / 12) AS INTEGER)"
+        f"  WHEN LENGTH({v}) = 4 AND SUBSTR({v}, 1, 1) = '4'"
+        f"    THEN {q}"
+        f"  WHEN LENGTH({v}) = 4 AND SUBSTR({v}, 1, 1) = '5'"
+        f"    THEN 100 + {q}"
+        f"  WHEN LENGTH({v}) = 4"
+        f"    THEN NULL"
         f"  WHEN LENGTH({v}) = 3 AND SUBSTR({v}, 1, 1) NOT IN"
         f"       ('0', '1', '2', '3', '4', '5')"
         f"    THEN NULL"

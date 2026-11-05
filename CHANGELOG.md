@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+### Fixed — as datas do SIH, do SINAN e do CNES saíam nulas, sem aviso
+
+SIH, SINAN e CNES escrevem a data com o ano na frente (`20230113`). O `sus_data_standardize` só
+conhecia `DDMMAAAA` e `AAAAMM`, então lia `20230113` como dia 20, **mês 23**, e devolvia nulo; e lia
+`20080710` como 20/08 do **ano 710**, uma data absurda em vez de nula (M181). Medido contra o
+`climasus4r` na Etapa 1 em seis sistemas:
+
+| sistema | antes | depois |
+|---|---|---|
+| SIH-RD, AC+RR+AP, 2022–2023 (67.084) | datas de internação, alta e nascimento 0% iguais ao R; ano, mês, trimestre, dia da semana e estação 100% nulos | as três datas e todo o calendário 100% iguais ao R |
+| SINAN-DENGUE, Pantanal, 2023 (73.778) | data de notificação nula em todas as linhas; outras 13 datas ficavam como texto `'20231224'`; calendário 100% nulo | todas as datas e todo o calendário 100% iguais ao R |
+
+O formato `AAAAMMDD` é reconhecido pela forma — oito dígitos, ano 1900–2100, mês 01–12 —, o que
+não pode coincidir com uma data `DDMMAAAA` real: os dígitos 5–6 dela são o começo do ano (19, 20),
+que nunca é mês. As datas do SIM e do SINASC não mudam. O caminho rápido do `sus_pipeline` tinha
+o mesmo defeito, com uma consequência pior: a linha sem data era **descartada** da contagem. Foi
+corrigido junto.
+
+**Calendário com data faltante (M183).** Com a data nula, `semester` saía 2 e `is_weekend` saía
+`False`, porque a condição nula caía no `ELSE`; um `groupby` por semestre contava as linhas sem data
+no 2º semestre. Agora as duas ficam nulas, como as outras variáveis de calendário e como no R.
+
+### Fixed — a idade do SINAN e do SIH saía errada, sem aviso
+
+Medido contra o `climasus4r` na Etapa 1 em seis sistemas:
+
+| sistema | antes | depois |
+|---|---|---|
+| SINAN-DENGUE, Pantanal, 2023 | `age_years = 4028` em **todas** as 73.778 notificações, todas em `60+` | 73.777 de 73.778 iguais ao R |
+| SIH-RD, AC+RR+AP, 2022–2023 | 4.147 de 67.084 internações (6,2%) com idade errada | 100% iguais ao R |
+
+**SINAN (M179).** O `NU_IDADE_N` é o código unidade + quantidade do SIM, mas com **quatro**
+dígitos: `4028` são 28 anos. O decodificador só reconhecia três, e o de quatro voltava como o próprio
+número. Agora o de quatro dígitos segue a regra do R — 1 e 2 são 0 anos, 3 são meses ÷ 12, 4 são anos,
+5 é 100 + quantidade.
+
+**SIH (M180).** O SIH guarda a quantidade em `IDADE` e a unidade em `COD_IDADE`, e o Python lia só a
+primeira: um bebê de 4 meses saía com 4 anos e um centenário de 102 saía com 2. O `decode_age_sql`
+ganhou o parâmetro opcional `columns` e usa a coluna de unidade quando ela existe. O SIM, que não
+tem essa coluna, não muda.
+
 ### Fixed — `sus_data_create_variables` criava 4 variáveis de 15 em português
 
 Medido sobre o mesmo quadro do SIM padronizado:

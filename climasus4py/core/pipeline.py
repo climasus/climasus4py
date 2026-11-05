@@ -20,7 +20,7 @@ from .clean import sus_data_clean_encoding
 from .engine import get_connection
 from .filter import sus_filter
 from .importer import sus_data_import
-from .standardize import sus_data_standardize
+from .standardize import _yyyymmdd_shape_sql, sus_data_standardize
 from .variables import _age_breaks_for_preset, sus_data_create_variables
 
 # ---------------------------------------------------------------------------
@@ -79,6 +79,12 @@ def _date_parse_sql(col: str) -> str:
     v = f'CAST("{col}" AS VARCHAR)'
     return (
         f"CASE"
+        # YYYYMMDD (SIH, SINAN, CNES) before DDMMYYYY — M181, see
+        # standardize._date_parse_expr. Without it a SIH admission date
+        # became NULL (and the row was dropped by ``__date IS NOT NULL``)
+        # or an absurd year-0710 date.
+        f"  WHEN {_yyyymmdd_shape_sql(v)}"
+        f"    THEN TRY_STRPTIME({v}, '%Y%m%d')"
         f"  WHEN LENGTH({v}) = 8 AND STRPOS({v}, '-') = 0 AND STRPOS({v}, '/') = 0"
         f"    THEN TRY_STRPTIME({v}, '%d%m%Y')"
         # ISO order is unambiguous, so cast instead of matching a fixed
@@ -236,7 +242,7 @@ def _build_fast_sql(
     age_col = detect_age_column(columns)
     if age_col:
         from ..utils.data import decode_age_sql
-        decoded = decode_age_sql(age_col)
+        decoded = decode_age_sql(age_col, columns)
         select_parts.append(f'({decoded}) AS __age')
         # Nulls survive: the staged path's range filter drops a row whose
         # age is out of range, not one whose age is unknown.

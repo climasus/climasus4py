@@ -124,6 +124,94 @@ class TestDecodeAgeSql:
         assert self._decode("") is None
 
 
+class TestIdadeSinanQuatroDigitos:
+    """M179 — o NU_IDADE_N do SINAN tem 4 dígitos: unidade + 3 de quantidade.
+
+    Caía no TRY_CAST final e voltava como 4.028 anos: as 73.778
+    notificações do SINAN-DENGUE/Pantanal/2023 foram para '60+'. O
+    climasus4r decodifica pelo primeiro dígito, de qualquer tamanho.
+    """
+
+    def _decode(self, valor: str) -> int | None:
+        expr = decode_age_sql("age_code")
+        return get_connection().sql(
+            f"SELECT {expr} FROM (SELECT '{valor}' AS age_code)").fetchone()[0]
+
+    def test_unidade_4_sao_anos(self):
+        assert self._decode("4028") == 28
+        assert self._decode("4000") == 0
+        assert self._decode("4122") == 122
+
+    def test_horas_e_dias_sao_zero_anos(self):
+        assert self._decode("1012") == 0
+        assert self._decode("2030") == 0
+
+    def test_meses_viram_anos_completos(self):
+        """Como o R: FLOOR(meses / 12)."""
+        assert self._decode("3011") == 0
+        assert self._decode("3018") == 1
+
+    def test_unidade_5_soma_100(self):
+        assert self._decode("5002") == 102
+
+    @pytest.mark.parametrize("codigo", ["0028", "6028", "9999"])
+    def test_unidade_invalida_e_nula(self, codigo):
+        assert self._decode(codigo) is None
+
+    def test_tres_digitos_do_sim_nao_mudam(self):
+        """Contrapartida: o ramo novo é só para 4 dígitos."""
+        assert self._decode("463") == 63
+        assert self._decode("311") == 0
+        assert self._decode("999") is None
+
+
+class TestIdadeSihComUnidade:
+    """M180 — no SIH a unidade da idade fica em OUTRA coluna (COD_IDADE).
+
+    Lido sozinho, IDADE=4 de um bebê de 4 meses voltava como 4 anos:
+    4.147 de 67.084 internações do SIH-RD AC+RR+AP 2022-2023, conferido
+    contra a idade que o climasus4r calcula pelas datas.
+    """
+
+    def _decode(self, idade: str, unidade: str,
+                col: str = "age", col_u: str = "age_unit_code") -> int | None:
+        expr = decode_age_sql(col, [col, col_u])
+        return get_connection().sql(
+            f"SELECT {expr} FROM (SELECT '{idade}' AS \"{col}\", "
+            f"'{unidade}' AS \"{col_u}\")").fetchone()[0]
+
+    def test_dias_e_meses_sao_zero_anos(self):
+        assert self._decode("25", "2") == 0
+        assert self._decode("4", "3") == 0
+        assert self._decode("11", "3") == 0
+
+    def test_anos(self):
+        assert self._decode("57", "4") == 57
+
+    def test_unidade_5_soma_100(self):
+        """Medido: as datas do R dão 100-114 onde IDADE traz 0-14."""
+        assert self._decode("0", "5") == 100
+        assert self._decode("14", "5") == 114
+
+    def test_unidade_desconhecida_e_nula(self):
+        assert self._decode("30", "9") is None
+
+    @pytest.mark.parametrize("col,col_u", [
+        ("IDADE", "COD_IDADE"),
+        ("idade", "codigo_unidade_idade"),
+        ("edad", "codigo_unidad_edad"),
+    ])
+    def test_vale_nos_quatro_idiomas_e_no_bruto(self, col, col_u):
+        assert self._decode("4", "3", col, col_u) == 0
+        assert self._decode("40", "4", col, col_u) == 40
+
+    def test_sem_a_coluna_de_unidade_nada_muda(self):
+        """O IDADE do SIM não tem companheira: continua código de 3 dígitos."""
+        expr = decode_age_sql("IDADE", ["IDADE", "DTOBITO"])
+        assert get_connection().sql(
+            f"SELECT {expr} FROM (SELECT '463' AS IDADE)").fetchone()[0] == 63
+
+
 class TestUpdateClimaSUSDataSafety:
     def test_rmtree_rejects_non_climasus_dir(self, tmp_path):
         """rmtree should refuse to delete a directory without manifest.json."""
