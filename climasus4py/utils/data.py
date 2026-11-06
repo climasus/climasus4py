@@ -774,8 +774,16 @@ def period_bound(value: str, *, end: bool = False):
 #: about which systems feed those names with what. Widening this set
 #: without a count against ``climasus4r`` would trade a known defect for
 #: an unknown one.
+#:
+#: The MOTHER's age joined on 05/11/2026, with that count (M187): SINASC
+#: ``IDADEMAE`` is plain years, and climasus4r reads it so. It came in as
+#: ``38.0`` in SINASC/AC/2022 — a float column, because it has nulls —
+#: and the four-digit rule of M179 read the ``3`` as "months": 14.470 of
+#: 14.483 mothers came out 0 years old. Read as years, 14.483 of 14.483
+#: match climasus4r.
 _IDADE_EM_ANOS: frozenset[str] = frozenset({
     "PA_IDADE", "patient_age", "idade_paciente", "edad_paciente",
+    "IDADEMAE", "mother_age", "idade_mae", "edad_madre",
 })
 
 
@@ -872,6 +880,14 @@ def decode_age_sql(age_col: str, columns: list[str] | None = None) -> str:
     months divided by 12, 4 is years, 5 is 100 plus the amount, anything
     else is NULL.
 
+    ONLY DIGITS ARE A CODE (M187). A column that reaches here as a float
+    stringifies with a decimal part, and ``38.0`` has four characters:
+    the four-digit branch above read it as unit 3 (months) and returned
+    0 — a regression M179 introduced, caught on SINASC/AC/2022. So an
+    integral ``.0`` is stripped first (``463.0`` is still the code 463,
+    ``38.0`` is 38), and the coded branches only take a value made of
+    digits alone; anything else falls to the plain cast.
+
     Args:
         age_col: The age column to decode.
         columns: Columns of the relation. Only used to find the SIH unit
@@ -888,10 +904,12 @@ def decode_age_sql(age_col: str, columns: list[str] | None = None) -> str:
     if columns is not None and unidade in columns:
         return _decode_age_with_unit_sql(age_col, unidade)
 
-    v = f'TRIM(CAST("{age_col}" AS VARCHAR))'
+    v = f"""regexp_replace(TRIM(CAST("{age_col}" AS VARCHAR)), '\\.0+$', '')"""
     q = f"TRY_CAST(SUBSTR({v}, 2) AS INTEGER)"
     return (
         f"CASE"
+        f"  WHEN NOT regexp_full_match({v}, '[0-9]+')"
+        f"    THEN TRY_CAST({v} AS INTEGER)"
         f"  WHEN LENGTH({v}) = 4 AND SUBSTR({v}, 1, 1) IN ('1', '2')"
         f"    THEN 0"
         f"  WHEN LENGTH({v}) = 4 AND SUBSTR({v}, 1, 1) = '3'"

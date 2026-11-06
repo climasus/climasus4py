@@ -165,6 +165,41 @@ class TestIdadeSinanQuatroDigitos:
         assert self._decode("999") is None
 
 
+class TestIdadeDecimalNaoViraCodigo:
+    """M187 — regressão do M179, achada no SINASC/AC/2022.
+
+    A idade da mãe chegou como float (``38.0``), e a regra nova de quatro
+    dígitos leu o ``3`` como unidade "meses": 14.470 de 14.483 mães com
+    0 anos. Antes do M179 saía 38; o climasus4r também dá 38.
+    """
+
+    def _decode(self, coluna: str, sql_valor: str) -> int | None:
+        expr = decode_age_sql(coluna)
+        return get_connection().sql(
+            f'SELECT {expr} FROM (SELECT {sql_valor} AS "{coluna}")').fetchone()[0]
+
+    @pytest.mark.parametrize("coluna", ["IDADEMAE", "mother_age", "idade_mae", "edad_madre"])
+    def test_idade_da_mae_e_ano_em_qualquer_grafia(self, coluna):
+        assert self._decode(coluna, "38.0::DOUBLE") == 38
+        assert self._decode(coluna, "'38'") == 38
+        assert self._decode(coluna, "'038'") == 38      # e não "0 minutos"
+        assert self._decode(coluna, "15::BIGINT") == 15
+
+    def test_decimal_inteiro_nao_entra_na_regra_de_quatro_digitos(self):
+        """Mesmo fora da lista de idades em anos: '38.0' não é código."""
+        assert self._decode("age_code", "'38.0'") == 38
+        assert self._decode("age_code", "38.0::DOUBLE") == 38
+
+    def test_codigo_do_sim_em_float_continua_codigo(self):
+        """O '.0' sai antes: 463.0 é o código 463, 63 anos."""
+        assert self._decode("age_code", "463.0::DOUBLE") == 63
+        assert self._decode("age_code", "'4028.0'") == 28
+
+    def test_o_que_nao_e_numero_e_nulo(self):
+        assert self._decode("age_code", "'abc'") is None
+        assert self._decode("age_code", "'4a28'") is None
+
+
 class TestIdadeSihComUnidade:
     """M180 — no SIH a unidade da idade fica em OUTRA coluna (COD_IDADE).
 

@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Fixed — a idade da mãe no SINASC saía 0 (regressão da correção do SINAN)
+
+A regra de quatro dígitos da idade do SINAN (M179, logo abaixo) tratava qualquer texto de quatro
+caracteres como código — inclusive `38.0`, que é como a idade da mãe chega quando a coluna é decimal
+(SINASC do AC de 2022, que tem nulos). O `3` era lido como "meses" e **14.470 de 14.483 mães saíam com
+0 anos**, todas na faixa `0-4` (M187). Duas correções: a idade da mãe (`IDADEMAE`, `mother_age`,
+`idade_mae`, `edad_madre`) passa a ser lida como anos, como no R; e a regra de código só vale para
+valores feitos só de dígitos, com um `.0` final removido antes (`463.0` continua sendo o código de
+63 anos). Depois: 14.483 de 14.483 iguais ao `climasus4r`; nenhuma outra coluna dos 43 sistemas
+testados mudou.
+
 ### Fixed — dezembro ficava sem estação seca/chuvosa na região Norte
 
 O `seasonal_patterns.json` põe dezembro do Norte como mês de **transição**, e a `dry_rainy_season`,
