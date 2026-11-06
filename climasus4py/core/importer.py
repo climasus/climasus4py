@@ -44,9 +44,46 @@ _DATASUS_SOURCES_PATH = "metadata/datasus_systems.json"
 # Atomic Parquet write  (tmp + rename — prevents partial files on crash)
 # ---------------------------------------------------------------------------
 
+#: Stamp written into every cached parquet from 05/11/2026 on. A cache
+#: WITHOUT it was written before two fixes that change what lands in the
+#: file, and is downloaded again — not trusted — when either applies:
+#:
+#: * M188 — a year-first system (SIH, SINAN, CNES, SIA) with one of the
+#:   metadata date columns: those were parsed as DDMMYYYY and stored NaT;
+#: * M189 — zero rows: a one-record .dbc was parsed as an uncompressed
+#:   DBF and came back empty. Such files are a kilobyte or two, so
+#:   downloading them again costs nothing.
+#:
+#: Not "five rows or fewer", which was tried first: a legitimate small
+#: cache would be re-downloaded too, and offline the import would come
+#: back empty instead of using it. The price is a residual case: an old
+#: cache of a two- or three-record file that M189 read as GARBAGE rows is
+#: not caught here. Deleting it fixes it; M189 records this.
+_MARCA_CACHE = (b"climasus4py.cache", b"2")
+
+
+def _cache_antigo(system: str, target: Path) -> bool:
+    """True when *target* is a cache written before the M188/M189 fixes."""
+    from .standardize import _ano_primeiro
+
+    try:
+        meta = pq.read_metadata(target)
+    except Exception:  # noqa: BLE001 -- unreadable cache: let the read fail loudly
+        return False
+    schema = meta.schema.to_arrow_schema()
+    if (schema.metadata or {}).get(_MARCA_CACHE[0]) == _MARCA_CACHE[1]:
+        return False
+    if meta.num_rows == 0:
+        return True
+    return _ano_primeiro(system) and any(
+        c in _datasus_date_cols() for c in schema.names)
+
+
 def _write_parquet_atomic(table: pa.Table, target: Path) -> None:
     """Write *table* to *target* atomically via a temporary file."""
     tmp = target.with_suffix(f".tmp_{uuid.uuid4().hex[:8]}.parquet")
+    table = table.replace_schema_metadata(
+        {**(table.schema.metadata or {}), _MARCA_CACHE[0]: _MARCA_CACHE[1]})
     try:
         pq.write_table(table, tmp)
         tmp.replace(target)
@@ -95,7 +132,8 @@ def _datasus_categorical_cols() -> frozenset[str]:
 _NULL_LITERALS: frozenset[str] = frozenset({"None", "nan", "NaN", "NaT", "<NA>"})
 
 
-def _coerce_datasus_types(df: pd.DataFrame) -> pd.DataFrame:
+def _coerce_datasus_types(df: pd.DataFrame,
+                          system: str | None = None) -> pd.DataFrame:
     """Coerce DATASUS columns to proper types before writing to Parquet.
 
     Four families, and the split matters (M64). The metadata used to
@@ -106,7 +144,17 @@ def _coerce_datasus_types(df: pd.DataFrame) -> pd.DataFrame:
     rows carrying CODESTAB — 5.1% — came out short**, ``10049`` where the
     CNES code is ``0010049``.
 
-    * **Dates** — parsed from DATASUS ``DDMMYYYY``.
+    * **Dates** — parsed from DATASUS ``DDMMYYYY``; but in the systems
+      that write the year first (SIH, SINAN, CNES, SIA — *system* in
+      ``standardize._SISTEMAS_ANO_PRIMEIRO``) they are kept as TEXT and
+      left to ``sus_data_standardize``. Until 05/11/2026 they were parsed
+      as ``DDMMYYYY`` there too: SIA-PS and SIA-SAD ``DTNASC`` is
+      ``19690303``, which that format rejects, and every birth date came
+      out NaT — 1,461 of 1,461 in SIA-PS/AC/jan-2023, 1,042 of 1,042 in
+      SIA-SAD — written into the cache, so no later step could recover
+      them (M188). Text keeps the value; the standardize reads it by
+      system, any year included, as climasus4r does. Pandas could not
+      hold the typo years (0014) anyway: datetime64[ns] starts in 1677.
     * **Quantities** — the ten entries where a number is the point:
       counts, weight, ages, weeks of gestation.
     * **Identifiers** — fixed-width codes, kept as text and padded to
@@ -120,12 +168,17 @@ def _coerce_datasus_types(df: pd.DataFrame) -> pd.DataFrame:
     53, and all 334,303 rows measured exactly six digits. They move to
     text for type hygiene, not to fix a loss.
     """
+    from .standardize import _ano_primeiro
+
     date_cols = _datasus_date_cols()
     numeric_cols = _datasus_numeric_cols()
     identifier_cols = _datasus_identifier_cols()
     categorical_cols = _datasus_categorical_cols()
+    datas_como_texto = _ano_primeiro(system)
     for col in df.columns:
-        if col in date_cols:
+        if col in date_cols and datas_como_texto:
+            df[col] = _strip_preserving_nulls(df[col])
+        elif col in date_cols:
             df[col] = pd.to_datetime(df[col], format="%d%m%Y", errors="coerce")
         elif col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -345,6 +398,37 @@ def _state_filter_expression(system: str, ufs: list[str]) -> str | None:
 # .dbc file reader — chain of backends
 # ---------------------------------------------------------------------------
 
+def _read_small_dbc(readdbc, path: Path) -> pd.DataFrame | None:
+    """Decompress a .dbc explicitly when the reader would mistake it for a DBF.
+
+    ``climasus_readdbc.dbc_to_dbf`` passes a file through untouched when
+    its size is within 512 bytes of the size the header announces for an
+    UNCOMPRESSED dBASE file. A .dbc of one or two records fits that
+    tolerance — ACFAC2301.dbc is 1,992 bytes against 2,093 announced — so
+    its compressed bytes were parsed as records: 0 rows instead of 1 in
+    SIA-ACF and CNES-EF/AC/jan-2023 and CNES-GM/AC/apr-2026, where
+    climasus4r reads the row (M189). With two or three records the same
+    misreading can return rows of garbage rather than none.
+
+    A file SHORTER than its uncompressed size cannot be an uncompressed
+    DBF, so it is decompressed here with the reader's own public
+    functions — the same path it takes for every larger file. The real
+    fix is the size test in climasus_readdbc_py (registered in M189);
+    this goes once a release with it is the minimum dependency.
+    """
+    import struct
+
+    raw = Path(path).read_bytes()
+    if len(raw) < 12:
+        return None
+    n = struct.unpack_from("<I", raw, 4)[0]
+    h = struct.unpack_from("<H", raw, 8)[0]
+    rs = struct.unpack_from("<H", raw, 10)[0]
+    if not (32 <= h and h + 4 < len(raw) < h + n * rs):
+        return None
+    return readdbc.read_dbf(bytes(raw[:h]) + readdbc.blast_decompress(raw[h + 4:]))
+
+
 def _read_dbc(path: Path) -> pd.DataFrame:
     """Read a .dbc file trying multiple backends."""
     try:
@@ -357,6 +441,9 @@ def _read_dbc(path: Path) -> pd.DataFrame:
 
     try:
         import climasus_readdbc as readdbc
+        pequeno = _read_small_dbc(readdbc, path)
+        if pequeno is not None:
+            return pequeno
         return readdbc.read_dbc(path)
     except ImportError:
         pass
@@ -588,7 +675,7 @@ def _download_and_cache(
                 console.print(f"[red]✗[/]  {uf}_{year}: failed to read .dbc: {e}")
             return None
 
-    df = _coerce_datasus_types(df)
+    df = _coerce_datasus_types(df, system)
     target.parent.mkdir(parents=True, exist_ok=True)
     _write_parquet_atomic(pa.Table.from_pandas(df), target)
 
@@ -775,7 +862,7 @@ def sus_data_import(
     # 3. Modo 1 — DataFrame inline
     # ------------------------------------------------------------------
     if data is not None:
-        data = _coerce_datasus_types(data.copy())
+        data = _coerce_datasus_types(data.copy(), system)
         target = cache_dir / system / f"inline_{'_'.join(ufs)}_{years[0]}.parquet"
         target.parent.mkdir(parents=True, exist_ok=True)
         _write_parquet_atomic(pa.Table.from_pandas(data), target)
@@ -809,7 +896,13 @@ def sus_data_import(
                     month_str = f"{one_month:02d}" if one_month else "all"
                     partition_id = _cache_partition_id(system, one_uf)
                     target = cache_dir / system / f"{partition_id}_{one_year}_{month_str}.parquet"
-                    if cache and target.is_file():
+                    antigo = (cache and target.is_file()
+                              and _cache_antigo(system, target))
+                    if antigo and verbose:
+                        console.print(
+                            f"[yellow]⚠[/]  {target.name}: cache written before "
+                            f"the M188/M189 fixes -- downloading again")
+                    if cache and target.is_file() and not antigo:
                         parquet_paths.append(target)
                     else:
                         needed.append({
@@ -833,7 +926,7 @@ def sus_data_import(
                 if use_pysus:
                     try:
                         df = _download_pysus(system, item["uf"], item["year"], item["month"])
-                        df = _coerce_datasus_types(df)
+                        df = _coerce_datasus_types(df, system)
                         item["target"].parent.mkdir(parents=True, exist_ok=True)
                         _write_parquet_atomic(pa.Table.from_pandas(df), item["target"])
                         result = item["target"]

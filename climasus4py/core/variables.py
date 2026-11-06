@@ -353,9 +353,26 @@ def _detect_date_col(columns: list[str], system: str | None = None) -> str | Non
 
 
 def _epi_week_sql(date_expr: str) -> str:
+    """Epidemiological week as ``'WW/YYYY'``, the YEAR being the epi year.
+
+    The week runs Sunday to Saturday, and week 1 of a year is the first
+    one with at least four days in it — which is the same as saying a
+    week belongs to the year of its WEDNESDAY, and its number is the
+    day-of-year of that Wednesday divided into weeks.
+
+    Until 05/11/2026 this was ``STRFTIME('%U')`` with the calendar year,
+    which is the calendar week and not the epidemiological one, and it
+    broke at every year boundary (M149): 01/01/2022, a Saturday, came out
+    ``'00/2022'`` — there is no week 0; it is week 52 of 2021 — and
+    31/12/2023, a Sunday, came out ``'53/2023'`` — 2023 has no week 53;
+    it is week 1 of 2024. climasus4r got the NUMBER right (52, 1) but
+    carries no year, so a multi-year ``groupby`` on its column merges
+    week 10 of 2022 with week 10 of 2023. The year stays here on purpose.
+    """
+    quarta = f"(({date_expr}) - CAST(DAYOFWEEK({date_expr}) AS INTEGER) + 3)"
     return (
-        f"LPAD(CAST(STRFTIME({date_expr}, '%U') AS VARCHAR), 2, '0')"
-        f" || '/' || STRFTIME({date_expr}, '%Y')"
+        f"LPAD(CAST((DAYOFYEAR({quarta}) - 1) // 7 + 1 AS VARCHAR), 2, '0')"
+        f" || '/' || CAST(YEAR({quarta}) AS VARCHAR)"
     )
 
 # ---------------------------------------------------------------------------

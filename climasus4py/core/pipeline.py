@@ -443,7 +443,12 @@ def sus_pipeline(
             for u in ufs
             for y in years
         ]
-        parquet_paths = [p for p in parquet_paths if p.is_file()]
+        # A cache written before M188/M189 goes to the staged path, whose
+        # sus_data_import downloads it again.
+        from .importer import _cache_antigo
+
+        parquet_paths = [p for p in parquet_paths
+                         if p.is_file() and not _cache_antigo(system, p)]
 
         if parquet_paths:
             sql = _build_fast_sql(

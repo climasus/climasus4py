@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### Fixed — três defeitos achados ao rodar os 43 sistemas da página do climasus4r
+
+**Semana epidemiológica na virada do ano (M149).** Era a semana do calendário (`%U`) com o ano do
+calendário: 01/01/2022, um sábado, saía `'00/2022'` — semana 0 não existe; é a SE 52 de 2021 — e
+31/12/2023 saía `'53/2023'`, quando 2023 não tem SE 53. Agora segue a regra da semana epidemiológica
+(domingo a sábado; a SE 1 é a primeira com ao menos 4 dias no ano novo) e o ano é o **ano
+epidemiológico**: `'52/2021'`, `'01/2024'`. O formato `'SS/AAAA'` fica, de propósito: o `climasus4r`
+devolve só o número, e um `groupby` de vários anos junta a semana 10 de 2022 com a de 2023. Depois:
+o número bate com o R em 100% das linhas dos 21 pares comparados.
+
+**A data de nascimento do SIA-PS e do SIA-SAD era apagada na importação (M188).** O importador lia
+as colunas de data do metadado como `DDMMAAAA`; o `DTNASC` do SIA é `19690303`, e todas viravam
+nulas — 1.461 de 1.461 no SIA-PS, 1.042 de 1.042 no SIA-SAD — **gravadas no cache**. Nos sistemas que
+escrevem o ano na frente (SIH, SINAN, CNES e agora também SIA) essas colunas ficam como texto no
+cache e o `sus_data_standardize` as converte. Um cache antigo afetado é baixado de novo
+automaticamente, com aviso. Depois: data de nascimento e calendário do SIA-PS iguais ao R.
+
+**Um `.dbc` de um registro era lido como 0 linhas (M189).** O leitor `climasus_readdbc_py` toma por
+DBF sem compressão um arquivo a menos de 512 bytes do tamanho anunciado, e os `.dbc` minúsculos caem
+nessa folga: SIA-ACF e CNES-EF (AC, jan/2023) e CNES-GM (AC, abr/2026) voltavam vazios, com o R lendo a
+linha. O climasus4py agora descomprime explicitamente o arquivo que é menor que o tamanho sem
+compressão — que portanto não pode ser um DBF puro. Caches vazios gravados antes disso são baixados
+de novo. A correção definitiva é no `climasus_readdbc_py`.
+
 ### Fixed — a idade da mãe no SINASC saía 0 (regressão da correção do SINAN)
 
 A regra de quatro dígitos da idade do SINAN (M179, logo abaixo) tratava qualquer texto de quatro

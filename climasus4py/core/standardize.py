@@ -68,7 +68,11 @@ def _yyyymmdd_shape_sql(bruto: str) -> str:
 #: Systems whose eight-digit dates are written year first (YYYYMMDD).
 #: climasus4r picks the format by system, not by value, and so must we
 #: for the values that fit both readings — see ``_date_parse_expr``.
-_SISTEMAS_ANO_PRIMEIRO = ("SIH", "SINAN", "CNES")
+#: SIA joined on 05/11/2026: its DTNASC (SIA-PS, SIA-SAD) and the APAC
+#: dates are YYYYMMDD too, and a typo in SIA-AD ``request_date`` came out
+#: 0101-03-02 here against 0203-01-01 in the R. The importer reads this
+#: same tuple to keep those columns as text in the cache (M188).
+_SISTEMAS_ANO_PRIMEIRO = ("SIH", "SINAN", "CNES", "SIA")
 
 
 def _ano_primeiro(system: str | None) -> bool:
