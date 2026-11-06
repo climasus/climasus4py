@@ -304,6 +304,19 @@ def _climatic_season_sql(month_expr: str, region: str, lang: str = "en") -> str:
 
 
 def _dry_rainy_sql(month_expr: str, region: str, lang: str = "en") -> str:
+    """Binary dry/rainy season: every month must land on one side.
+
+    A transition month goes to the DRY side, as in climasus4r
+    (``dry_rainy_case_when_expr``: Norte dry = 6:12). Until 05/11/2026 it
+    went nowhere: ``seasonal_patterns.json`` puts the Norte December in
+    ``transition_months`` only, this function read only ``rainy_months``
+    and ``dry_months``, and December fell to ``ELSE NULL`` — 6,524 of
+    67,084 SIH-RD admissions of AC+RR+AP with no season, in silence
+    (M184). ``climatic_season``, which has a Transition label, is
+    unaffected. Where the transition month goes is a modelling choice
+    that belongs in climasus-data; until the metadata declares it, this
+    follows the R.
+    """
     cfg = _seasonal_config()["climatic"]
     labels = cfg["labels"][lang]
     r = valida_regiao_climatica(region)
@@ -311,7 +324,7 @@ def _dry_rainy_sql(month_expr: str, region: str, lang: str = "en") -> str:
     if "note" in reg:
         return f"'{labels['no_dry']}'"
     rainy = reg.get("rainy_months", [])
-    dry   = reg.get("dry_months", [])
+    dry   = reg.get("dry_months", []) + reg.get("transition_months", [])
     parts = []
     if rainy:
         parts.append(f"WHEN {month_expr} IN ({','.join(str(m) for m in rainy)}) THEN '{labels['rainy']}'")

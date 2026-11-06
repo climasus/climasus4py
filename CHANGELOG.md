@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed — dezembro ficava sem estação seca/chuvosa na região Norte
+
+O `seasonal_patterns.json` põe dezembro do Norte como mês de **transição**, e a `dry_rainy_season`,
+que é binária, só olhava os meses chuvosos e secos: dezembro saía nulo. No SIH-RD de AC+RR+AP foram
+6.524 de 67.084 internações sem estação (M184). Agora o mês de transição vai para o lado **seco**,
+como no `climasus4r` (Norte: chuvosa 1–5, seca 6–12). A `climatic_season` continua chamando dezembro
+de transição. Depois: `dry_rainy_season` 100% igual ao R no SIM-DO, SINASC, SIH-RD e SINAN-DENGUE.
+
 ### Fixed — as datas do SIH, do SINAN e do CNES saíam nulas, sem aviso
 
 SIH, SINAN e CNES escrevem a data com o ano na frente (`20230113`). O `sus_data_standardize` só

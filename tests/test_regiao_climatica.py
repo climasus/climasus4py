@@ -129,6 +129,39 @@ def test_regiao_valida_nao_devolve_coluna_nula(quadro, regiao: str) -> None:
         assert df[col].notna().all(), f"{regiao}: {col} veio com nulo"
 
 
+@pytest.fixture(scope="module")
+def doze_meses() -> duckdb.DuckDBPyRelation:
+    conn = get_connection()
+    conn.register("_m184", pd.DataFrame({
+        "death_date": pd.to_datetime([f"2023-{m:02d}-15" for m in range(1, 13)]),
+        "age_code": ["440"] * 12,
+        "sex": ["Male"] * 12,
+    }))
+    return conn.sql("SELECT * FROM _m184")
+
+
+@pytest.mark.parametrize("regiao", VALIDAS)
+def test_todo_mes_tem_estacao_seca_ou_chuvosa(doze_meses, regiao: str) -> None:
+    """M184: o quadro de cima não tem dezembro, e foi por isso que passou.
+
+    O Norte tem dezembro como mês de TRANSIÇÃO, e a coluna binária o
+    deixava nulo: 6.524 de 67.084 internações do SIH-RD AC+RR+AP.
+    """
+    df = cs.sus_data_create_variables(doze_meses, lang="en",
+                                      climate_region=regiao, verbose=False).df()
+    assert df["dry_rainy_season"].notna().all(), \
+        df.loc[df["dry_rainy_season"].isna(), "death_date"].tolist()
+
+
+def test_a_transicao_do_norte_vai_para_a_seca_como_no_r(doze_meses) -> None:
+    """climasus4r: Norte chuvosa = 1:5, seca = 6:12. A climatic_season
+    continua chamando dezembro de transição — só a binária escolhe lado."""
+    df = cs.sus_data_create_variables(doze_meses, lang="en",
+                                      climate_region="norte", verbose=False).df()
+    assert df["dry_rainy_season"].tolist() == ["Rainy"] * 5 + ["Dry"] * 7
+    assert df["climatic_season"].iloc[11] == "Transition"
+
+
 def test_sem_regiao_usa_a_astronomica_e_nao_levanta(quadro) -> None:
     """A saída que a mensagem de erro oferece tem de existir de fato."""
     with warnings.catch_warnings():
