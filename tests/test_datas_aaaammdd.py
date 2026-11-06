@@ -75,6 +75,54 @@ class TestDataAnoNaFrente:
         assert parse("") is None
         assert parse(None) is None
 
+    @pytest.mark.parametrize("valor, esperado", [
+        ("00140221", "0014-02-21"),
+        ("30000303", "3000-03-03"),
+        ("10180221", "1018-02-21"),
+        ("00010101", "0001-01-01"),
+    ])
+    def test_erro_de_digitacao_do_cnes_vira_data_como_no_r(
+            self, parse, valor, esperado):
+        """permit_issue_date do CNES-ST SP jan/2023: 21 de 72.672 valores
+        assim. Por causa deles a coluna inteira ficava texto; o R a converte
+        e mantém o ano absurdo. Decisão de 05/11/2026: seguir o R (M185
+        propõe anular com aviso nos dois pacotes)."""
+        assert str(parse(valor)) == esperado
+
+    def test_o_ultimo_recurso_nao_muda_o_ddmmyyyy(self, parse):
+        """Ano absurdo em DDMMAAAA continua sendo lido como antes: o ramo
+        sem checagem de ano só roda quando o DDMMAAAA já falhou."""
+        assert str(parse("01011207")) == "1207-01-01"
+
+    def test_so_digitos(self, parse):
+        assert parse("2014O221") is None
+
+
+def _com_sistema(valor: str, system: str):
+    from climasus4py.core.standardize import _ano_primeiro
+    return get_connection().sql(
+        f"SELECT {_date_parse_expr('c', _ano_primeiro(system))} "
+        f"FROM (SELECT '{valor}'::VARCHAR AS c)").fetchone()[0]
+
+
+class TestFormatoPeloSistema:
+    """O R escolhe o formato pelo SISTEMA. Só importa para erro de
+    digitação que cabe nas duas leituras: 13 de 85.574 linhas do CNES-ST."""
+
+    @pytest.mark.parametrize("system", ["CNES-ST", "SIH-RD", "SINAN-DENGUE"])
+    def test_ano_na_frente_le_tudo_como_aaaammdd(self, system):
+        assert str(_com_sistema("02070117", system)) == "0207-01-17"
+        assert str(_com_sistema("22060329", system)) == "2206-03-29"
+        assert str(_com_sistema("20230113", system)) == "2023-01-13"
+
+    @pytest.mark.parametrize("system", ["SIM-DO", "SINASC", None])
+    def test_sim_e_sinasc_continuam_ddmmaaaa(self, system):
+        assert str(_com_sistema("02070117", system)) == "0117-07-02"
+        assert str(_com_sistema("05012023", system)) == "2023-01-05"
+
+    def test_o_mes_do_sia_nao_e_afetado(self):
+        assert str(_com_sistema("202301", "SIA-PA")) == "2023-01-01"
+
 
 def test_o_mes_do_sia_continua_valendo_no_standardize():
     assert str(_standardize("202301")) == "2023-01-01"

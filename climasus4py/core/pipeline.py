@@ -20,7 +20,11 @@ from .clean import sus_data_clean_encoding
 from .engine import get_connection
 from .filter import sus_filter
 from .importer import sus_data_import
-from .standardize import _yyyymmdd_shape_sql, sus_data_standardize
+from .standardize import (
+    _yyyymmdd_any_year_sql,
+    _yyyymmdd_shape_sql,
+    sus_data_standardize,
+)
 from .variables import _age_breaks_for_preset, sus_data_create_variables
 
 # ---------------------------------------------------------------------------
@@ -86,7 +90,8 @@ def _date_parse_sql(col: str) -> str:
         f"  WHEN {_yyyymmdd_shape_sql(v)}"
         f"    THEN TRY_STRPTIME({v}, '%Y%m%d')"
         f"  WHEN LENGTH({v}) = 8 AND STRPOS({v}, '-') = 0 AND STRPOS({v}, '/') = 0"
-        f"    THEN TRY_STRPTIME({v}, '%d%m%Y')"
+        f"    THEN COALESCE(TRY_STRPTIME({v}, '%d%m%Y'),"
+        f"                  {_yyyymmdd_any_year_sql(v)}::TIMESTAMP)"
         # ISO order is unambiguous, so cast instead of matching a fixed
         # pattern: DATE and TIMESTAMP columns stringify with a trailing
         # time ("2023-01-01 00:00:00") that '%Y-%m-%d' rejects, which

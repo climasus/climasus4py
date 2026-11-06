@@ -65,7 +65,17 @@ def _yyyymmdd_shape_sql(bruto: str) -> str:
     )
 
 
-def _date_parse_expr(col: str) -> str:
+#: Systems whose eight-digit dates are written year first (YYYYMMDD).
+#: climasus4r picks the format by system, not by value, and so must we
+#: for the values that fit both readings — see ``_date_parse_expr``.
+_SISTEMAS_ANO_PRIMEIRO = ("SIH", "SINAN", "CNES")
+
+
+def _ano_primeiro(system: str | None) -> bool:
+    return bool(system) and str(system).upper().split("-")[0] in _SISTEMAS_ANO_PRIMEIRO
+
+
+def _date_parse_expr(col: str, ano_primeiro: bool = False) -> str:
     """SQL that turns *col* into a DATE, whatever shape DATASUS wrote it in.
 
     Four shapes, tried in order, and the order is the whole design:
@@ -87,6 +97,14 @@ def _date_parse_expr(col: str) -> str:
     ``_yyyymmdd_shape_sql``) it is parsed ONLY that way: an invalid day
     such as ``20080732`` comes back NULL instead of falling through to
     ``DDMMYYYY`` and becoming 0732-08-20.
+
+    ``ano_primeiro=True`` (SIH, SINAN, CNES — ``_ano_primeiro(system)``)
+    reads EVERY eight-digit value as ``YYYYMMDD``, whatever the year, as
+    climasus4r does for those systems. It only matters for typos, which
+    may fit both readings: CNES ``permit_issue_date`` ``02070117`` is
+    0207-01-17 in the R and was 0117-07-02 here — 13 of 85,574 rows,
+    measured. Absurd years are kept, in both packages; M185 proposes
+    nulling them with a warning in both.
 
     Shape 1 exists for SIA, whose ``PA_CMP`` (competence) and ``PA_MVM``
     (processing) are month-granularity: ``202301`` means January 2023, not
@@ -124,16 +142,42 @@ def _date_parse_expr(col: str) -> str:
 
     """
     bruto = f'CAST("{col}" AS VARCHAR)'
+    oito_digitos = (f"regexp_full_match({bruto}, '[0-9]{{8}}')" if ano_primeiro
+                    else _yyyymmdd_shape_sql(bruto))
     return (
-        f"CASE WHEN {_yyyymmdd_shape_sql(bruto)} "
+        f"CASE WHEN {oito_digitos} "
         f"THEN TRY_STRPTIME({bruto}, '%Y%m%d')::DATE "
         f"ELSE COALESCE("
         f"CASE WHEN LENGTH({bruto}) = 6 "
         f"AND TRY_CAST(SUBSTR({bruto}, 1, 4) AS INTEGER) BETWEEN 1900 AND 2100 "
         f"THEN TRY_STRPTIME({bruto}, '%Y%m')::DATE END, "
         f"TRY_STRPTIME({bruto}, '%d%m%Y')::DATE, "
+        f"{_yyyymmdd_any_year_sql(bruto)}, "
         f'TRY_CAST("{col}" AS DATE)'
         f") END"
+    )
+
+
+def _yyyymmdd_any_year_sql(bruto: str) -> str:
+    """Last resort: ``YYYYMMDD`` with ANY year, as climasus4r reads it.
+
+    For when the system is unknown (and for the fast path of
+    ``sus_pipeline``); with a known SIH/SINAN/CNES system
+    ``_date_parse_expr(ano_primeiro=True)`` already reads every
+    eight-digit value this way. Reached only by an eight-digit value that
+    neither the guarded ``YYYYMMDD`` shape nor ``DDMMYYYY`` accepted, so
+    nothing that parsed before changes. What reaches it are typos: in
+    CNES-ST SP jan/2023, 21 of 72,672 ``permit_issue_date`` values read
+    ``00140221``, ``30000303``, ``10180221``... Before, those 21 made the
+    whole column fail the 100% rule of the shape fallback and it stayed
+    TEXT; climasus4r converts the column and keeps them as 0014-02-21,
+    3000-03-03, 1018-02-21. Following the R was a decision of
+    05/11/2026. Absurd years are therefore kept, in both packages — see
+    M185 for the proposal to null them with a warning in both.
+    """
+    return (
+        f"CASE WHEN regexp_full_match({bruto}, '[0-9]{{8}}') "
+        f"THEN TRY_STRPTIME({bruto}, '%Y%m%d')::DATE END"
     )
 
 
@@ -469,7 +513,8 @@ def sus_data_standardize(
         if dc in new_columns:
             rel = rel.project(
                 ", ".join(
-                    f'{_date_parse_expr(dc)} AS "{dc}"' if c == dc else f'"{c}"'
+                    f'{_date_parse_expr(dc, _ano_primeiro(system))} AS "{dc}"'
+                    if c == dc else f'"{c}"'
                     for c in new_columns
                 )
             )
@@ -502,7 +547,7 @@ def sus_data_standardize(
         )
         if not parece_data:
             continue
-        expr = _date_parse_expr(col)
+        expr = _date_parse_expr(col, _ano_primeiro(system))
         try:
             total, convertidos = rel.aggregate(
                 f'COUNT("{col}") AS n, COUNT({expr}) AS ok'

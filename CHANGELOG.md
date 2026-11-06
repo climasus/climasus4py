@@ -22,9 +22,14 @@ conhecia `DDMMAAAA` e `AAAAMM`, então lia `20230113` como dia 20, **mês 23**, 
 | SIH-RD, AC+RR+AP, 2022–2023 (67.084) | datas de internação, alta e nascimento 0% iguais ao R; ano, mês, trimestre, dia da semana e estação 100% nulos | as três datas e todo o calendário 100% iguais ao R |
 | SINAN-DENGUE, Pantanal, 2023 (73.778) | data de notificação nula em todas as linhas; outras 13 datas ficavam como texto `'20231224'`; calendário 100% nulo | todas as datas e todo o calendário 100% iguais ao R |
 
-O formato `AAAAMMDD` é reconhecido pela forma — oito dígitos, ano 1900–2100, mês 01–12 —, o que
-não pode coincidir com uma data `DDMMAAAA` real: os dígitos 5–6 dela são o começo do ano (19, 20),
-que nunca é mês. As datas do SIM e do SINASC não mudam. O caminho rápido do `sus_pipeline` tinha
+| CNES-ST, SP, jan/2023 (85.574) | `permit_issue_date` ficava como texto | 100% igual ao R |
+
+O formato é escolhido pelo **sistema**, como no `climasus4r`: em SIH, SINAN e CNES, todo valor de
+oito dígitos é lido como `AAAAMMDD`. Sem sistema conhecido, `AAAAMMDD` é reconhecido pela forma —
+oito dígitos, ano 1900–2100, mês 01–12 —, o que não coincide com nenhuma data `DDMMAAAA` real: os
+dígitos 5–6 dela são o começo do ano (19, 20), que nunca é mês. As datas do SIM e do SINASC não
+mudam. Como no R, uma data digitada errado é mantida com o ano absurdo (`00140221` → 0014-02-21);
+anular essas datas com aviso, nos dois pacotes, está proposto no M185. O caminho rápido do `sus_pipeline` tinha
 o mesmo defeito, com uma consequência pior: a linha sem data era **descartada** da contagem. Foi
 corrigido junto.
 
