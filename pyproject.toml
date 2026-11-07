@@ -9,7 +9,11 @@ description = "Fast SUS and climate data workflows for Brazil - Python edition"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python = ">=3.10"
+# 3.12, not 3.10: numpy, scipy, pymc, xgboost and esda already require it in
+# their current releases, so on 3.10/3.11 pip resolved to older, untested
+# versions of them; and mod_metaregression/mod_pool use 3.12 f-string syntax
+# (PEP 701), which made `import climasus4py` fail outright on 3.10/3.11 (M239).
+requires-python = ">=3.12"
 authors = [
     { name = "Marlon Resende Faria", email = "marlon.faria@usp.br" },
     { name = "Thauã Menezes", email = "thaua.menezes@unesp.br" },
@@ -25,8 +29,6 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
@@ -112,7 +114,7 @@ allow-direct-references = true
 packages = ["climasus4py"]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]

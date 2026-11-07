@@ -24,7 +24,7 @@ Esses princípios estão detalhados no [`CLAUDE.md`](CLAUDE.md) — o arquivo qu
 
 Você vai precisar de:
 
-- **Python 3.10 ou superior** — [python.org/downloads](https://www.python.org/downloads/)
+- **Python 3.12 ou superior** — [python.org/downloads](https://www.python.org/downloads/)
 - **Git** — [git-scm.com](https://git-scm.com/)
 - **uv** (gerenciador de pacotes do projeto) — [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/)
 - **VS Code** (recomendado) — com as extensões *Python* e *Ruff*

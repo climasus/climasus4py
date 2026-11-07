@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Changed — o climasus4py passa a exigir Python 3.12 ou mais recente
+
+- **O pacote não abria no Python 3.10 nem no 3.11 (M239).** Cinco mensagens em
+  `mod_metaregression.py` e `mod_pool.py` usavam uma forma de f-string que só existe a partir do
+  Python 3.12. Como esses módulos são carregados no `import climasus4py`, o import do pacote
+  inteiro falhava nessas versões, embora o pacote declarasse suporte a partir do 3.10.
+- **A promessa do 3.10 também nunca foi testada.** As versões atuais de numpy, scipy, pymc,
+  xgboost e esda já exigem o Python 3.12. Num 3.10 ou 3.11, o pip instalava versões mais antigas
+  delas, com as quais o climasus4py nunca foi testado.
+- `requires-python` passa a `>=3.12`. Num Python mais antigo, o pip recusa a instalação com uma
+  mensagem clara, em vez do erro de sintaxe no import. O CI passa a testar no 3.12 e no 3.13.
+
 ### Fixed — `sus_data_quality_report` conferido com o climasus4r valor a valor
 
 - **Todos os números do relatório batem com o R.** Antes só a estrutura tinha sido comparada
