@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Changed — `sus_climate_aggregate` mantém o clima no DuckDB
+
+- **Uma cópia a menos da tabela horária do clima (M232).** Quando o clima chegava como relação
+  DuckDB (a saída do `sus_climate_inmet`), o `sus_climate_aggregate` copiava a tabela horária
+  inteira para o pandas logo no início, só para validá-la, e depois a copiava de novo para Arrow
+  para fazer a agregação diária. Agora a validação, a checagem de datas e a detecção da região
+  climática são feitas por SQL na própria relação; fica só a cópia para Arrow que a agregação
+  diária usa. Em SP 2023 (350.400 horas), isso evita uma cópia de 109 MB; com o Brasil inteiro e
+  vários anos, seriam vários GB. O resultado das 10 estratégias temporais é idêntico ao de antes.
+- Nesse caminho havia um defeito escondido: a partir do DuckDB 1.4, `relation.arrow()` devolve um
+  leitor que só pode ser percorrido uma vez, e a agregação diária o percorria duas vezes. O
+  resultado saía com **0 linhas, sem aviso**. Nunca aconteceu na prática, porque a cópia para pandas
+  vinha antes. Agora a conversão usa uma tabela Arrow.
+
 ### Added — os parquets do climasus-data passam a ser baixados quando uma função precisa deles
 
 - **Download sob demanda dos dados do climasus-data (M231).** O pacote `climasus-data` instalado

@@ -499,18 +499,22 @@ def _validate_health_data(health_data) -> None:
 
 
 def _validate_climate_data(climate_data) -> None:
+    # A relation is checked in DuckDB -- column names from its schema and
+    # emptiness from one row -- without copying the hourly table out (M232).
     if isinstance(climate_data, duckdb.DuckDBPyRelation):
-        # materialise to DataFrame for validation
-        climate_data = climate_data.df()
-    if not isinstance(climate_data, (pa.Table, pd.DataFrame)):
+        if climate_data.limit(1).fetchone() is None:
+            raise ValueError("climate_data is empty.")
+        cols = set(climate_data.columns)
+    elif isinstance(climate_data, (pa.Table, pd.DataFrame)):
+        if len(climate_data) == 0:
+            raise ValueError("climate_data is empty.")
+        cols = set(climate_data.schema.names if isinstance(climate_data, pa.Table)
+                   else climate_data.columns)
+    else:
         raise TypeError(
-            f"climate_data must be a pd.DataFrame or pa.Table. "
+            f"climate_data must be a DuckDB relation, a pd.DataFrame or a pa.Table. "
             f"Got: {type(climate_data).__name__}"
         )
-    if len(climate_data) == 0:
-        raise ValueError("climate_data is empty.")
-    cols = set(climate_data.schema.names if isinstance(climate_data, pa.Table)
-               else climate_data.columns)
     if not cols & set(_STATION_CANDIDATES):
         raise ValueError(
             f"climate_data has no station column.\n"
@@ -536,12 +540,15 @@ def _validate_date_overlap(health_data, climate_data) -> None:
     ).fetchone()
     h_min, h_max = row[0], row[1]
 
-    if isinstance(climate_data, (duckdb.DuckDBPyRelation,)):
-        climate_data = climate_data.df()
-    dates = (pd.to_datetime(climate_data["date"].to_pandas()
-                            if isinstance(climate_data, pa.Table)
-                            else climate_data["date"]))
-    c_min, c_max = dates.min().date(), dates.max().date()
+    if isinstance(climate_data, duckdb.DuckDBPyRelation):
+        c_min, c_max = climate_data.aggregate(
+            'MIN(CAST("date" AS DATE)), MAX(CAST("date" AS DATE))'
+        ).fetchone()
+    else:
+        dates = (pd.to_datetime(climate_data["date"].to_pandas()
+                                if isinstance(climate_data, pa.Table)
+                                else climate_data["date"]))
+        c_min, c_max = dates.min().date(), dates.max().date()
 
     if h_min > c_max or h_max < c_min:
         raise ValueError(
@@ -605,10 +612,13 @@ def _detect_climate_region(climate_data, climate_region: str = "auto",
         if verbose:
             print(f"Climate region (provided): {climate_region}")
         return climate_region
-    lats = (climate_data["latitude"].to_pandas()
-            if isinstance(climate_data, pa.Table)
-            else climate_data["latitude"])
-    mean_lat = lats.dropna().mean()
+    if isinstance(climate_data, duckdb.DuckDBPyRelation):
+        mean_lat = climate_data.aggregate('AVG("latitude")').fetchone()[0]
+    else:
+        lats = (climate_data["latitude"].to_pandas()
+                if isinstance(climate_data, pa.Table)
+                else climate_data["latitude"])
+        mean_lat = lats.dropna().mean()
     detected = ("tropical" if mean_lat > -5
                 else "subtropical" if mean_lat > -23
                 else "temperate")
@@ -643,7 +653,14 @@ def _aggregate_meteo_daily(climate_data, time_unit: str = "day") -> pa.Table:
     if isinstance(climate_data, pd.DataFrame):
         climate_data = pa.Table.from_pandas(climate_data, preserve_index=False)
     elif isinstance(climate_data, duckdb.DuckDBPyRelation):
-        climate_data = climate_data.arrow()
+        # A table, not arrow(): from DuckDB 1.4 on, arrow() returns a
+        # RecordBatchReader, which can be read once -- and the table below is
+        # queried more than once (with the reader it silently came back with
+        # 0 rows). to_arrow_table() is the 1.5 name; fetch_arrow_table() is
+        # deprecated there but is the only one in older releases (>= 1.0).
+        para_tabela = (getattr(climate_data, "to_arrow_table", None)
+                       or climate_data.fetch_arrow_table)
+        climate_data = para_tabela()
 
     valid_units = {"day", "week", "month", "season", "year"}
     if time_unit not in valid_units:
@@ -1620,9 +1637,11 @@ def sus_climate_aggregate(
                 f"Options: {sorted(_VALID_STRATEGIES)}"
             )
 
-        # materialise climate if it's a DuckDBPyRelation
-        if isinstance(climate_data, duckdb.DuckDBPyRelation):
-            climate_data = climate_data.df()
+        # A DuckDB relation stays a relation until the daily pre-aggregation
+        # (M232). It used to be copied to pandas here, whole and hourly, only
+        # to be validated and then copied again to Arrow for the daily step:
+        # two full copies of the climate table, one of them unnecessary.
+        # Validation and region detection now run as SQL on the relation.
 
         # --- Block 1-3: validation ---
         _validate_health_data(health_data)
