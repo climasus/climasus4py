@@ -80,5 +80,82 @@ class TestQualityDataFrame:
         assert result["missing"]["n_complete_cols"] == 1
 
 
+def _pipeline_rel(*passos: tuple[str, str]):
+    """A relation whose metadata went through *passos* (stage, history)."""
+    from climasus4py.core._stage import add_history, set_stage
+
+    rel = _make_rel({"sex": ["Male", "Female"], "age_group": ["0-4", "65+"]})
+    for i, (stage, msg) in enumerate(passos):
+        rel = set_stage(rel, stage, system="SIM-DO" if i == 0 else None,
+                        rel_type="health" if i == 0 else None)
+        rel = add_history(rel, msg)
+    return rel
+
+
+_ATE_VARIABLES = [
+    ("import", "Imported DATASUS SIM-DO (SP) via FTP (climasus4py)"),
+    ("clean", "Cleaned character encoding (UTF-8)"),
+    ("standardize", "Standardized column names and types to EN"),
+    ("variables", "Created derived variables (EN): age_group"),
+]
+
+
+class TestPipelineAudit:
+    """M235: the report speaks R's stage names; this package's metadata
+    uses its own, and stages_reached came out empty for every pipeline."""
+
+    def test_stages_reached_translates_this_package_stage_names(self):
+        rep = sus_data_quality_report(_pipeline_rel(*_ATE_VARIABLES), verbose=False)
+        assert rep["pipeline"]["stages_reached"] == ["import", "clean", "stand", "derive"]
+        assert rep["derived"]["stage_at_least_derive"] is True
+
+    def test_filters_that_never_ran_are_not_reported(self):
+        """climasus4r marks every stage before the current one as reached,
+        so it lists both filters after create_variables even when neither
+        ran (M236). Here only what the metadata recorded counts."""
+        rep = sus_data_quality_report(_pipeline_rel(*_ATE_VARIABLES), verbose=False)
+        fns = rep["pipeline"]["functions_applied"]
+        assert "sus_data_filter_cid()" not in fns
+        assert "sus_data_filter_demographics()" not in fns
+        assert fns == ["sus_data_import()", "sus_data_clean_encoding()",
+                       "sus_data_standardize()", "sus_data_create_variables()"]
+
+    @pytest.mark.parametrize("criterios, esperado", [
+        ("sex='Male'; age=[15,64]", ["filter_demo"]),
+        ("groups='respiratory'", ["filter_cid"]),
+        ("groups='respiratory'; sex='Male'", ["filter_cid", "filter_demo"]),
+    ])
+    def test_sus_filter_maps_to_the_r_filter_it_amounts_to(self, criterios, esperado):
+        rel = _pipeline_rel(*_ATE_VARIABLES, ("filter", f"Filtered: {criterios}"))
+        reached = sus_data_quality_report(rel, verbose=False)["pipeline"]["stages_reached"]
+        assert [s for s in reached if s.startswith("filter")] == esperado
+
+    def test_without_a_visit_log_falls_back_to_the_stage_prefix(self):
+        from climasus4py.utils.quality import _stages_reached
+        assert _stages_reached("variables", None, []) == [
+            "import", "clean", "stand", "filter_cid", "filter_demo", "derive"]
+        assert _stages_reached("unknown", None, []) == []
+
+    def test_plain_data_has_no_stage(self):
+        rep = sus_data_quality_report(pd.DataFrame({"sex": ["Male"]}), verbose=False)
+        assert rep["pipeline"]["stages_reached"] == []
+        assert rep["derived"]["stage_at_least_derive"] is None
+
+    def test_derived_variables_match_r_keys(self):
+        rep = sus_data_quality_report(_pipeline_rel(*_ATE_VARIABLES), verbose=False)
+        assert list(rep["derived"]["variables"]) == [
+            "age_group", "ibge_age_group", "sex_label", "climate_risk_grp", "month",
+            "year", "quarter", "epi_week", "season", "dry_rainy"]
+        assert rep["derived"]["variables"]["sex_label"] == {"present": True, "col": "sex"}
+
+    def test_console_lists_pending_stages_and_history(self, capsys):
+        sus_data_quality_report(_pipeline_rel(*_ATE_VARIABLES), lang="en", verbose=False)
+        out = capsys.readouterr().out
+        assert "Stages not yet applied" in out
+        assert "aggregate" in out.split("Stages not yet applied")[1]
+        assert "History entries: 4" in out
+        assert "Created derived variables (EN): age_group" in out
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

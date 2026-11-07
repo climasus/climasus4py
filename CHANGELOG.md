@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fixed — `sus_data_quality_report` conferido com o climasus4r valor a valor
+
+- **Todos os números do relatório batem com o R.** Antes só a estrutura tinha sido comparada
+  (M31). Sobre o mesmo dado (SIM-DO/SP/2023, 334.303 óbitos), saem iguais: faltantes por coluna,
+  completude, sexo, raça, escolaridade, risco climático, idade, as 11 colunas de data, os CID
+  (top 10 e capítulos), os municípios e a nota final (79,6).
+- **A auditoria do pipeline saía vazia (M235).** O relatório procurava as etapas pelos nomes do
+  climasus4r (`stand`, `derive`), mas o metadado deste pacote grava `standardize` e `variables`.
+  Por isso `report["pipeline"]["stages_reached"]` era `[]` para todo dado vindo do pipeline. A
+  nota e a lista de funções aplicadas não mudam. Agora as etapas são traduzidas e vêm da lista do
+  que de fato rodou. Por isso o relatório não declara aplicados filtros que nunca rodaram, como o
+  R faz (M236).
+- `derived` ganha as chaves `sex_label` e `stage_at_least_derive`, como no R. O console passa a
+  mostrar as etapas ainda não aplicadas e o histórico de processamento.
+
 ### Changed — `sus_climate_aggregate` mantém o clima no DuckDB
 
 - **Uma cópia a menos da tabela horária do clima (M232).** Quando o clima chegava como relação

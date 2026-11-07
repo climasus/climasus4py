@@ -17,6 +17,8 @@ from typing import Any
 
 import pandas as pd
 
+from ..core._stage import R_STAGE_EQUIVALENTS, canonical_stage
+
 # ---------------------------------------------------------------------------
 # i18n labels
 # ---------------------------------------------------------------------------
@@ -83,8 +85,18 @@ _QR_LABELS: dict[str, dict[str, str]] = {
     "source_note":     {"pt": "Dados de saúde brasileiros (DATASUS)","en": "Brazilian health data (DATASUS)","es": "Datos de salud brasileños (DATASUS)"},
 }
 
+# The report speaks climasus4r's stage vocabulary (stand, derive, filter_cid,
+# ...), so its output compares field by field with R's. This package's
+# metadata uses its own names (standardize, variables, filter; M34), which
+# _r_stages() translates through R_STAGE_EQUIVALENTS (M235).
 _STAGE_ORDER = ["import", "clean", "stand", "filter_cid", "filter_demo",
                 "derive", "aggregate", "spatial", "census", "climate"]
+
+# sus_filter does both of R's filters. Which one ran is read from the
+# criteria its history entry lists ("Filtered: groups=...; sex=...").
+_FILTER_CID_KEYS = ("groups=", "codes=")
+_FILTER_DEMO_KEYS = ("age=", "sex=", "race=", "uf=", "region=", "municipality=",
+                     "date=", "education=", "city=", "drop_ignored=")
 
 _STAGE_FN_MAP = {
     "import":      "sus_data_import()",
@@ -168,6 +180,7 @@ def _extract_meta(data: Any) -> dict:
     stage = system = type_ = "unknown"
     backend = "pandas"
     history: list[str] = []
+    stages: list[str] = []
     try:
         from ..core.engine import is_relation
         if is_relation(data):
@@ -176,11 +189,12 @@ def _extract_meta(data: Any) -> dict:
             system  = sus_meta(data, "system")  or "unknown"
             type_   = sus_meta(data, "type")    or "unknown"
             history = sus_meta(data, "history") or []
+            stages  = sus_meta(data, "stages")  or []
             backend = "duckdb"
     except Exception:
         pass
     return {"stage": stage, "system": system, "type": type_,
-            "backend": backend, "history": history}
+            "backend": backend, "history": history, "stages": stages}
 
 
 def _is_datelike(s: pd.Series) -> bool:
@@ -204,12 +218,53 @@ def _qr_detect_history_functions(entry: str) -> list[str]:
 # Section computations
 # ---------------------------------------------------------------------------
 
-def _qr_parse_history(history: list[str], current_stage: str) -> dict:
-    try:
-        stage_idx = _STAGE_ORDER.index(current_stage) + 1
-    except ValueError:
-        stage_idx = 0
-    stages_reached  = _STAGE_ORDER[:stage_idx] if stage_idx > 0 else []
+def _r_stages(stage: str | None) -> tuple[str, ...]:
+    """The climasus4r stage name(s) for a stage name of either package."""
+    stage = canonical_stage(stage)
+    if stage in _STAGE_ORDER:
+        return (stage,)
+    return R_STAGE_EQUIVALENTS.get(stage or "", ())
+
+
+def _filter_r_stages(history: list[str]) -> tuple[str, ...]:
+    """Which of R's two filters the recorded sus_filter calls amount to."""
+    criterios = " ".join(h for h in history if "Filtered:" in h)
+    kinds = []
+    if any(k in criterios for k in _FILTER_CID_KEYS):
+        kinds.append("filter_cid")
+    if any(k in criterios for k in _FILTER_DEMO_KEYS):
+        kinds.append("filter_demo")
+    return tuple(kinds) or R_STAGE_EQUIVALENTS["filter"]
+
+
+def _stages_reached(current_stage: str, stages: list[str] | None,
+                    history: list[str]) -> list[str]:
+    """Stages the data went through, in climasus4r's names and order.
+
+    With the list of visited stages the metadata keeps, it is exactly the
+    stages that ran. climasus4r has no such list and takes every stage up
+    to the current one, which reports the optional filters as applied when
+    they never ran (M236); that rule is only the fallback here, for data
+    whose metadata has a stage but no visit log.
+    """
+    if stages:
+        visitados: set[str] = set()
+        for s in stages:
+            if canonical_stage(s) == "filter":
+                visitados.update(_filter_r_stages(history))
+            else:
+                visitados.update(_r_stages(s))
+        return [s for s in _STAGE_ORDER if s in visitados]
+    atual = _r_stages(current_stage)
+    if not atual:
+        return []
+    fim = max(_STAGE_ORDER.index(s) for s in atual)
+    return _STAGE_ORDER[:fim + 1]
+
+
+def _qr_parse_history(history: list[str], current_stage: str,
+                      stages: list[str] | None = None) -> dict:
+    stages_reached  = _stages_reached(current_stage, stages, history)
     fns_from_stages = [_STAGE_FN_MAP[s] for s in stages_reached if s in _STAGE_FN_MAP]
     fns_from_history: list[str] = []
     for entry in history:
@@ -396,10 +451,12 @@ def _qr_geographic(df: pd.DataFrame, top_n: int) -> dict:
     return out
 
 
-def _qr_derived(df: pd.DataFrame, stage: str) -> dict:
+def _qr_derived(df: pd.DataFrame, stage: str,
+                stages_reached: list[str] | None = None) -> dict:
     expected = {
         "age_group":        ["age_group", "faixa_etaria", "grupo_edad"],
         "ibge_age_group":   ["ibge_age_group", "faixa_etaria_ibge", "grupo_edad_ibge"],
+        "sex_label":        ["sex", "sexo"],
         "climate_risk_grp": ["climate_risk_group", "grupo_risco_climatico", "grupo_riesgo_climatico"],
         "month":            ["month", "mes"],
         "year":             ["year", "ano", "anio"],
@@ -413,7 +470,9 @@ def _qr_derived(df: pd.DataFrame, stage: str) -> dict:
     for key, patterns in expected.items():
         found = _qr_col(df, patterns)
         presence[key] = {"present": found is not None, "col": found}
-    return {"variables": presence}
+    # None when the stage is unknown (plain data, no metadata), as R's NA.
+    at_least = None if not _r_stages(stage) else "derive" in (stages_reached or [])
+    return {"stage_at_least_derive": at_least, "variables": presence}
 
 
 def _qr_score(report: dict) -> float | None:
@@ -493,6 +552,25 @@ def _print_console(report: dict, lang: str) -> None:
             pr(f"  [green]v[/]  {fn}" if _rich else f"  ✓  {fn}")
     else:
         pr(f"{_FLAG_TXT['warn']} {_qrl('no_history', lang)}")
+    reached = report["pipeline"]["stages_reached"]
+    if reached:
+        pendentes = [s for s in _STAGE_ORDER if s not in reached]
+        if pendentes:
+            pr()
+            pr(_qrl("stages_pending", lang))
+            for s in pendentes:
+                pr(f"  -  {s}")
+    steps = report["pipeline"]["parsed_steps"]
+    if steps:
+        pr()
+        pr(f"{_qrl('history_entries', lang)}: {len(steps)}")
+        for s in steps:
+            linha = f"  [{s['timestamp']}]  {s['message']}"
+            # markup=False: a history message may carry [brackets] of its own.
+            if _rich:
+                c.print(linha, markup=False)
+            else:
+                print(linha)
     pr()
 
     # Overview
@@ -805,16 +883,17 @@ def sus_data_quality_report(
             "n_history": len(history),
             "generated": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
         },
-        "pipeline":     _qr_parse_history(history, stage),
+        "pipeline":     _qr_parse_history(history, stage, meta_raw["stages"]),
         "overview":     _qr_overview(df),
         "missing":      _qr_missing(df),
         "demographics": _qr_demographics(df),
         "dates":        _qr_dates(df) if check_dates else {},
         "icd":          _qr_icd(df, top_n) if check_icd else {},
         "geographic":   _qr_geographic(df, top_n),
-        "derived":      _qr_derived(df, stage),
+        "derived":      None,
         "score":        None,
     }
+    report["derived"] = _qr_derived(df, stage, report["pipeline"]["stages_reached"])
     report["score"] = _qr_score(report)
 
     if output_format == "console":
