@@ -255,10 +255,19 @@ class TestMissingColumnErrors:
         with pytest.raises(ValueError, match="race"):
             sus_filter(rel, race="1")
 
-    def test_uf_filter_no_uf_column_raises(self):
+    def test_uf_filter_without_uf_or_muni_column_warns_and_skips(self):
+        """Sem UF E sem municipio nao ha de onde tirar o estado: avisa e pula.
+
+        Ultimo recurso, depois do M58 (09/09/2026). Quando existe coluna de
+        municipio o filtro passa a DERIVAR o estado -- ver
+        TestUfDerivedFromMunicipality. So quando nao existe nenhuma das duas
+        ele desiste, e ai o aviso precisa dizer explicitamente que o
+        resultado NAO esta restrito ao que foi pedido.
+        """
         rel = _make_rel({"value": [1, 2]})
-        with pytest.raises(ValueError, match="UF|uf"):
-            sus_filter(rel, uf="SP")
+        with pytest.warns(UserWarning, match="uf filter skipped"):
+            resultado = sus_filter(rel, uf="SP")
+        assert len(resultado.df()) == 2, "nao filtrou nada, como o aviso diz"
 
     def test_municipality_filter_no_muni_column_raises(self):
         rel = _make_rel({"value": [1, 2]})
@@ -465,11 +474,28 @@ class TestDropIgnored:
 
 class TestCityFilter:
     def test_city_raises_file_not_found_when_parquet_missing(self, sim_do_rel, tmp_path, monkeypatch):  # noqa: E501
-        """When municipalities.parquet is absent, raises FileNotFoundError."""
+        """When the municipality table is absent, raises FileNotFoundError.
+
+        The asset named here changed on 21/09/2026: the lookup reads
+        `municipio_meta.parquet` (495 KB of names and codes, which is
+        what climasus4r reads) instead of opening the 29.6 MB geometry
+        file to translate two text columns. See M121.
+
+        The cache has to be cleared for the monkeypatch to bite —
+        `_municipio_meta` is `lru_cache`d for the process, so by the time
+        this test runs the real table is very likely already loaded and
+        patching `data_path` alone would do nothing. This test used to
+        pass for the wrong reason: the path it exercised was broken
+        outright, so *any* call raised FileNotFoundError.
+        """
         import climasus4py.utils.data as _data
+        _data._municipio_meta.cache_clear()
         monkeypatch.setattr(_data, "data_path", lambda rel_path: tmp_path / rel_path)
-        with pytest.raises(FileNotFoundError, match="municipalities.parquet"):
-            sus_filter(sim_do_rel, city="São Paulo")
+        try:
+            with pytest.raises(FileNotFoundError, match="municipio_meta.parquet"):
+                sus_filter(sim_do_rel, city="São Paulo")
+        finally:
+            _data._municipio_meta.cache_clear()
 
     def test_city_filter_applies_resolved_codes(self, monkeypatch):
         """When expand_city_to_codes resolves correctly, filter is applied."""
@@ -484,6 +510,71 @@ class TestCityFilter:
         })
         result = sus_filter(rel, city="São Paulo")
         assert _count(result) == 2
+
+
+# ---------------------------------------------------------------------------
+# M58 — uf= derivado do codigo de municipio
+# ---------------------------------------------------------------------------
+
+class TestUfDerivedFromMunicipality:
+    """O uf= funciona em dado que nao tem coluna de UF (M58, 09/09/2026).
+
+    Antes, pedir uf="SP" a uma relacao sem coluna de UF -- o caso do SIM e do
+    SINASC, que carregam so CODMUNRES -- devolvia o BRASIL INTEIRO com um
+    UserWarning. Aviso em notebook passa batido, e o numero que sai dali e
+    publicavel e errado por um fator de ~5.
+
+    Os dois primeiros digitos do codigo IBGE de municipio SAO o codigo do
+    estado, e o fast path do sus_pipeline ja usava isso. Agora o filtro usa
+    tambem.
+    """
+
+    # SP=35, RJ=33, MG=31, RO=11
+    @pytest.fixture
+    def rel_municipios(self):
+        return _make_rel({
+            "CODMUNRES": [355030, 350010, 330455, 330020, 310620, 110001],
+            "id": [1, 2, 3, 4, 5, 6],
+        })
+
+    def test_single_uf(self, rel_municipios):
+        got = sus_filter(rel_municipios, uf="SP").df()["id"].tolist()
+        assert got == [1, 2]
+
+    def test_several_ufs(self, rel_municipios):
+        got = sus_filter(rel_municipios, uf=["SP", "RJ"]).df()["id"].tolist()
+        assert got == [1, 2, 3, 4]
+
+    def test_two_digit_uf_code_is_not_confused(self, rel_municipios):
+        """RO e 11: prefixo de um digito nao pode casar com o de dois."""
+        got = sus_filter(rel_municipios, uf="RO").df()["id"].tolist()
+        assert got == [6]
+
+    def test_no_warning_when_it_can_derive(self, rel_municipios):
+        """O aviso era o sintoma; derivando, nao ha o que avisar."""
+        import warnings
+
+        with warnings.catch_warnings(record=True) as capturados:
+            warnings.simplefilter("always")
+            sus_filter(rel_municipios, uf="SP")
+        assert not [w for w in capturados if "uf filter" in str(w.message)]
+
+    def test_history_records_where_the_state_came_from(self, rel_municipios):
+        """Residencia e ocorrencia sao recortes diferentes: a trilha diz qual foi."""
+        import climasus4py as cs
+
+        out = sus_filter(rel_municipios, uf="SP")
+        assert "derived from CODMUNRES" in cs.sus_meta(out, "history")[-1]
+
+    def test_unknown_uf_is_refused(self, rel_municipios):
+        """Recusa nomeando, em vez de filtrar pelas que reconheceu."""
+        with pytest.raises(ValueError, match="Unknown UF"):
+            sus_filter(rel_municipios, uf="XX")
+
+    def test_uf_column_still_wins_when_present(self):
+        """Havendo coluna de UF, ela e usada -- a derivacao e o plano B."""
+        rel = _make_rel({"state": ["SP", "RJ", "SP", "MG"], "id": [1, 2, 3, 4]})
+        assert sus_filter(rel, uf="SP").df()["id"].tolist() == [1, 3]
 
 
 if __name__ == "__main__":

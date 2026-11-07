@@ -1,0 +1,32 @@
+rap_version: '1.0'
+created: 2026-09-18 18:13:56
+climasus4r_version: 1.0.0
+pipeline_type: Mortalidade por temperatura
+parameters:
+  uf:
+  - SP
+  - RJ
+  years:
+  - 2015
+  - 2022
+  system: SIM-DO
+  time_unit: year
+  lang: pt
+  seed: 42
+steps:
+- function_name: sus_data_import
+  params: ~
+- function_name: sus_data_clean
+  params: ~
+- function_name: sus_data_standardize
+  params:
+    lang: pt
+- function_name: sus_data_aggregate
+  params:
+    time_unit: year
+    geo: state
+metadata:
+  r_version: R version 4.6.0 (2026-04-24 ucrt)
+  platform: windows
+  package_version: 0.2.0a4
+data_hash: b31ac557

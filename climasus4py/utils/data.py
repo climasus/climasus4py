@@ -59,8 +59,95 @@ def data_path(relative: str) -> Path:
     Example:
         >>> data_path("metadata/datasus_systems.json").exists()
         True
+
+    Files under ``assets/`` (the parquets) are not installed with
+    climasus-data: when one is missing it is downloaded once from GitHub
+    and cached -- see :mod:`climasus4py.utils.assets`.
     """
-    return _find_data_dir() / relative
+    raiz = _find_data_dir()
+    if relative.replace("\\", "/").startswith("assets/"):
+        from .assets import resolve_asset
+
+        return resolve_asset(raiz, relative)
+    return raiz / relative
+
+
+# ---------------------------------------------------------------------------
+# Spatial assets — resolution (M9)
+# ---------------------------------------------------------------------------
+
+#: Spatial layers shipped at two resolutions by ``build_spatial.py``.
+SPATIAL_LAYERS: tuple[str, ...] = ("municipalities", "states", "regions")
+
+_AVISOU_SEM_SIMPLIFICADO: set[str] = set()
+
+
+def spatial_asset_path(layer: str = "municipalities", *, simplified: bool = True) -> Path:
+    """Path to a spatial asset, at simplified (default) or full resolution.
+
+    ``climasus4r`` reaches geometry through
+    ``geobr::read_municipality(simplified = TRUE)``, while this catalog's
+    builder passed ``simplified=False`` — so until 21/09/2026 every
+    geometry served here was far more detailed than the one the R package
+    works with. Measured consequence (M9): a 5,196-row
+    ``sus_spatial_join`` result wrote a 331.9 MB Parquet against R's
+    2.1 MB, because the municipality polygon is repeated on every health
+    row. Simplified geometry lands on R's number.
+
+    No consumer in this package needs the extra detail. The join derives
+    a representative point, the choropleth renders at state or national
+    scale, and the city-name lookup never reads geometry at all. Measured
+    on all 5,570 municipalities: the representative point moves a median
+    of 7.5 m, and with the real INMET network *no* municipality changes
+    its nearest station.
+
+    Args:
+        layer: One of :data:`SPATIAL_LAYERS`.
+        simplified: ``True`` (default) for the simplified asset, matching
+            R. ``False`` for the full-resolution one, which is still
+            shipped — the detail is available, it just is not the
+            default.
+
+    Returns:
+        Absolute path. Falls back to the full-resolution file, with a
+        one-time warning, when the simplified asset is absent — which
+        means an older ``climasus-data``. The fallback is silent about
+        nothing: the output is then ~10x larger than R's, and a caller
+        who is not told would look for the cause in their own code.
+
+    Raises:
+        ValueError: If *layer* is not a known spatial layer.
+    """
+    import warnings
+
+    if layer not in SPATIAL_LAYERS:
+        raise ValueError(
+            f"Unknown spatial layer {layer!r}. Known: {', '.join(SPATIAL_LAYERS)}"
+        )
+
+    # The full layer is resolved only when it is the one returned: asking
+    # data_path for it downloads it when absent, and municipalities.parquet
+    # is 150 MB against 30 MB for the simplified one.
+    if not simplified:
+        return data_path(f"assets/spatial/{layer}.parquet")
+
+    simples = data_path(f"assets/spatial/{layer}_simplified.parquet")
+    if simples.is_file():
+        return simples
+    cheio = data_path(f"assets/spatial/{layer}.parquet")
+
+    if layer not in _AVISOU_SEM_SIMPLIFICADO:
+        _AVISOU_SEM_SIMPLIFICADO.add(layer)
+        warnings.warn(
+            f"{layer}_simplified.parquet not found in climasus-data; falling "
+            f"back to full-resolution {layer}.parquet. Geometry is then "
+            f"carried at ~16x the detail climasus4r uses, and any Parquet "
+            f"you export will be roughly 10x larger for the same rows "
+            f"(M9). Update climasus-data to get the simplified asset.",
+            UserWarning,
+            stacklevel=2,
+        )
+    return cheio
 
 
 # ---------------------------------------------------------------------------
@@ -104,112 +191,329 @@ def load_json(relative: str) -> dict[str, Any]:
 
 _FALLBACK_DATASUS_COLUMNS: dict[str, Any] = {
     "all_date_columns": [
-        "DTOBITO",
-        "DTNASC",
-        "DTCADINF",
-        "DTCADMUN",
-        "DTCONCASO",
-        "DTINVESTIG",
-        "DTRECEBIM",
-        "DTRECORIG",
-        "DTCONINV",
-        "DTINTERNACAO",
-        "DTSAIDA",
-        "DTCADASTRO",
-        "DTATESTADO",
-        "DTREGCART",
-        "DTCASAM",
-        "DTULTMENST",
-        "DTCONSULT",
-        "DTDECLARAC",
+        "DTOBITO", "DTNASC", "DTCADINF", "DTCADMUN", "DTCONCASO",
+        "DTINVESTIG", "DTRECEBIM", "DTRECORIG", "DTCONINV", "DTINTERNACAO",
+        "DTSAIDA", "DTCADASTRO", "DTATESTADO", "DTREGCART", "DTCASAM",
+        "DTULTMENST", "DTCONSULT", "DTDECLARAC",
     ],
+    # Split in three (M64). This used to be the same 23-entry list the
+    # metadata published, and it carried the same defect: CODESTAB came
+    # out as a number and 5.1% of the rows lost their leading zeros. The
+    # fallback has to agree with schema_version 2 of
+    # metadata/datasus_columns.json, or an install without climasus-data
+    # would quietly go back to corrupting identifiers. GRAESSION is gone
+    # from here too — it matches no column in any DATASUS file available.
     "all_numeric_columns": [
-        "CONTADOR",
-        "PESO",
-        "QTDFILVIVO",
-        "QTDFILMORT",
-        "GESTACAO",
-        "SEMAGESTAC",
-        "OBITOGRAV",
-        "GRAESSION",
-        "CODMUNNATU",
-        "CODMUNRES",
-        "CODMUNOCOR",
-        "CODESTAB",
-        "LOCOCOR",
-        "IDADEMAE",
-        "ESCMAE",
-        "CODOCUPMAE",
-        "QTDGESTANT",
-        "QTDPARTNOR",
-        "QTDPARTCES",
-        "IDADEPAI",
-        "ESCPAI",
-        "SERIESCPAI",
-        "SERIESCMAE",
+        "CONTADOR", "PESO", "QTDFILVIVO", "QTDFILMORT", "SEMAGESTAC",
+        "IDADEMAE", "QTDGESTANT", "QTDPARTNOR", "QTDPARTCES", "IDADEPAI",
     ],
-    "system_signatures": {
-        "SIM-DO": {"any_of": ["CAUSABAS", "DTOBITO"]},
-        "SIH-RD": {"any_of": ["DIAG_PRINC"]},
-        "SINAN-DENGUE": {"any_of": ["NU_NOTIFIC"]},
-        "SINASC": {"any_of": ["NUMERODN"]},
+    "all_identifier_columns": {
+        "CODESTAB": 7,
+        "CODMUNRES": 6,
+        "CODMUNOCOR": 6,
+        "CODMUNNATU": 6,
+        # Seis porque o codigo de ocupacao CBO-2002 tem seis digitos: nao
+        # aparece em nenhum SIM-DO disponivel aqui, entao a largura vem do
+        # sistema de codigos e nao de medicao -- como o paliativo do M5 ja
+        # declarava.
+        "CODOCUPMAE": 6,
     },
+    "all_categorical_columns": [
+        "GESTACAO", "OBITOGRAV", "LOCOCOR", "ESCMAE", "ESCPAI",
+        "SERIESCMAE", "SERIESCPAI",
+        "CODIFICADO", "ESC", "ESC2010", "ESCFALAGR1", "ESCMAE2010",
+        "ESCMAEAGR1",
+    ],
+    # Six systems since schema_version 6, against the four published at 5 —
+    # and of those four, two named a column that is not in the file (M162).
+    #
+    # WHAT WAS MEASURED, on real 2023 extracts. `NU_NOTIFIC` appears in no
+    # section of dictionaries/*/columns.json at all: the signature pointed
+    # at a column this package has never heard of, so SINAN could not be
+    # detected by any file. `NUMERODN` is in the SIM section as well as
+    # SINASC, and is absent from the 2023 SINASC layout, which carries
+    # `NUMEROLOTE` instead. SIA and CNES had no signature whatsoever.
+    #
+    # Consequence, before the fix: 0 of 118 SINAN columns, 0 of 208 CNES
+    # and 0 of 60 SIA were translated, in silence — see the note on the
+    # system resolution in sus_data_standardize.
+    #
+    # Every name ADDED here was checked to appear in exactly one section
+    # of dictionaries/pt-en/columns.json, so no file can match two
+    # systems. The SIA names collide only with other SIA-* sections,
+    # which resolve to the same family.
+    #
+    # The two old names are KEPT, last in their lists, because a layout
+    # this package has not seen may still carry them — removing a working
+    # signature to fix a broken one would trade one silence for another.
+    # `NUMERODN` is also in the SIM section, which is why it comes after
+    # the three exclusive SINASC names and why SIM-DO is tested first:
+    # order decides, and detect_system returns the first match.
+    "system_signatures": {
+        "SIM-DO":      {"any_of": ["CAUSABAS", "DTOBITO"]},
+        "SIH-RD":      {"any_of": ["DIAG_PRINC", "ANO_CMPT"]},
+        "SINASC":      {"any_of": ["LOCNASC", "APGAR5", "CODANOMAL",
+                                   "NUMERODN"]},
+        "SINAN-DENGUE":{"any_of": ["ID_AGRAVO", "NU_NOTIFIC"]},
+        "SIA-PA":      {"any_of": ["PA_CODUNI", "PA_IDADE", "PA_PROC_ID"]},
+        "CNES-ST":     {"any_of": ["VINC_SUS", "ATENDAMB"]},
+    },
+    # Every role lists the raw DATASUS name AND its standardized form in
+    # the three languages, each translation placed immediately after the
+    # raw name it came from. Until schema_version 4 only the English
+    # forms were here, so `sus_data_standardize(lang="pt")` produced
+    # `data_obito` and the very next step could not find it — 26 of 44
+    # system x language x role combinations failed (M123).
+    #
+    # The list is a PRIORITY, first match wins, which is why the
+    # placement matters: `data_nascimento` after `data_obito` keeps a SIM
+    # frame dated by the death, as it always was. The translations are
+    # derived from dictionaries/*/columns.json, never invented.
     "role_priority": {
-        "date": ["death_date", "date", "DTOBITO", "DTNASC", "admission_date"],
-        "cause": ["underlying_cause", "cause", "CAUSABAS", "DIAG_PRINC"],
-        "age": ["age", "age_years", "age_code", "IDADE", "IDADEMAE"],
-        "sex": ["sex", "SEXO", "CS_SEXO"],
+        # Ordenada por CATEGORIA desde 02/10/2026, nao por
+        # frequencia: datas de EVENTO primeiro e nascimento por
+        # ultimo. Uma data de nascimento nao e uma data de evento,
+        # e com ela em sexto o clima era casado pelo nascimento num
+        # arquivo do SINAN (M127). Os quatro nomes de SINAN e CNES
+        # que o aggregate_config ja tratava como candidatos e esta
+        # lista nao declarava entraram junto (M125).
+        "date": [
+            "death_date", "data_obito", "fecha_muerte", "DTOBITO",
+            "notification_date", "data_notificacao", "fecha_notificacion",
+            "DT_NOTIFIC", "first_symptom_date", "DT_SIN_PRI",
+            "admission_date", "data_internacao", "fecha_internacion",
+            "fecha_ingreso", "DT_INTER",
+            # SIA, added at schema_version 6 (M163). Its two dates were in
+            # no list at all, so detect_date_column returned None on every
+            # SIA frame and sus_data_create_variables skipped the calendar
+            # block with a warning. COMPETENCE comes before PROCESSING
+            # because the competence month is the one the production
+            # refers to; the processing month is when DATASUS handled it,
+            # and can fall in a later month than the care itself.
+            #
+            # Both are YYYYMM, not YYYYMMDD — six digits naming a month,
+            # not a day. sus_data_standardize resolves them to the FIRST
+            # day of that month; see the note there.
+            "competence_date", "data_competencia", "fecha_competencia",
+            "PA_CMP",
+            "processing_date", "data_processamento", "fecha_procesamiento",
+            "PA_MVM",
+            "update_date", "DT_COMPET", "date",
+            "birth_date", "data_nascimento", "fecha_nacimiento", "DTNASC"
+        ],
+        "cause": [
+            "underlying_cause", "cause", "CAUSABAS", "causa_basica",
+            "DIAG_PRINC", "primary_diagnosis", "diagnostico_principal",
+        ],
+        # The SUBJECT's own age first, the MOTHER's last, and the gap
+        # between them is the point of the ordering.
+        #
+        # `patient_age` (SIA's PA_IDADE) was missing entirely until
+        # schema_version 6, so a standardized SIA frame — which has the
+        # column, plainly named — failed with "Could not determine age"
+        # unless the caller passed age_col= by hand (M163). climasus4r
+        # has the same gap, from two different hardcoded lists.
+        #
+        # The four mother's-age spellings at the end are a FALLBACK and
+        # nothing more. On a SINASC frame they are the only age present,
+        # and the age variables then describe the mother, not the
+        # newborn — both packages do this, neither says so. Registered as
+        # a question for the creator (M166); do not reorder to "fix" it
+        # here without that conversation, because the two packages
+        # agreeing is worth more right now than either being right.
+        "age": [
+            "age", "age_years", "age_code", "IDADE", "codigo_idade", "idade",
+            "codigo_edad", "edad",
+            "patient_age", "idade_paciente", "edad_paciente", "PA_IDADE",
+            "IDADEMAE", "mother_age", "idade_mae",
+            "edad_madre",
+        ],
+        "sex": [
+            "sex", "SEXO", "sexo", "CS_SEXO",
+        ],
+        # Municipality and state were MISSING from this fallback while
+        # detect_geo_column kept its own hardcoded dict, so nothing
+        # noticed. Now that the detector reads the metadata (D6/M96), an
+        # install without climasus-data would raise KeyError without
+        # these. Same union and same order as the published file.
+        # Must stay the concatenation of municipality_by_basis in
+        # _fallback_order — there is a test, and it caught this list
+        # drifting when the M123 translations were added here alone.
+        "municipality": [
+            "CODMUNRES", "residence_municipality_code",
+            "codigo_municipio_residencia", "MUNI_RES",
+            "CODMUNOCOR", "occurrence_municipality_code",
+            "codigo_municipio_ocurrencia", "codigo_municipio_ocorrencia",
+            "ID_MUNICIP", "notification_municipality_code",
+            "codigo_municipio_notificacao", "codigo_municipio_notificacion",
+            "municipality_code", "code_muni",
+        ],
+        "state": [
+            "state", "SG_UF", "residence_uf", "uf_residencia", "UF",
+            "hospitalization_uf", "uf_hospitalizacao", "uf_hospitalizacion",
+            "SG_UF_NOT", "notification_uf", "uf_notificacao", "uf_notificacion",
+        ],
+    },
+    "municipality_by_basis": {
+        "_fallback_order": ["residence", "occurrence", "notification",
+                            "unspecified"],
+        "residence": ["CODMUNRES", "residence_municipality_code",
+                      "codigo_municipio_residencia", "MUNI_RES"],
+        # `codigo_municipio_ocurrencia` is the Spanish spelling; the
+        # Portuguese one (`...ocorrencia`) was missing entirely until the
+        # M123 sweep, so a pt-standardized frame could not be told apart
+        # by basis — it fell through to residence.
+        "occurrence": ["CODMUNOCOR", "occurrence_municipality_code",
+                       "codigo_municipio_ocurrencia",
+                       "codigo_municipio_ocorrencia"],
+        "notification": ["ID_MUNICIP", "notification_municipality_code",
+                         "codigo_municipio_notificacao",
+                         "codigo_municipio_notificacion"],
+        "unspecified": ["municipality_code", "code_muni"],
     },
 }
 
 
+#: schema_versions already reported by :func:`load_datasus_columns_spec`.
+#:
+#: The lru_cache below would already hold the warning to one call, but
+#: only while it lasts: the integrity tests clear the caches to re-read
+#: the checkout, and the warning came back each time. A module-level
+#: record outlives that.
+_AVISOU_SCHEMA: set[str] = set()
+
+
 @lru_cache(maxsize=1)
 def load_datasus_columns_spec() -> dict[str, Any]:
-    """Load DATASUS column specs, with fallback for older climasus-data releases."""
+    """Load DATASUS column specs, with fallback for older climasus-data.
+
+    A release before ``schema_version`` 2 publishes the single 23-entry
+    ``all_numeric_columns`` and none of the three split lists. Returning
+    it as it comes would put the M64 corruption straight back — the
+    importer would coerce ``CODESTAB`` to a number again and 5.1% of the
+    rows would lose their leading zeros — so the three lists are taken
+    from the fallback instead, and the user is told why. Everything else
+    in the file (dates, signatures, role priority) is honoured as
+    published.
+    """
     try:
         data = load_json("metadata/datasus_columns.json")
-        if isinstance(data, dict):
-            return data
     except FileNotFoundError:
-        pass
-    return _FALLBACK_DATASUS_COLUMNS.copy()
+        return _FALLBACK_DATASUS_COLUMNS.copy()
+
+    if not isinstance(data, dict):
+        return _FALLBACK_DATASUS_COLUMNS.copy()
+
+    versao = int(data.get("schema_version") or 1)
+    if versao >= 6:
+        return data
+
+    import warnings
+
+    corrigido = dict(data)
+    faltando: list[str] = []
+
+    if versao < 2:
+        faltando.append(
+            "the single all_numeric_columns list of 23 entries, which mixes "
+            "quantities with fixed-width identifier codes and loses the "
+            "leading zero of CODESTAB when coerced (M64)")
+        for chave in ("all_numeric_columns", "all_identifier_columns",
+                      "all_categorical_columns"):
+            corrigido[chave] = _FALLBACK_DATASUS_COLUMNS[chave]
+
+    if versao < 3:
+        faltando.append(
+            "no municipality_by_basis, and a role_priority.municipality of "
+            "3 names against the 11 the detectors need — residence and "
+            "occurrence could not be told apart (M96)")
+        corrigido["municipality_by_basis"] = (
+            _FALLBACK_DATASUS_COLUMNS["municipality_by_basis"])
+        papeis = dict(corrigido.get("role_priority") or {})
+        for chave in ("municipality", "state", "date"):
+            papeis[chave] = _FALLBACK_DATASUS_COLUMNS["role_priority"][chave]
+        corrigido["role_priority"] = papeis
+
+    if versao < 4:
+        faltando.append(
+            "a role_priority carrying only the ENGLISH standardized names, "
+            "so sus_data_standardize(lang='pt') produces data_obito and the "
+            "next step raises 'Date column not found' pointing at the "
+            "function that just ran — 26 of 44 system x language x role "
+            "combinations could not find their column (M123)")
+        # Every role, not the three of the version 3 branch: the missing
+        # translations are spread across all six.
+        corrigido["role_priority"] = dict(
+            _FALLBACK_DATASUS_COLUMNS["role_priority"])
+
+    if versao < 5:
+        faltando.append(
+            "a role_priority.date ordered by frequency, with birth_date "
+            "ahead of notification and admission -- so a SINAN frame was "
+            "dated by the patient's BIRTH (M127) -- and missing the four "
+            "SINAN/CNES names the aggregate_config already treated as "
+            "candidates (M125)")
+        papeis = dict(corrigido.get("role_priority") or {})
+        papeis["date"] = _FALLBACK_DATASUS_COLUMNS["role_priority"]["date"]
+        corrigido["role_priority"] = papeis
+
+    if versao < 6:
+        faltando.append(
+            "system_signatures for four systems only, two of them naming a "
+            "column the files do not have -- NU_NOTIFIC is in no dictionary "
+            "section at all and NUMERODN is absent from the 2023 SINASC "
+            "layout -- and none at all for SIA and CNES, so a SIA, CNES, "
+            "SINAN or SINASC frame could not be identified and came out of "
+            "sus_data_standardize with its raw DATASUS column names, in "
+            "silence: 0 of 118 SINAN columns, 0 of 208 CNES, 0 of 60 SIA "
+            "(M162); and a role_priority with no SIA age or date column, so "
+            "a standardized SIA frame could neither find patient_age nor "
+            "build any calendar variable (M163)")
+        corrigido["system_signatures"] = dict(
+            _FALLBACK_DATASUS_COLUMNS["system_signatures"])
+        papeis = dict(corrigido.get("role_priority") or {})
+        for chave in ("age", "date"):
+            papeis[chave] = _FALLBACK_DATASUS_COLUMNS["role_priority"][chave]
+        corrigido["role_priority"] = papeis
+
+    # Once per process, not once per call. This function is reached from
+    # every detector in the package — detect_system, detect_age_column,
+    # detect_date_column, the geographic ones — so a pipeline calls it
+    # dozens of times, and the condition it reports is STATIC: the
+    # installed climasus-data does not change mid-run. Warning each time
+    # buried the message in its own repetition, and turned any caller
+    # running under `simplefilter("error")` into a failure that had
+    # nothing to do with what that caller was testing.
+    chave = str(data.get("schema_version"))
+    if chave not in _AVISOU_SCHEMA:
+        _AVISOU_SCHEMA.add(chave)
+        warnings.warn(
+            "climasus-data publishes metadata/datasus_columns.json at "
+            f"schema_version {data.get('schema_version')!r}, which has "
+            + "; and ".join(faltando)
+            + ". Using the corrected lists bundled with climasus4py instead; "
+            "run update_climasus_data() to get the published ones.",
+            UserWarning,
+            stacklevel=2,
+        )
+    return corrigido
 
 
 # ---------------------------------------------------------------------------
 # Update function: baixa/atualiza climasus-data localmente
 # ---------------------------------------------------------------------------
 
-def update_climasus_data(repo_url: str = "https://github.com/climasus/climasus-data.git", target_dir: str | None = None, branch: str = "main") -> None:  # noqa: E501
-    """Baixa ou atualiza o repositório climasus-data localmente.
-
-    Normalmente não é necessário quando ``climasus-data`` está instalado
-    como pacote Python. Útil durante desenvolvimento ou para forçar
-    atualização dos arquivos de referência offline.
-
-    Args:
-        repo_url: URL do repositório Git a clonar.
-        target_dir: Diretório de destino. Se ``None``, usa a variável de
-            ambiente ``CLIMASUS_DATA_DIR`` ou o diretório do pacote
-            instalado.
-        branch: Branch Git a clonar/atualizar. Padrão: ``"main"``.
-
-    Raises:
-        RuntimeError: Se *target_dir* existe mas não contém
-            ``manifest.json`` (proteção contra remoção acidental).
-        subprocess.CalledProcessError: Se o comando ``git`` falhar.
-
-    Example:
-        >>> import climasus4py as cs
-        >>> cs.update_climasus_data()
-        Clonando climasus-data em ...
-        climasus-data atualizado com sucesso.
-    """
+def update_climasus_data(
+    repo_url: str = "https://github.com/climasus/climasus-data.git",
+    target_dir: str | None = None,
+    branch: str = "main",
+) -> None:
+    """Baixa ou atualiza o repositório climasus-data localmente."""
     if target_dir is None:
         env = os.environ.get("CLIMASUS_DATA_DIR")
         if env:
             target_dir = env
         else:
-            # Tenta usar o diretório do pacote instalado
             try:
                 target_dir = str(climasus_data.data_root())
             except FileNotFoundError:
@@ -217,12 +521,9 @@ def update_climasus_data(repo_url: str = "https://github.com/climasus/climasus-d
 
     target = Path(target_dir)
     if target.exists() and (target / ".git").is_dir():
-        # Já existe: git pull
         print(f"Atualizando climasus-data em {target}...")
         subprocess.run(["git", "-C", str(target), "pull", "origin", branch], check=True)
     elif target.exists():
-        # Existe mas não é git: remove e clona
-        # Safety check: only remove if it looks like a climasus-data directory
         if not (target / "manifest.json").is_file():
             raise RuntimeError(
                 f"Diretório {target} não parece ser climasus-data "
@@ -232,51 +533,23 @@ def update_climasus_data(repo_url: str = "https://github.com/climasus/climasus-d
         shutil.rmtree(target)
         subprocess.run(["git", "clone", "--depth", "1", "-b", branch, repo_url, str(target)], check=True)  # noqa: E501
     else:
-        # Não existe: clona
         print(f"Clonando climasus-data em {target}...")
         subprocess.run(["git", "clone", "--depth", "1", "-b", branch, repo_url, str(target)], check=True)  # noqa: E501
     print("climasus-data atualizado com sucesso.")
 
 
 def load_systems() -> dict:
-    """Load SUS system definitions from climasus-data.
-
-    Returns:
-        Dict mapping system identifiers to their metadata.
-
-    Example:
-        >>> systems = load_systems()
-        >>> "SIM-DO" in systems
-        True
-    """
+    """Load SUS system definitions from climasus-data."""
     return load_json("metadata/datasus_systems.json")["systems"]
 
 
 def load_uf_codes() -> dict:
-    """Load Brazilian state (UF) codes from climasus-data.
-
-    Returns:
-        Dict mapping 2-letter UF abbreviations to state metadata.
-
-    Example:
-        >>> ufs = load_uf_codes()
-        >>> "name" in ufs["SP"]
-        True
-    """
+    """Load Brazilian state (UF) codes from climasus-data."""
     return load_json("metadata/uf_codes.json")["states"]
 
 
 def load_regions() -> dict:
-    """Load Brazilian region definitions from climasus-data.
-
-    Returns:
-        Dict mapping region categories to their region metadata and
-        member state lists.
-
-    Example:
-        >>> regions = load_regions()
-        >>> list(regions.keys())
-    """
+    """Load Brazilian region definitions from climasus-data."""
     return load_json("metadata/regions.json")["categories"]
 
 
@@ -287,20 +560,28 @@ def load_regions() -> dict:
 def resolve_uf(uf: str | list[str]) -> list[str]:
     """Resolve a UF specification to a list of 2-letter state codes.
 
+    Accepts:
+    - A single UF string: ``"SP"``
+    - A list of UFs: ``["SP", "RJ"]``
+    - ``"all"`` — all 27 states
+    - A region name in PT, EN or ES, e.g. ``"nordeste"``, ``"northeast"``,
+      ``"amazonia_legal"``, ``"semi_arid"``
+
     Args:
-        uf: A single UF string (e.g. ``"SP"``), a list of UFs
-            (e.g. ``["SP", "RJ"]``), the special token ``"all"`` to
-            expand to all 27 states, or a region name
-            (e.g. ``"Sudeste"``) to expand to its member states.
+        uf: UF abbreviation(s), ``"all"``, or a region name.
 
     Returns:
         List of upper-case 2-letter UF abbreviations.
 
-    Example:
+    Examples:
         >>> resolve_uf("SP")
         ['SP']
-        >>> resolve_uf("Sudeste")
-        ['ES', 'MG', 'RJ', 'SP']
+        >>> resolve_uf("nordeste")
+        ['AL', 'BA', 'CE', 'MA', 'PB', 'PE', 'PI', 'RN', 'SE']
+        >>> resolve_uf("northeast")   # EN alias
+        ['AL', 'BA', 'CE', 'MA', 'PB', 'PE', 'PI', 'RN', 'SE']
+        >>> resolve_uf("noreste")     # ES alias
+        ['AL', 'BA', 'CE', 'MA', 'PB', 'PE', 'PI', 'RN', 'SE']
         >>> len(resolve_uf("all"))
         27
     """
@@ -311,15 +592,23 @@ def resolve_uf(uf: str | list[str]) -> list[str]:
 
     if len(uf_list) == 1:
         token = uf_list[0]
+
+        # "all" → todos os 27 estados
         if token.lower() == "all":
             return list(load_uf_codes().keys())
 
-        # Check if it's a region name
+        # verifica se é nome de região ou alias (PT/EN/ES)
         regions = load_regions()
+        token_lower = token.lower()
         for category in regions.values():
             for region_name, region_data in category.get("regions", {}).items():
-                if token == region_name:
+                # checa nome canônico
+                if token_lower == region_name.lower():
                     return region_data["states"]
+                # checa aliases (PT, EN, ES)
+                for alias in region_data.get("aliases", []):
+                    if token_lower == alias.lower():
+                        return region_data["states"]
 
     return [u.upper() for u in uf_list]
 
@@ -333,24 +622,7 @@ def _load_datasus_columns_json() -> dict:
 
 
 def detect_system(columns: list[str]) -> str | None:
-    """Detect the SUS system from a list of column names.
-
-    Uses characteristic columns as signatures: e.g. ``CAUSABAS`` and
-    ``DTOBITO`` identify SIM-DO; ``NUMERODN`` identifies SINASC.
-
-    Args:
-        columns: Column names present in the dataset.
-
-    Returns:
-        System identifier string (e.g. ``"SIM-DO"``), or ``None`` when
-        no known signature is found.
-
-    Example:
-        >>> detect_system(["CAUSABAS", "DTOBITO", "IDADE"])
-        'SIM-DO'
-        >>> detect_system(["UNKNOWN_COL"]) is None
-        True
-    """
+    """Detect the SUS system from a list of column names."""
     col_set = set(columns)
     signatures = _load_datasus_columns_json()["system_signatures"]
     for system, spec in signatures.items():
@@ -368,120 +640,301 @@ def _detect_column(columns: list[str], candidates: list[str]) -> str | None:
     return None
 
 
-def detect_date_column(columns: list[str]) -> str | None:
-    """Return the first recognised date column from a list of column names.
+@lru_cache(maxsize=1)
+def _column_synonym_index() -> dict[str, tuple[str, ...]]:
+    """Map every column spelling to the whole group it belongs to.
 
-    Searches *columns* for known DATASUS and standardised date column
-    names in priority order: ``death_date``, ``date``, ``DTOBITO``,
-    ``DTNASC``, ``admission_date``.
+    A DATASUS column has up to four names: the raw one (``DTOBITO``) and
+    what ``sus_data_standardize`` renames it to in each language
+    (``death_date``, ``data_obito``, ``fecha_muerte``). The dictionaries
+    under ``dictionaries/pt-*/columns.json`` hold raw-to-translation; this
+    inverts them into groups, so any spelling leads to all the others.
 
-    Args:
-        columns: Column names present in the dataset.
+    It exists because the same priority list was being kept twice — in
+    ``role_priority`` and in ``templates/aggregate_config.json`` — and
+    both were written in English only. Translating each copy by hand
+    would have made a third thing to keep in sync; expanding a name into
+    its group takes the language dimension out of the lists entirely
+    (M123).
 
     Returns:
-        Matching column name, or ``None`` if no date candidate is found.
-
-    Example:
-        >>> detect_date_column(["DTOBITO", "CAUSABAS", "IDADE"])
-        'DTOBITO'
-        >>> detect_date_column(["UNKNOWN"]) is None
-        True
+        ``{spelling: (raw, en, pt, es…)}``. Empty when the dictionaries
+        cannot be read, which degrades to the previous behaviour rather
+        than raising: the candidate lists still carry the raw and English
+        names on their own.
     """
+    grupos: dict[str, list[str]] = {}
+    for par in ("pt-en", "pt-pt", "pt-es"):
+        try:
+            livro = load_json(f"dictionaries/{par}/columns.json")
+        except (FileNotFoundError, ValueError):
+            continue
+        for secao, mapa in livro.items():
+            if secao == "_meta" or not isinstance(mapa, dict):
+                continue
+            for bruto, traduzido in mapa.items():
+                if not isinstance(traduzido, str) or not traduzido:
+                    continue
+                grupo = grupos.setdefault(bruto, [bruto])
+                if traduzido not in grupo:
+                    grupo.append(traduzido)
+
+    indice: dict[str, tuple[str, ...]] = {}
+    for grupo in grupos.values():
+        congelado = tuple(grupo)
+        for nome in grupo:
+            # A spelling shared by two raw columns keeps the first group.
+            # Rare, and picking either beats dropping both.
+            indice.setdefault(nome, congelado)
+    return indice
+
+
+def expand_column_synonyms(names: list[str] | tuple[str, ...]) -> list[str]:
+    """Expand each candidate into every spelling of the same column.
+
+    Order is preserved and duplicates dropped, so a priority list stays a
+    priority list: the group of the first candidate comes before the
+    group of the second. That is what keeps a SIM frame dated by the
+    death and not the birth, in every language.
+
+    Args:
+        names: Candidate column names, most preferred first.
+
+    Returns:
+        The expanded list, in the same priority order.
+    """
+    indice = _column_synonym_index()
+    saida: list[str] = []
+    for nome in names:
+        for variante in indice.get(nome, (nome,)):
+            if variante not in saida:
+                saida.append(variante)
+    return saida
+
+
+def detect_date_column(columns: list[str]) -> str | None:
+    """Return the first recognised date column from a list of column names."""
     return _detect_column(columns, _load_datasus_columns_json()["role_priority"]["date"])
 
 
 def detect_cause_column(columns: list[str]) -> str | None:
-    """Return the first recognised ICD-10 cause column from a list of column names.
-
-    Searches *columns* for known DATASUS and standardised cause column
-    names in priority order: ``underlying_cause``, ``cause``,
-    ``CAUSABAS``, ``DIAG_PRINC``.
-
-    Args:
-        columns: Column names present in the dataset.
-
-    Returns:
-        Matching column name, or ``None`` if no cause candidate is found.
-
-    Example:
-        >>> detect_cause_column(["CAUSABAS", "DTOBITO"])
-        'CAUSABAS'
-        >>> detect_cause_column(["OTHER"]) is None
-        True
-    """
+    """Return the first recognised ICD-10 cause column from a list of column names."""
     return _detect_column(columns, _load_datasus_columns_json()["role_priority"]["cause"])
 
 
 def detect_age_column(columns: list[str]) -> str | None:
-    """Return the first recognised age column from a list of column names.
-
-    Searches *columns* for known DATASUS and standardised age column
-    names in priority order: ``age``, ``age_years``, ``age_code``,
-    ``IDADE``, ``IDADEMAE``.
-
-    Args:
-        columns: Column names present in the dataset.
-
-    Returns:
-        Matching column name, or ``None`` if no age candidate is found.
-
-    Example:
-        >>> detect_age_column(["IDADE", "SEXO"])
-        'IDADE'
-        >>> detect_age_column(["UNKNOWN"]) is None
-        True
-    """
+    """Return the first recognised age column from a list of column names."""
     return _detect_column(columns, _load_datasus_columns_json()["role_priority"]["age"])
 
 
 def detect_sex_column(columns: list[str]) -> str | None:
-    """Return the first recognised sex column from a list of column names.
-
-    Searches *columns* for known DATASUS and standardised sex column
-    names in priority order: ``sex``, ``SEXO``, ``CS_SEXO``.
-
-    Args:
-        columns: Column names present in the dataset.
-
-    Returns:
-        Matching column name, or ``None`` if no sex candidate is found.
-
-    Example:
-        >>> detect_sex_column(["SEXO", "IDADE"])
-        'SEXO'
-        >>> detect_sex_column(["UNKNOWN"]) is None
-        True
-    """
+    """Return the first recognised sex column from a list of column names."""
     return _detect_column(columns, _load_datasus_columns_json()["role_priority"]["sex"])
 
 
-def decode_age_sql(age_col: str) -> str:
-    """Return a DuckDB SQL expression that decodes SIM-DO coded age to years.
+def period_bound(value: str, *, end: bool = False):
+    """Parse a date string, expanding a partial one to its period boundary.
 
-    DATASUS SIM-DO encodes age as a 3-digit string where the first
-    digit is a unit code:
+    ``pd.Timestamp`` reads a partial date as the *first instant* of the
+    period: ``"2023"`` and ``"2023-06"`` both become a single day. So a
+    caller writing ``baseline_start="2023", baseline_end="2023"``, meaning
+    the year 2023, silently got a **one-day** window — enough data to pass
+    an "is it empty?" check and nowhere near enough to compute a
+    percentile. On INMET SP 2023 that produced 135 heatwave events against
+    245 for the full year, a 45% difference with nothing to show it.
 
-    - ``5xx`` — 100 + xx years (centenarians, e.g. 501 = 101 years)
-    - ``4xx`` — xx years       (e.g. 435 = 35 years)
-    - ``3xx`` — months         (decoded to 0 years)
-    - ``2xx`` — days           (decoded to 0 years)
-    - ``1xx`` — hours          (decoded to 0 years)
-    - ``0xx`` — minutes        (decoded to 0 years)
+    Here a partial date resolves to the start or the end of the period it
+    names, whichever the caller is asking for, so ``("2023", "2023")``
+    means the whole year. A complete date is a one-day period and
+    resolves to itself, unchanged.
 
     Args:
-        age_col: Column name containing the raw DATASUS age code.
+        value: Date string — ``"2023"``, ``"2023-06"``, ``"2023-06-15"``.
+        end: When ``True``, return the last day of the period rather than
+            the first.
 
     Returns:
-        SQL ``CASE`` expression string that evaluates to an integer
-        representing age in years.
+        ``pandas.Timestamp`` at day resolution.
 
     Example:
-        >>> expr = decode_age_sql("IDADE")
-        >>> conn.sql(f"SELECT ({expr}) AS age_years FROM rel").df()
+        >>> period_bound("2023")
+        Timestamp('2023-01-01 00:00:00')
+        >>> period_bound("2023", end=True)
+        Timestamp('2023-12-31 00:00:00')
+        >>> period_bound("2023-06-15", end=True)
+        Timestamp('2023-06-15 00:00:00')
     """
-    v = f'TRIM(CAST("{age_col}" AS VARCHAR))'
+    import pandas as pd
+
+    try:
+        period = pd.Period(value)
+    except (ValueError, TypeError):
+        # Formats Period rejects but Timestamp accepts (e.g. one carrying a
+        # time). Nothing to expand in those — they name an instant.
+        return pd.Timestamp(value).normalize()
+    return (period.end_time if end else period.start_time).normalize()
+
+
+#: Age columns whose three digits are YEARS, not a DATASUS unit+amount
+#: code — see :func:`decode_age_sql`.
+#:
+#: Only SIA's patient age is listed, in the four spellings
+#: ``sus_data_standardize`` can produce, and the list stays this narrow
+#: on purpose. ``age`` and ``age_years`` are NOT here even though their
+#: names promise years: SIH writes ``IDADE`` beside ``COD_IDADE``, where
+#: the unit lives in the companion column, and nothing has been measured
+#: about which systems feed those names with what. Widening this set
+#: without a count against ``climasus4r`` would trade a known defect for
+#: an unknown one.
+#:
+#: The MOTHER's age joined on 05/11/2026, with that count (M187): SINASC
+#: ``IDADEMAE`` is plain years, and climasus4r reads it so. It came in as
+#: ``38.0`` in SINASC/AC/2022 — a float column, because it has nulls —
+#: and the four-digit rule of M179 read the ``3`` as "months": 14.470 of
+#: 14.483 mothers came out 0 years old. Read as years, 14.483 of 14.483
+#: match climasus4r.
+_IDADE_EM_ANOS: frozenset[str] = frozenset({
+    "PA_IDADE", "patient_age", "idade_paciente", "edad_paciente",
+    "IDADEMAE", "mother_age", "idade_mae", "edad_madre",
+})
+
+
+#: SIH age columns and the companion column that holds their UNIT — see
+#: :func:`decode_age_sql`.
+#:
+#: SIH splits the DATASUS age in two: ``IDADE`` is the amount and
+#: ``COD_IDADE`` the unit (2 days, 3 months, 4 years, 5 years past 100).
+#: The names are the four spellings ``sus_data_standardize`` produces for
+#: the pair, read from the SIH section of each ``columns.json``. The unit
+#: is only used when the companion is actually present, so SIM's ``IDADE``
+#: — a self-contained three-digit code with no companion — is untouched.
+_UNIDADE_DA_IDADE: dict[str, str] = {
+    "IDADE": "COD_IDADE",
+    "age": "age_unit_code",
+    "idade": "codigo_unidade_idade",
+    "edad": "codigo_unidad_edad",
+}
+
+
+def _decode_age_with_unit_sql(age_col: str, unit_col: str) -> str:
+    """Age in years from SIH's amount + unit pair (M180).
+
+    Each unit was checked against the age climasus4r computes from the
+    birth and admission dates, on SIH-RD AC+RR+AP 2022-2023 (67.084
+    rows): unit 2 carries 0-30 with 0-30 days between the dates, unit 3
+    carries 1-11 with 28-364 days, unit 4 carries 1-99 and matches the
+    years, and unit 5 carries 0-14 where the dates give 100-114 — so 5
+    means 100 PLUS the amount. Any other unit returns NULL rather than a
+    guess.
+    """
+    n = f'TRY_CAST(TRIM(CAST("{age_col}" AS VARCHAR)) AS INTEGER)'
+    u = f'TRIM(CAST("{unit_col}" AS VARCHAR))'
+    return (
+        f"CASE {u}"
+        f"  WHEN '2' THEN CASE WHEN {n} IS NULL THEN NULL ELSE 0 END"
+        f"  WHEN '3' THEN CAST(FLOOR({n} / 12) AS INTEGER)"
+        f"  WHEN '4' THEN {n}"
+        f"  WHEN '5' THEN 100 + {n}"
+        f"  ELSE NULL"
+        f" END"
+    )
+
+
+def decode_age_sql(age_col: str, columns: list[str] | None = None) -> str:
+    """Return a DuckDB SQL expression that decodes SIM-DO coded age to years.
+
+    The DATASUS encoding is three digits: the first is the unit (0 minutes,
+    1 hours, 2 days, 3 months — all under a year; 4 years; 5 years past
+    100) and the rest is the amount.
+
+    A three-digit code whose unit digit is not one of those is not an age.
+    ``999`` is the sentinel for *unknown*, and it used to fall through to
+    ``TRY_CAST`` and come back as **999 years** — then the derived columns
+    happily filed those records under ``age_group='60+'``,
+    ``ibge_age_group='80+'`` and ``climate_risk_group='High Risk (65+)'``,
+    inflating the elderly bands with people of unknown age. On SIM-DO SP
+    2023 that was 335 records. The R returns NA.
+
+    Note this is a *structural* rule rather than a lookup in
+    :data:`_IGNORED_VALUES`, which does list ``"999"``. That list also
+    holds ``"0"``, ``"9"`` and ``"99"``, which are sentinels for
+    categorical fields such as sex and race — applying it wholesale here
+    would discard a legitimately coded age. Rejecting an out-of-range unit
+    digit covers ``999`` and any other undecodable code without guessing
+    at short numeric values.
+
+    NOT EVERY THREE-DIGIT DATASUS AGE IS CODED THIS WAY, which is the
+    trap :data:`_IDADE_EM_ANOS` exists for. SIA's ``PA_IDADE`` is the
+    patient's age in YEARS, zero-padded to three digits — ``063`` is 63
+    years old, not "unit 0, amount 63". Run through the rule above, the
+    leading ``0`` reads as *minutes* and every such row collapses to 0
+    years. Measured on SIA-PA/AC/January 2023, 72.654 rows: all of them
+    landed in the ``0-4`` band, against 7.165 / 6.512 / 46.746 / 12.231
+    across the four default bands in ``climasus4r`` — which reads the
+    column as plain years and is right. Reading it as years here
+    reproduces those four counts to the row (M167).
+
+    SIH KEEPS THE UNIT IN ANOTHER COLUMN (M180). Its ``IDADE`` is the bare
+    amount and ``COD_IDADE`` says whether it counts days, months or years,
+    so ``4`` may be a four-month-old. Read alone, that ``4`` came back as
+    4 years: 4.147 of 67.084 SIH-RD rows (6,2%), every baby under one
+    year and every centenarian, measured against climasus4r. Pass
+    *columns* and the companion is used when present; see
+    :data:`_UNIDADE_DA_IDADE`.
+
+    SINAN WRITES FOUR DIGITS (M179). ``NU_IDADE_N`` is the same unit +
+    amount code with a three-digit amount — ``4028`` is 28 years. It used
+    to fall through to the plain cast and come back as 4.028 years, which
+    put all 73.778 SINAN-DENGUE notifications in ``60+``. A four-digit
+    number is never a plain age in years, so this branch cannot catch a
+    value that was right before. The rule is climasus4r's
+    ``decode_datasus_age_vectorized``: units 1 and 2 are 0 years, 3 is
+    months divided by 12, 4 is years, 5 is 100 plus the amount, anything
+    else is NULL.
+
+    ONLY DIGITS ARE A CODE (M187). A column that reaches here as a float
+    stringifies with a decimal part, and ``38.0`` has four characters:
+    the four-digit branch above read it as unit 3 (months) and returned
+    0 — a regression M179 introduced, caught on SINASC/AC/2022. So an
+    integral ``.0`` is stripped first (``463.0`` is still the code 463,
+    ``38.0`` is 38), and the coded branches only take a value made of
+    digits alone; anything else falls to the plain cast.
+
+    Args:
+        age_col: The age column to decode.
+        columns: Columns of the relation. Only used to find the SIH unit
+            companion of *age_col*; ``None`` keeps the single-column
+            behaviour.
+
+    Returns:
+        A SQL expression yielding age in whole years, or NULL.
+    """
+    if age_col in _IDADE_EM_ANOS:
+        return f'TRY_CAST(TRIM(CAST("{age_col}" AS VARCHAR)) AS INTEGER)'
+
+    unidade = _UNIDADE_DA_IDADE.get(age_col)
+    if columns is not None and unidade in columns:
+        return _decode_age_with_unit_sql(age_col, unidade)
+
+    v = f"""regexp_replace(TRIM(CAST("{age_col}" AS VARCHAR)), '\\.0+$', '')"""
+    q = f"TRY_CAST(SUBSTR({v}, 2) AS INTEGER)"
     return (
         f"CASE"
+        f"  WHEN NOT regexp_full_match({v}, '[0-9]+')"
+        f"    THEN TRY_CAST({v} AS INTEGER)"
+        f"  WHEN LENGTH({v}) = 4 AND SUBSTR({v}, 1, 1) IN ('1', '2')"
+        f"    THEN 0"
+        f"  WHEN LENGTH({v}) = 4 AND SUBSTR({v}, 1, 1) = '3'"
+        f"    THEN CAST(FLOOR({q} / 12) AS INTEGER)"
+        f"  WHEN LENGTH({v}) = 4 AND SUBSTR({v}, 1, 1) = '4'"
+        f"    THEN {q}"
+        f"  WHEN LENGTH({v}) = 4 AND SUBSTR({v}, 1, 1) = '5'"
+        f"    THEN 100 + {q}"
+        f"  WHEN LENGTH({v}) = 4"
+        f"    THEN NULL"
+        f"  WHEN LENGTH({v}) = 3 AND SUBSTR({v}, 1, 1) NOT IN"
+        f"       ('0', '1', '2', '3', '4', '5')"
+        f"    THEN NULL"
         f"  WHEN LENGTH({v}) = 3 AND SUBSTR({v}, 1, 1) = '5'"
         f"    THEN 100 + TRY_CAST(SUBSTR({v}, 2) AS INTEGER)"
         f"  WHEN LENGTH({v}) = 3 AND SUBSTR({v}, 1, 1) = '4'"
@@ -493,47 +946,102 @@ def decode_age_sql(age_col: str) -> str:
     )
 
 
-def detect_geo_column(columns: list[str], level: str = "municipality") -> str | None:
-    """Return the first recognised geographic column for the requested level.
+#: Levels the shared metadata does not describe, so they stay here.
+_GEO_LOCAL_LEVELS: dict[str, list[str]] = {
+    "region": ["region"],
+    "country": ["country"],
+}
+
+
+def municipality_candidates(basis: str | None = None) -> list[str]:
+    """Municipality column names, in order, for one geographic basis.
+
+    Reads ``municipality_by_basis`` from the shared metadata (D6/M96).
+    ``basis`` of ``None`` returns the declared fallback union, which is
+    what ``role_priority.municipality`` holds.
 
     Args:
-        columns: Column names present in the dataset.
-        level: Geographic level to detect — ``"municipality"``
-            (default), ``"state"``, ``"region"``, or ``"country"``.
+        basis: ``"residence"``, ``"occurrence"``, ``"notification"``,
+            ``"unspecified"``, or ``None`` for the full fallback order.
 
     Returns:
-        Matching column name, or ``None`` if no candidate is found.
+        Ordered candidate names.
 
-    Example:
-        >>> detect_geo_column(["CODMUNRES", "DTOBITO"])
-        'CODMUNRES'
-        >>> detect_geo_column(["UF", "DTOBITO"], level="state")
-        'UF'
+    Raises:
+        ValueError: If *basis* is not a declared one.
     """
-    candidates = {
-        "municipality": ["municipality_code", "CODMUNRES", "ID_MUNICIP"],
-        "state": ["state", "SG_UF", "UF", "SG_UF_NOT"],
-        "region": ["region"],
-        "country": ["country"],
-    }
-    return _detect_column(columns, candidates.get(level, []))
+    spec = _load_datasus_columns_json()
+    if basis is None:
+        return list(spec["role_priority"]["municipality"])
+    porbase = spec.get("municipality_by_basis") or {}
+    if basis not in porbase or basis.startswith("_"):
+        validos = [k for k in porbase if not k.startswith("_")]
+        raise ValueError(
+            f"Unknown geographic basis {basis!r}. Declared: "
+            f"{sorted(validos)}."
+        )
+    return list(porbase[basis])
+
+
+def detect_geo_column(
+    columns: list[str],
+    level: str = "municipality",
+    basis: str | None = None,
+) -> str | None:
+    """Return the first recognised geographic column for the requested level.
+
+    Municipality names come from the **shared metadata**, which is the
+    single source since 21/09/2026 (D6). There used to be five lists
+    disagreeing on both membership and order: this function's own dict,
+    ``role_priority.municipality``, ``climate_aggregate``'s
+    ``_MUNI_CANDIDATES``, and one in each plotting module. Order is what
+    matters, because the first match wins.
+
+    That divergence is how M96 happened: ``climate_aggregate`` validated
+    against its own list, which *did* include ``code_muni``, so a
+    relation keyed on it passed validation and then died deep in the join
+    with ``Binder Error: ... does not have a column named "None"`` — the
+    detector had returned ``None`` and it went straight into the SQL.
+    With one list, validation and detection cannot disagree again.
+
+    Args:
+        columns: Column names to search.
+        level: ``"municipality"``, ``"state"``, ``"region"`` or
+            ``"country"``.
+        basis: For ``level="municipality"``, which geographic cut to
+            require: ``"residence"``, ``"occurrence"``,
+            ``"notification"`` or ``"unspecified"``. ``None`` (default)
+            walks the declared fallback order, residence first.
+
+            Worth asking for explicitly when it matters: residence and
+            occurrence are **different epidemiological cuts** and the
+            choice changes the result (M21). With ``None`` the order
+            decides in silence, which is the behaviour that was there
+            before and is kept so nothing breaks — but a caller that
+            cares should say which one it means.
+
+    Returns:
+        The first matching column name, or ``None``.
+
+    Raises:
+        ValueError: If *basis* is given with a level other than
+            municipality, or is not a declared basis.
+    """
+    if level == "municipality":
+        return _detect_column(columns, municipality_candidates(basis))
+    if basis is not None:
+        raise ValueError(
+            f"basis={basis!r} only applies to level='municipality', not "
+            f"{level!r}."
+        )
+    if level == "state":
+        return _detect_column(
+            columns, _load_datasus_columns_json()["role_priority"]["state"])
+    return _detect_column(columns, _GEO_LOCAL_LEVELS.get(level, []))
 
 
 def system_family(system: str) -> str:
-    """Extract the family prefix from a SUS system identifier.
-
-    Args:
-        system: Full system name, e.g. ``"SIM-DO"`` or ``"SIH-RD"``.
-
-    Returns:
-        Family prefix string, e.g. ``"SIM"`` or ``"SIH"``.
-
-    Example:
-        >>> system_family("SIM-DO")
-        'SIM'
-        >>> system_family("SIH-RD")
-        'SIH'
-    """
+    """Extract the family prefix from a SUS system identifier."""
     return system.split("-")[0]
 
 
@@ -541,7 +1049,6 @@ def system_family(system: str) -> str:
 # Sub-plano D helpers (parity with climasus4r legacy)
 # ---------------------------------------------------------------------------
 
-#: Values considered "ignored/unknown" across DATASUS demographic columns.
 _IGNORED_VALUES: tuple[str, ...] = (
     "9", "99", "999", "0", "",
     "Ignorado", "ignorado",
@@ -551,7 +1058,6 @@ _IGNORED_VALUES: tuple[str, ...] = (
     "NaN", "nan", "null", "NULL",
 )
 
-#: Demographic columns that carry coded "ignored" markers in DATASUS.
 _IGNORABLE_DEMO_COLUMNS: tuple[str, ...] = (
     "sex", "SEXO", "CS_SEXO",
     "race", "RACACOR",
@@ -561,114 +1067,155 @@ _IGNORABLE_DEMO_COLUMNS: tuple[str, ...] = (
 
 
 def detect_education_column(columns: list[str]) -> str | None:
-    """Return the first recognised education column from *columns*.
-
-    Priority: ``education``, ``education_2010``, ``ESC``, ``ESC2010``.
-
-    Mirrors ``climasus4r::sus_data_filter_demographics`` education= logic.
-
-    Args:
-        columns: Column names present in the dataset.
-
-    Returns:
-        Matching column name, or ``None`` if not found.
-
-    Example:
-        >>> detect_education_column(["ESC", "CAUSABAS"])
-        'ESC'
-        >>> detect_education_column(["UNKNOWN"]) is None
-        True
-    """
+    """Return the first recognised education column from *columns*."""
     return _detect_column(columns, ["education", "education_2010", "ESC", "ESC2010"])
 
 
-def expand_city_to_codes(city: str | list[str]) -> list[str]:
-    """Resolve city name(s) to IBGE 6-digit municipality codes.
+def _norm_city(s: str) -> str:
+    """Lowercase, accent-stripped, trimmed — for matching a typed name."""
+    import unicodedata
 
-    Reads ``spatial/municipalities.parquet`` from the climasus-data
-    package and matches on the ``municipality_name`` column (case-
-    insensitive, accent-insensitive via NFKD decomposition + combining-mark
-    strip). When a name matches multiple municipalities (e.g. "São José"),
-    all codes are returned and a :class:`UserWarning` is emitted.
+    decomposed = unicodedata.normalize("NFKD", str(s))
+    return "".join(
+        ch for ch in decomposed if not unicodedata.combining(ch)
+    ).strip().lower()
 
-    Mirrors ``climasus4r::sus_data_filter_demographics`` city= handling.
 
-    Args:
-        city: One or more city names to resolve.
+@lru_cache(maxsize=1)
+def _municipio_meta() -> Any:
+    """The municipality name/code table, cached for the process.
 
-    Returns:
-        List of IBGE 6-digit municipality code strings.
+    This is R's ``muni_meta``: ``assets/spatial/municipio_meta.parquet``,
+    495 KB of name, code, UF and the accent-free spellings. Until
+    21/09/2026 this lookup read the *geometry* asset instead — 150 MB
+    opened to translate two text columns — while
+    ``climasus4r::resolve_city_input_internal`` read this one all along.
 
     Raises:
-        ValueError: If a city name has no match in the municipalities
-            parquet.
-        FileNotFoundError: If ``spatial/municipalities.parquet`` is not
-            present in the climasus-data directory.
-
-    Example:
-        >>> expand_city_to_codes("São Paulo")
-        ['355030']
-        >>> expand_city_to_codes(["São Paulo", "Rio de Janeiro"])
-        ['355030', '330455']
+        FileNotFoundError: If the asset is absent from climasus-data.
     """
-    import unicodedata
-    import warnings
-
     import pandas as pd
 
-    parquet_path = data_path("spatial/municipalities.parquet")
-    if not parquet_path.is_file():
+    caminho = data_path("assets/spatial/municipio_meta.parquet")
+    if not caminho.is_file():
         raise FileNotFoundError(
-            "spatial/municipalities.parquet not found in climasus-data. "
+            f"municipio_meta.parquet not found in climasus-data "
+            f"(looked in {caminho.parent}). "
             "Run cs.update_climasus_data() to refresh."
         )
+    # `uf_code` is the abbreviation ("PA") and `uf` the numeric state
+    # code ("15") — the names read backwards, and R uses `uf_code` for
+    # exactly this display.
+    colunas = ["municipio", "name", "no_accents", "uf_code"]
+    import pyarrow.parquet as _pq
 
-    df = pd.read_parquet(parquet_path)
-
-    # Find the name column (case-insensitive search)
-    name_col = next(
-        (c for c in df.columns if c.lower() in ("municipality_name", "name", "nome", "municipio")),
-        None,
-    )
-    _code_aliases = ("municipality_code", "code", "codigo", "cod_mun", "codmun")
-    code_col = next(
-        (c for c in df.columns if c.lower() in _code_aliases),
-        None,
-    )
-    if name_col is None or code_col is None:
+    presentes = set(_pq.ParquetFile(caminho).schema_arrow.names)
+    faltando = [c for c in ("municipio", "name") if c not in presentes]
+    if faltando:
         raise ValueError(
-            f"municipalities.parquet must have name and code columns. "
-            f"Found: {list(df.columns)}"
+            f"municipio_meta.parquet must have {faltando} columns. "
+            f"Found: {sorted(presentes)}"
         )
+    df = pd.read_parquet(caminho, columns=[c for c in colunas if c in presentes])
+    df["_norm"] = df["name"].map(_norm_city)
+    if "no_accents" in df.columns:
+        df["_norm_sem_acento"] = df["no_accents"].map(_norm_city)
+    df["_codigo7"] = df["municipio"].astype(str)
+    return df
 
-    def _norm(s: str) -> str:
-        # NFKD decomposes "ç" → "ç", "ã" → "ã", etc.;
-        # the comprehension drops the combining marks so "São Paulo"
-        # and "Sao Paulo" both normalise to "sao paulo".
-        decomposed = unicodedata.normalize("NFKD", s)
-        return "".join(
-            ch for ch in decomposed if not unicodedata.combining(ch)
-        ).strip().lower()
 
+def expand_city_to_codes(city: str | list[str]) -> list[str]:
+    """Resolve city name(s) or IBGE code(s) to 6-digit municipality codes.
+
+    Mirrors ``climasus4r::resolve_city_input_internal``, which accepts a
+    name or a 6/7-digit code and resolves both against ``municipio_meta``.
+
+    Args:
+        city: One municipality, or a list. Each entry is either a name
+            (accents optional — ``"Sao Paulo"`` works) or an IBGE code
+            with 6 or 7 digits, as R accepts.
+
+    Returns:
+        Six-digit IBGE codes, deduplicated, in the order first seen. Six
+        digits because that is what the columns they are compared against
+        hold: ``sus_filter`` builds ``"CODMUNRES" IN (...)`` as an exact
+        string match, and ``CODMUNRES`` is six digits wide. Returning the
+        seven-digit code matched nothing and produced an empty relation
+        with no error at all (M121).
+
+    Raises:
+        ValueError: If a name or code resolves to nothing. The message
+            lists close spellings when there are any, which is what R
+            does through ``suggest_city_matches_internal`` — a bare "not
+            found" leaves the caller guessing between a typo and a
+            municipality that does not exist.
+
+    Example:
+        >>> expand_city_to_codes("Belo Horizonte")
+        ['310620']
+        >>> expand_city_to_codes("3106200")
+        ['310620']
+    """
+    import difflib
+    import warnings
+
+    df = _municipio_meta()
     city_list = [city] if isinstance(city, str) else list(city)
     all_codes: list[str] = []
 
-    for name in city_list:
-        _n = _norm(name)
-        mask = df[name_col].apply(lambda x, __n=_n: _norm(str(x)) == __n)
-        matches = df.loc[mask, code_col].astype(str).tolist()
-        if not matches:
-            raise ValueError(
-                f"City {name!r} not found in municipalities.parquet. "
-                "Check spelling or use municipality_code directly."
+    for entrada in city_list:
+        texto = str(entrada).strip()
+
+        # A code, 6 or 7 digits — what R's `grepl("^\\d{6,7}$")` accepts.
+        if texto.isdigit() and len(texto) in (6, 7):
+            if len(texto) == 7:
+                achados = df.loc[df["_codigo7"] == texto, "_codigo7"]
+            else:
+                achados = df.loc[df["_codigo7"].str[:6] == texto, "_codigo7"]
+            codigos = [c[:6] for c in achados.tolist()]
+            if not codigos:
+                raise ValueError(
+                    f"Municipality code {texto!r} not found in "
+                    f"municipio_meta.parquet."
+                )
+            all_codes.extend(codigos)
+            continue
+
+        alvo = _norm_city(texto)
+        mask = df["_norm"] == alvo
+        if "_norm_sem_acento" in df.columns and not mask.any():
+            mask = df["_norm_sem_acento"] == alvo
+        # Truncated to six digits — see Returns.
+        codigos = [c[:6] for c in df.loc[mask, "_codigo7"].tolist()]
+
+        if not codigos:
+            proximos = difflib.get_close_matches(
+                alvo, df["_norm"].tolist(), n=3, cutoff=0.8
             )
-        if len(matches) > 1:
+            sugestao = ""
+            if proximos:
+                nomes = df.loc[df["_norm"].isin(proximos), "name"].tolist()
+                sugestao = f" Did you mean: {', '.join(sorted(set(nomes))[:3])}?"
+            raise ValueError(
+                f"City {texto!r} not found in municipio_meta.parquet."
+                f"{sugestao} Check spelling or use municipality_code directly."
+            )
+
+        if len(codigos) > 1:
+            # Naming the states, as R does: "Santarém matches 2" is not
+            # actionable, "Santarém (PA, PB)" is.
+            ufs = (
+                df.loc[mask, "uf_code"].tolist()
+                if "uf_code" in df.columns else []
+            )
+            onde = f" ({', '.join(sorted(set(map(str, ufs))))})" if ufs else ""
             warnings.warn(
-                f"City {name!r} matches {len(matches)} municipalities "
-                f"(e.g. {matches[:3]}). All codes will be used for filtering.",
+                f"City {texto!r} matches {len(codigos)} municipalities"
+                f"{onde}: {codigos[:3]}. All codes will be used for "
+                f"filtering.",
                 UserWarning,
                 stacklevel=3,
             )
-        all_codes.extend(matches)
+        all_codes.extend(codigos)
 
-    return list(dict.fromkeys(all_codes))  # deduplicate, preserve order
+    return list(dict.fromkeys(all_codes))

@@ -10,7 +10,7 @@ variants and normalises them to the canonical ClimaSUS names.
 Canonical output columns
 ------------------------
 date (UTC), year,
-region, UF, station_name, wmo_code, latitude, longitude, altitude, founded_date,
+region, UF, station_name, station_code, latitude, longitude, altitude, founded_date,
 rainfall_mm, patm_mb, patm_max_mb, patm_min_mb,
 sr_kj_m2,
 tair_dry_bulb_c, tair_max_c, tair_min_c,
@@ -104,7 +104,7 @@ _METADATA_COLUMNS: tuple[str, ...] = (
     "region",
     "UF",
     "station_name",
-    "wmo_code",
+    "station_code",
     "latitude",
     "longitude",
     "altitude",
@@ -143,8 +143,14 @@ _METADATA_KEYS = {
     "regiao": "region",
     "uf": "UF",
     "estacao": "station_name",
-    "codigo estacao": "wmo_code",
-    "codigo (wmo)": "wmo_code",
+    # O arquivo do INMET rotula o campo como "CODIGO (WMO)" mas coloca
+    # dentro dele o codigo do INMET, com prefixo de letra: A806, A828,
+    # A701. Codigo WMO e numerico de cinco digitos (Sao Paulo e 83781).
+    # Conferido nos fixtures de 2008, 2015 e 2023 -- o rotulo esta errado
+    # na fonte nos tres. O nome canonico aqui e station_code, que e o que
+    # o climasus4r usa e o que o resto do pacote espera. Ver M10.
+    "codigo estacao": "station_code",
+    "codigo (wmo)": "station_code",
     "latitude": "latitude",
     "longitude": "longitude",
     "altitude": "altitude",
@@ -260,7 +266,8 @@ def _build_select_clause(raw_columns: list[str], metadata: dict[str, str]) -> st
         f"{_nullable_text_sql(metadata.get('region'))} AS {quote_ident('region')}",
         f"{_nullable_text_sql(metadata.get('UF'))} AS {quote_ident('UF')}",
         f"{_nullable_text_sql(metadata.get('station_name'))} AS {quote_ident('station_name')}",
-        f"{_nullable_text_sql(metadata.get('wmo_code'))} AS {quote_ident('wmo_code')}",
+        f"{_nullable_text_sql(metadata.get('station_code'))} "
+        f"AS {quote_ident('station_code')}",
         f"{_nullable_double_sql(metadata.get('latitude'))} AS {quote_ident('latitude')}",
         f"{_nullable_double_sql(metadata.get('longitude'))} AS {quote_ident('longitude')}",
         f"{_nullable_double_sql(metadata.get('altitude'))} AS {quote_ident('altitude')}",
@@ -298,18 +305,32 @@ def _wrap_sql_qc(base_sql: str) -> str:
         f"AND ABS(dew_tmean_c - ({dew_calc})) > 3.0 "
         "THEN NULL ELSE dew_tmean_c END"
     )
-    solar_expr = (
-        "CASE WHEN sr_kj_m2 IS NOT NULL "
-        "AND (EXTRACT(HOUR FROM date) >= 18 OR EXTRACT(HOUR FROM date) < 6) "
-        "THEN 0.0 ELSE sr_kj_m2 END"
-    )
-
+    # There is deliberately no night rule for solar radiation.
+    #
+    # This module used to force sr_kj_m2 to 0 whenever
+    # EXTRACT(HOUR FROM date) was >= 18 or < 6, on the reading that those
+    # are night hours. The timestamps are UTC -- this file's own docstring
+    # says so -- and Brazil is UTC-3, so the window actually covered
+    # 15:00-02:59 local and threw away the whole afternoon.
+    #
+    # Measured on SP 2023 against R, joined on (station_code, date):
+    # 65,049 rows where this port returned exactly 0.0 and R returned a
+    # positive measurement, averaging 881 kJ/m2 and reaching 6471. The
+    # mean of the column came out at 958.29 against R's 1270.22, a 33%
+    # gap, while the non-null count, the minimum and the maximum all
+    # matched -- which is why the divergence looked unexplainable for a
+    # week. One concrete row: station A701, 2023-01-01 19:00 UTC (16:00
+    # local, January, peak summer afternoon) held 2604.3 and was zeroed.
+    #
+    # R has no equivalent rule. Its .verify_solar_radiation computes the
+    # extraterrestrial irradiance from latitude, day of year and hour
+    # using real solar geometry, and only WARNS when a value exceeds 110%
+    # of it -- it never edits the data. Removing the rule is what restores
+    # parity. See M28.
     select_parts: list[str] = []
     for col in _OUTPUT_COLUMNS:
         if col == "dew_tmean_c":
             select_parts.append(f"{dew_expr} AS {quote_ident(col)}")
-        elif col == "sr_kj_m2":
-            select_parts.append(f"{solar_expr} AS {quote_ident(col)}")
         else:
             select_parts.append(quote_ident(col))
 

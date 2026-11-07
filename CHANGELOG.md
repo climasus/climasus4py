@@ -1,5 +1,1675 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed — `sus_data_quality_report` conferido com o climasus4r valor a valor
+
+- **Todos os números do relatório batem com o R.** Antes só a estrutura tinha sido comparada
+  (M31). Sobre o mesmo dado (SIM-DO/SP/2023, 334.303 óbitos), saem iguais: faltantes por coluna,
+  completude, sexo, raça, escolaridade, risco climático, idade, as 11 colunas de data, os CID
+  (top 10 e capítulos), os municípios e a nota final (79,6).
+- **A auditoria do pipeline saía vazia (M235).** O relatório procurava as etapas pelos nomes do
+  climasus4r (`stand`, `derive`), mas o metadado deste pacote grava `standardize` e `variables`.
+  Por isso `report["pipeline"]["stages_reached"]` era `[]` para todo dado vindo do pipeline. A
+  nota e a lista de funções aplicadas não mudam. Agora as etapas são traduzidas e vêm da lista do
+  que de fato rodou. Por isso o relatório não declara aplicados filtros que nunca rodaram, como o
+  R faz (M236).
+- `derived` ganha as chaves `sex_label` e `stage_at_least_derive`, como no R. O console passa a
+  mostrar as etapas ainda não aplicadas e o histórico de processamento.
+- **Os arquivos markdown e html traziam só metade do relatório (M237).** Eles iam direto da
+  completude para as variáveis derivadas e deixavam de fora as seções 3 a 6: demografia (tabelas
+  de sexo, raça, escolaridade, risco climático e o resumo da idade), datas, CID-10 (códigos mais
+  frequentes e capítulos) e cobertura geográfica (municípios e UFs). Agora as quatro saem como no
+  R, com os mesmos números. No html, o texto das categorias é escapado.
+
+### Changed — `sus_climate_aggregate` mantém o clima no DuckDB
+
+- **Uma cópia a menos da tabela horária do clima (M232).** Quando o clima chegava como relação
+  DuckDB (a saída do `sus_climate_inmet`), o `sus_climate_aggregate` copiava a tabela horária
+  inteira para o pandas logo no início, só para validá-la, e depois a copiava de novo para Arrow
+  para fazer a agregação diária. Agora a validação, a checagem de datas e a detecção da região
+  climática são feitas por SQL na própria relação; fica só a cópia para Arrow que a agregação
+  diária usa. Em SP 2023 (350.400 horas), isso evita uma cópia de 109 MB; com o Brasil inteiro e
+  vários anos, seriam vários GB. O resultado das 10 estratégias temporais é idêntico ao de antes.
+- Nesse caminho havia um defeito escondido: a partir do DuckDB 1.4, `relation.arrow()` devolve um
+  leitor que só pode ser percorrido uma vez, e a agregação diária o percorria duas vezes. O
+  resultado saía com **0 linhas, sem aviso**. Nunca aconteceu na prática, porque a cópia para pandas
+  vinha antes. Agora a conversão usa uma tabela Arrow.
+
+### Added — os parquets do climasus-data passam a ser baixados quando uma função precisa deles
+
+- **Download sob demanda dos dados do climasus-data (M231).** O pacote `climasus-data` instalado
+  pelo `pip` traz só os dicionários e metadados em JSON. Os parquets ficam de fora: Censo,
+  polígonos de municípios, estados e regiões, tabelas do INMET (cerca de 200 MB). Por isso, quem
+  instalava só pelo `pip` via `sus_spatial_join`, `sus_census`, a junção de clima e os mapas
+  pararem com "arquivo não encontrado". Agora, na primeira vez que uma função pede um desses
+  arquivos, ele é baixado do GitHub, conferido pela assinatura MD5 do `manifest.json` e guardado
+  num cache do usuário, `~/.climasus4py_cache/climasus-data`, a mesma pasta do cache do INMET. As chamadas seguintes leem do cache. Só é baixado o que a função usa: uma junção
+  espacial com censo baixa 31 MB, e não os 150 MB da versão completa dos polígonos.
+- Os arquivos vêm sempre do mesmo commit do climasus-data (`d76f2fc`), então quem instala hoje ou
+  daqui a um ano recebe os mesmos dados. Quem tem o climasus-data local completo (editável ou via
+  `CLIMASUS_DATA_DIR`) continua usando a cópia local, sem baixar nada. Duas variáveis de ambiente
+  ajustam o comportamento: `CLIMASUS_DATA_REF` (outro commit ou branch) e `CLIMASUS_ASSETS_CACHE`
+  (outra pasta de cache).
+
+### Fixed — gráficos conferidos com o climasus4r pelo que desenham
+
+- **`sus_climate_plot_heatwaves` (M226).** Nas ondas de calor de SP em 2023, 110 dos 245 eventos
+  (45%) apareciam como "Severe (SHW)" na linha do tempo e no gráfico de intensidade. Esses eventos
+  não têm classe de intensidade, porque só o método EHF calcula classe; os eventos dos métodos WHO e
+  INMET ficam sem ela. O R desenha esses eventos em cinza (`grey50`); o Python usava a cor de
+  "Severa". Agora ficam cinza, e os quatro gráficos de ondas de calor são idênticos aos do R, cores
+  inclusive. O `sus_climate_plot_coldwaves` passa a usar o mesmo cinza.
+- **Barras horizontais em três gráficos (M228).** `sus_mod_plot_vulnerability(type="pillars")`,
+  `sus_mod_plot_ml(type="importance")` e `sus_mod_plot_swot(type="bar")` apareciam com traços
+  verticais finos no lugar das barras. O código repetia o do R (valor no x, categoria no y); o
+  ggplot2 deita as barras sozinho nesse caso, mas o plotnine não. Agora as barras saem deitadas e,
+  em SP, ficam nas mesmas posições que no R: os pilares de vulnerabilidade dos 645 municípios
+  coincidem barra a barra. A legenda dos pilares e do SWOT deixa de mostrar o nome interno da
+  coluna.
+- **`sus_climate_plot_aggregate(plot_type="scatter")` com tabela grande (M223).** Com mais de
+  37.833 pontos, o gráfico derrubava a sessão do Python (no Jupyter, o kernel), sem mensagem. A
+  causa é a curva `loess` com faixa de confiança: o cálculo estoura um limite interno nesse tamanho.
+  O R usa o mesmo código, detecta o problema e devolve o gráfico só com os pontos. Agora o Python
+  faz o mesmo e avisa; para ter a curva, filtre ou agregue a tabela. Abaixo do limite, nada muda.
+  Uma tabela diária município × dia de um ano em SP tem 72 mil linhas.
+
+### Fixed — ramo espacial conferido com o climasus4r nos 645 municípios de SP
+
+- **`sus_mod_spatial_moran` (M219).** O R segue o padrão do `spdep` (`adjust.n = TRUE`): uma região
+  sem vizinho sai do *n* no I, no E(I) e na Var(I). O Python mantinha essa região. Em SP, por causa
+  de Ilhabela, o I saía multiplicado por 644/645. No Ii local, o `spdep` divide por `Σz²/n` e o
+  `esda` por `Σz²/(n−1)`, então a diferença existia em qualquer mapa. Depois da correção, a Moran
+  global é idêntica à do R em todos os dígitos, e a local difere em 1,8e-15.
+- **`sus_mod_spatial_bayes` (M218).** Com uma covariável na escala natural (renda em reais), o
+  amostrador não saía do ponto inicial: desvio-padrão 0 e DIC de 7e291, sem nenhum aviso. As
+  covariáveis agora são padronizadas para amostrar, e os coeficientes voltam à escala original. Os
+  riscos relativos dos 644 municípios ficam com correlação de 0,9995 com os do R (CARBayes).
+- **`sus_mod_spatial_bayes` e `sus_mod_spacetime_bayes` (M220).** Os dois passam a aceitar o objeto
+  padrão do `sus_mod_spatial_weights`, montando a matriz a partir da lista de vizinhos, como o R e
+  como a própria documentação já dizia.
+
+Conferidos sem mudança, com os 645 municípios: `sus_mod_vulnerability_index` e
+`sus_socio_compute_indicators` são idênticos ao R (M27 e M39 resolvidos); `sus_mod_spatial_reg` tem
+coeficientes idênticos e erro-padrão até 2% diferente (M221); `sus_mod_spatial_scan` tem dados e
+aglomerados iguais.
+
+### Fixed — grades que pararam (CHIRPS e PDSI) ou nunca funcionaram (SMVI), e `to_parquet()` dos resultados
+
+- **CHIRPS (M213).** O CHC moveu a árvore de `/products/CHIRPS-2.0/` para `/products/CHIRPS/v2.0/`.
+  O caminho antigo responde 404, e o `sus_grid_chirps` parou de funcionar. A base foi atualizada; os
+  nomes de arquivo não mudaram. Com o mesmo endereço, a chuva extraída bate com a do climasus4r
+  com diferença relativa de 5e-8.
+- **TerraClimate / PDSI (M214).** O servidor `climate.northwestknowledge.net` passou a recusar
+  conexões. O `sus_grid_pdsi` agora baixa pelo servidor THREDDS do mesmo projeto, que entrega os
+  mesmos arquivos. Os valores são idênticos aos do climasus4r.
+- **SMVI (M216).** A função nunca tinha funcionado: o arquivo da HydroShare traz os CSVs numa
+  subpasta, com outro nome (`SMVI_GLDAS_Summ_table_SMVI_<ano>_n864000.csv`) e com até seis eventos
+  lado a lado por célula da grade. Agora a busca é recursiva, os dois nomes são aceitos e os eventos
+  são desempilhados em uma linha por evento.
+- **`to_parquet()` (M215).** Os resultados que carregam `sus_meta` em `DataFrame.attrs` (as grades,
+  `sus_climate_normals`, `_anomaly`, `_spi`, `_spei`, `_uniplu`, ondas de calor e de frio e
+  indicadores socioeconômicos) não podiam ser salvos com `.to_parquet()`. O erro era *"Object of type
+  Timestamp is not JSON serializable"*. Datas do metadado agora são texto ISO, a mesma convenção que
+  `created` e `modified` já seguiam.
+
+### Fixed — o `sus_mod_dlnm` descartava os nós pedidos (M212)
+
+O `argvar={"fun": "ns", "knots": [18, 21, 24]}` era aceito e **ignorado em silêncio**. O
+`_crossbasis` só lia `fun` e `df`, e o ajuste usava os nós padrão, tirados dos percentis da própria
+série. Com isso, um usuário do Python não conseguia aplicar o remédio padrão para combinar cidades:
+nós iguais em todas (M65).
+
+Agora `knots` e `boundary_knots` (também na grafia do R, `Boundary.knots`) são usados, no `argvar` e
+no `arglag`. Como no `splines::ns`, nós informados prevalecem sobre `df`. O `poly` aceita `degree`,
+como no R. **Qualquer outra chave agora dá erro**, em vez de sumir sem aviso.
+
+Conferido com o climasus4r: seis cidades de SP com nós comuns (18, 21 e 24 °C, bordas em 10 e
+32 °C) dão o `dlnm` de cada cidade e o `sus_mod_pool` fixo **idênticos** nos dois pacotes. No
+percentil 99, o resultado é 1,620504 [1,406224; 1,867436], com Q = 81,99. Com os nós de cada
+cidade, a mesma combinação dava 1,761 contra 1,684.
+
+### Added — `seed` no `sus_mod_af` (M211)
+
+O intervalo por Monte Carlo (`nsim > 0`) usava um gerador sem semente, então mudava a cada chamada
+e não havia como reproduzi-lo. O novo argumento `seed=`, opcional e no fim da assinatura, fixa os
+sorteios. O ponto estimado e o intervalo pelo método delta (`nsim=0`) não dependem dele.
+
+### Changed — `sus_climate_fill_inmet` passa a seguir o método do climasus4r
+
+O preenchimento por XGBoost do Python tinha três defeitos que, somados, faziam ele devolver **um
+valor constante** numa estação fora do ar (M198): a hora do dia nunca chegava ao modelo (o pandas
+entrega `int32` e o filtro de atributos só aceitava `int64`/`float`); o modelo usava as outras
+variáveis da mesma hora, que no INMET faltam todas juntas quando a estação cai, e eram trocadas pela
+mediana; e, como a radiação é nula à noite, ele nunca treinava entre 21h e 5h de Brasília. No pipeline
+SIM-DO SP 2023, a estação A716 teve 138 dias preenchidos com 21,7 °C, e a chuva dos 138 dias saiu 0 mm.
+
+Agora o método é o do `climasus4r`:
+
+- **Atributos:** os mesmos 53. São o tempo (hora, dia, mês, semana, estação do ano, senos e cossenos)
+  e o histórico da própria variável: atrasos e avanços de 1, 2, 3, 12, 24 e 168 h, a mesma hora
+  ontem e na semana passada, e médias e desvios móveis de 3, 6, 12 e 24 h. Os vazios desses
+  atributos são preenchidos por interpolação linear. Conferido coluna a coluna contra o R numa
+  estação real.
+- **Configuração do XGBoost:** a mesma do R (200 rodadas, profundidade 4, `eta` 0,05, subamostragem
+  0,7, regularização e parada antecipada).
+- **Transformação antes de treinar:** `log1p` na chuva e raiz quadrada no vento e na radiação.
+- **Limites físicos:** umidade de 0 a 100%, temperatura de −90 a 60 °C, pressão de 700 a 1100 mb,
+  chuva e vento nunca negativos. Previsões além de 5 vezes a faixa interquartil são puxadas 30% para
+  a média.
+- **Arredondamento:** umidade e direção do vento saem inteiras.
+- **Mínimo de 30 observações** por estação. Abaixo disso a série fica como está; antes, eram 10
+  observações e caía na interpolação linear.
+- **Filtro de qualidade:** como no R, uma estação com mais de `quality_threshold` faltando em
+  **qualquer** variável pedida **sai do resultado**, com as outras variáveis. Antes, só saía se
+  faltasse em todas. Se nenhuma estação passa numa variável, ela é pulada e ninguém sai.
+
+Medido contra o valor verdadeiro (13 estações de SP, 13.130 horas escondidas em blocos de 1 h a 30
+dias, com a estação inteira fora do ar), o erro do Python fica a até 0,02 °C do erro do R em todos os
+tamanhos de lacuna. Em lacuna de 1 h, o erro caiu de 5,57 °C para 0,80 °C. Os números não batem com
+o R valor a valor, porque o XGBoost sorteia linhas e colunas com outro gerador aleatório em cada
+linguagem; o método é o mesmo.
+
+**Herdado do R, de propósito (anotado como melhoria para os dois pacotes):**
+
+- **Lacunas longas:** o preenchimento é, na prática, uma reta entre as bordas. Não reproduz o ciclo
+  diário (M175).
+- **Chuva:** vira garoa em cerca de metade das horas (M199).
+- **Exclusão:** o filtro exclui a estação inteira. O melhor seria deixar vazia só a variável ruim
+  (M200).
+
+**Onde o Python não copia o R:**
+
+- **Radiação à noite (M208):** a radiação que falta à noite vira 0 pela **hora solar** da estação
+  (UTC + longitude/15). O R usa o relógio UTC: zera lacunas das 15h às 18h de Brasília e deixa as da
+  madrugada para o modelo.
+- **Filtro de qualidade (M209):** isso acontece **antes** do filtro, então a noite não conta como
+  dado faltante. No R, com `target_var="all"`, 25 das 40 estações de SP saem só pela radiação.
+- **Variável pulada:** quando nenhuma estação passa no filtro, a coluna `is_imputed_<var>` é criada
+  toda `False`, em vez de não existir.
+
+**Removido e alterado:**
+
+- **Cache de modelos:** o cache em `~/.climasus4py/models` foi removido (M202). Ele era chaveado por
+  estação e variável, não pelos dados, e reaproveitava um modelo treinado em outro conjunto.
+  `cache_dir` continua aceito, mas é ignorado com `DeprecationWarning`. Os arquivos antigos dessa
+  pasta não são mais lidos e podem ser apagados.
+- **Saída do modo de avaliação:** `run_evaluation=True` devolve, em `data`, a comparação
+  `date, station, true_value, pred_value`, como no R, em vez do quadro inteiro.
+- **`keep_features`:** passa a não fazer nada, como no R.
+
+### Fixed — três defeitos achados ao rodar os 43 sistemas da página do climasus4r
+
+**Semana epidemiológica na virada do ano (M149).** Era a semana do calendário (`%U`) com o ano do
+calendário: 01/01/2022, um sábado, saía `'00/2022'` — semana 0 não existe; é a SE 52 de 2021 — e
+31/12/2023 saía `'53/2023'`, quando 2023 não tem SE 53. Agora segue a regra da semana epidemiológica
+(domingo a sábado; a SE 1 é a primeira com ao menos 4 dias no ano novo) e o ano é o **ano
+epidemiológico**: `'52/2021'`, `'01/2024'`. O formato `'SS/AAAA'` fica, de propósito: o `climasus4r`
+devolve só o número, e um `groupby` de vários anos junta a semana 10 de 2022 com a de 2023. Depois:
+o número bate com o R em 100% das linhas dos 21 pares comparados.
+
+**A data de nascimento do SIA-PS e do SIA-SAD era apagada na importação (M188).** O importador lia
+as colunas de data do metadado como `DDMMAAAA`; o `DTNASC` do SIA é `19690303`, e todas viravam
+nulas — 1.461 de 1.461 no SIA-PS, 1.042 de 1.042 no SIA-SAD — **gravadas no cache**. Nos sistemas que
+escrevem o ano na frente (SIH, SINAN, CNES e agora também SIA) essas colunas ficam como texto no
+cache e o `sus_data_standardize` as converte. Um cache antigo afetado é baixado de novo
+automaticamente, com aviso. Depois: data de nascimento e calendário do SIA-PS iguais ao R.
+
+**Um `.dbc` de um registro era lido como 0 linhas (M189).** O leitor `climasus_readdbc_py` toma por
+DBF sem compressão um arquivo a menos de 512 bytes do tamanho anunciado, e os `.dbc` minúsculos caem
+nessa folga: SIA-ACF e CNES-EF (AC, jan/2023) e CNES-GM (AC, abr/2026) voltavam vazios, com o R lendo a
+linha. O climasus4py agora descomprime explicitamente o arquivo que é menor que o tamanho sem
+compressão — que portanto não pode ser um DBF puro. Caches vazios gravados antes disso são baixados
+de novo. A correção definitiva é no `climasus_readdbc_py`.
+
+### Fixed — a idade da mãe no SINASC saía 0 (regressão da correção do SINAN)
+
+A regra de quatro dígitos da idade do SINAN (M179, logo abaixo) tratava qualquer texto de quatro
+caracteres como código — inclusive `38.0`, que é como a idade da mãe chega quando a coluna é decimal
+(SINASC do AC de 2022, que tem nulos). O `3` era lido como "meses" e **14.470 de 14.483 mães saíam com
+0 anos**, todas na faixa `0-4` (M187). Duas correções: a idade da mãe (`IDADEMAE`, `mother_age`,
+`idade_mae`, `edad_madre`) passa a ser lida como anos, como no R; e a regra de código só vale para
+valores feitos só de dígitos, com um `.0` final removido antes (`463.0` continua sendo o código de
+63 anos). Depois: 14.483 de 14.483 iguais ao `climasus4r`; nenhuma outra coluna dos 43 sistemas
+testados mudou.
+
+### Fixed — dezembro ficava sem estação seca/chuvosa na região Norte
+
+O `seasonal_patterns.json` põe dezembro do Norte como mês de **transição**, e a `dry_rainy_season`,
+que é binária, só olhava os meses chuvosos e secos: dezembro saía nulo. No SIH-RD de AC+RR+AP foram
+6.524 de 67.084 internações sem estação (M184). Agora o mês de transição vai para o lado **seco**,
+como no `climasus4r` (Norte: chuvosa 1–5, seca 6–12). A `climatic_season` continua chamando dezembro
+de transição. Depois: `dry_rainy_season` 100% igual ao R no SIM-DO, SINASC, SIH-RD e SINAN-DENGUE.
+
+### Fixed — as datas do SIH, do SINAN e do CNES saíam nulas, sem aviso
+
+SIH, SINAN e CNES escrevem a data com o ano na frente (`20230113`). O `sus_data_standardize` só
+conhecia `DDMMAAAA` e `AAAAMM`, então lia `20230113` como dia 20, **mês 23**, e devolvia nulo; e lia
+`20080710` como 20/08 do **ano 710**, uma data absurda em vez de nula (M181). Medido contra o
+`climasus4r` na Etapa 1 em seis sistemas:
+
+| sistema | antes | depois |
+|---|---|---|
+| SIH-RD, AC+RR+AP, 2022–2023 (67.084) | datas de internação, alta e nascimento 0% iguais ao R; ano, mês, trimestre, dia da semana e estação 100% nulos | as três datas e todo o calendário 100% iguais ao R |
+| SINAN-DENGUE, Pantanal, 2023 (73.778) | data de notificação nula em todas as linhas; outras 13 datas ficavam como texto `'20231224'`; calendário 100% nulo | todas as datas e todo o calendário 100% iguais ao R |
+
+| CNES-ST, SP, jan/2023 (85.574) | `permit_issue_date` ficava como texto | 100% igual ao R |
+
+O formato é escolhido pelo **sistema**, como no `climasus4r`: em SIH, SINAN e CNES, todo valor de
+oito dígitos é lido como `AAAAMMDD`. Sem sistema conhecido, `AAAAMMDD` é reconhecido pela forma —
+oito dígitos, ano 1900–2100, mês 01–12 —, o que não coincide com nenhuma data `DDMMAAAA` real: os
+dígitos 5–6 dela são o começo do ano (19, 20), que nunca é mês. As datas do SIM e do SINASC não
+mudam. Como no R, uma data digitada errado é mantida com o ano absurdo (`00140221` → 0014-02-21);
+anular essas datas com aviso, nos dois pacotes, está proposto no M185. O caminho rápido do `sus_pipeline` tinha
+o mesmo defeito, com uma consequência pior: a linha sem data era **descartada** da contagem. Foi
+corrigido junto.
+
+**Calendário com data faltante (M183).** Com a data nula, `semester` saía 2 e `is_weekend` saía
+`False`, porque a condição nula caía no `ELSE`; um `groupby` por semestre contava as linhas sem data
+no 2º semestre. Agora as duas ficam nulas, como as outras variáveis de calendário e como no R.
+
+### Fixed — a idade do SINAN e do SIH saía errada, sem aviso
+
+Medido contra o `climasus4r` na Etapa 1 em seis sistemas:
+
+| sistema | antes | depois |
+|---|---|---|
+| SINAN-DENGUE, Pantanal, 2023 | `age_years = 4028` em **todas** as 73.778 notificações, todas em `60+` | 73.777 de 73.778 iguais ao R |
+| SIH-RD, AC+RR+AP, 2022–2023 | 4.147 de 67.084 internações (6,2%) com idade errada | 100% iguais ao R |
+
+**SINAN (M179).** O `NU_IDADE_N` é o código unidade + quantidade do SIM, mas com **quatro**
+dígitos: `4028` são 28 anos. O decodificador só reconhecia três, e o de quatro voltava como o próprio
+número. Agora o de quatro dígitos segue a regra do R — 1 e 2 são 0 anos, 3 são meses ÷ 12, 4 são anos,
+5 é 100 + quantidade.
+
+**SIH (M180).** O SIH guarda a quantidade em `IDADE` e a unidade em `COD_IDADE`, e o Python lia só a
+primeira: um bebê de 4 meses saía com 4 anos e um centenário de 102 saía com 2. O `decode_age_sql`
+ganhou o parâmetro opcional `columns` e usa a coluna de unidade quando ela existe. O SIM, que não
+tem essa coluna, não muda.
+
+### Fixed — `sus_data_create_variables` criava 4 variáveis de 15 em português
+
+Medido sobre o mesmo quadro do SIM padronizado:
+
+| idioma | variáveis criadas |
+|---|---|
+| inglês | 15 |
+| português | **4** — o bloco de calendário e clima pulado, em silêncio |
+| espanhol | **erro** |
+
+Duas causas, e as duas eram cópias de listas que o pacote já mantinha em outro lugar. O
+`_detect_date_col` andava por um `DATE_COLUMN_CANDIDATES` local, **idêntico byte a byte** ao
+`date_candidates` do `aggregate_config.json` — e a cópia fez a correção multilíngue chegar à
+agregação e não aqui. A idade usava uma tupla escrita à mão em vez do `detect_age_column` que o
+próprio arquivo já importava, e a tupla tinha `edad_codigo`, com as palavras na ordem trocada contra
+o `codigo_edad` real: um nome que nunca casou com nada.
+
+O silêncio era o pior dos dois. O bloco pulado só avisava por um `print` sob `verbose`, e `verbose`
+está desligado em qualquer pipeline. Agora é um `UserWarning`.
+
+### Added — `date_col` e `age_col` no `sus_data_create_variables`
+
+O R tem os dois desde sempre; sem eles, quem tivesse a detecção errando não tinha saída. A detecção
+continua sendo o default. Nomear uma coluna que não existe **levanta** em vez de cair de volta na
+detecção — cair de volta entregaria variáveis construídas a partir de outra coluna, sem nada
+indicando a troca.
+
+A função também passou a ler o `system` do `sus_meta`, como o `sus_data_aggregate` já fazia: a
+prioridade da data é por sistema, e o SIM é datado pelo óbito enquanto o SINAN é pela notificação.
+
+### Changed — os três enriquecimentos deixaram de gravar o mesmo estágio
+
+`sus_spatial_join`, `sus_climate_join` e `sus_census_join` gravavam todos `stage="enrichment"`, então
+depois de qualquer um deles o metadado não dizia qual havia rodado. Agora gravam `"spatial"`,
+`"climate"` e `"census"`, como no R. Metadado antigo continua legível.
+
+Junto vinha um defeito silencioso: o `assert_after` **retorna sem verificar** quando o estágio não
+está na lista canônica, e `enrichment` e `climate` eram escritos pelo pacote e não estavam nela — ou
+seja, toda checagem de ordem a jusante da agregação passava sem checar nada. Os três estágios
+entraram na lista, na ordem do R, e a checagem voltou a recusar de fato.
+
+Há agora um `R_STAGE_EQUIVALENTS` mapeando os nove estágios daqui para os dez do R, incluindo o único
+caso de granularidade diferente (`filter` ↔ `filter_cid` + `filter_demo`). **Não** renomeei
+`standardize` para `stand` nem `variables` para `derive`: as grafias do R não são melhores e a
+renomeação quebraria todo código que lê o metadado, inclusive Parquet já salvo.
+
+### Fixed — o pipeline documentado quebrava em português e espanhol
+
+```
+sus_data_standardize(lang="pt")   →  data_obito
+sus_data_aggregate(...)           →  ValueError: Date column not found.
+                                     Specify date_col= or run
+                                     sus_data_standardize() first.
+```
+
+A mensagem mandava rodar a função que você acabara de rodar. Num pacote brasileiro, `lang="pt"` é a
+escolha natural e `standardize → aggregate` é o caminho principal.
+
+Eram **duas listas de prioridade em inglês**, mantidas separadamente para o mesmo trabalho: o
+`role_priority` do `datasus_columns.json`, que os `detect_*_column` leem, e o
+`date_candidates`/`geo_candidates` do `aggregate_config.json`, que o `sus_data_aggregate` lê. O
+próprio `aggregate.py` advertia, duas funções abaixo, que "duas cópias de uma ordem de prioridade
+acabariam discordando".
+
+Medido antes: **26 de 44** combinações de sistema × idioma × papel não achavam a coluna — 12 em
+português, 12 em espanhol e 2 em inglês. Só o detector de município funcionava, e funcionava porque
+tinha sido o único a receber tratamento multilíngue.
+
+**A correção não foi traduzir as listas**, o que criaria uma terceira coisa para manter em sincronia.
+Cada nome passa a se expandir no seu **grupo de sinônimos** — `DTOBITO`, `death_date`, `data_obito` e
+`fecha_muerte` são a mesma coluna —, derivado dos dicionários. Isso tira a dimensão do idioma das
+listas em vez de multiplicá-las, e cobre os 43 sistemas sem enumerar nenhum.
+
+Medido depois, varrendo **os 43 sistemas × 3 idiomas × 5 papéis: 0 falhas.**
+
+`schema_version` do `datasus_columns.json` vai a **4**. Quem ficar no catálogo antigo recebe a lista
+corrigida embutida no pacote, com um aviso dizendo por quê.
+
+**O cuidado central foi a ordem.** `role_priority` é prioridade e o primeiro que casa vence; um frame
+do SIM tem data de óbito *e* de nascimento. Se `data_nascimento` entrasse antes de `data_obito`, uma
+série de mortalidade passaria a ser datada pelo nascimento — sem erro, sem aviso, com números
+plausíveis e décadas errados. Cada tradução entra logo após o bruto de onde veio, e há teste da
+invariante além do teste do caso.
+
+### Added — o `sus_spatial_join` devolve estado e região, não só o polígono
+
+Ele devolvia `spatial_name` e `geometry_wkt` e mais nada, então qualquer análise por estado ou região
+exigia um join manual contra outra tabela. Passou a devolver também `code_muni_7`, `code_state`,
+`abbrev_state`, `name_state`, `code_region` e `name_region`, com `lang="pt"` por default, como no R.
+
+Os códigos de estado e região saem do **próprio código IBGE do município** — os dois primeiros
+dígitos e o primeiro — em vez de uma tabela de tradução que poderia divergir dele. Conferido
+um-para-um nos 27 estados.
+
+Quando o dado de saúde já tem uma coluna com um desses nomes, o campo é **pulado com aviso** e o
+valor original preservado. O R sufixa a colisão — o `year.x`/`year.y` dele é exatamente isso — e
+deixa duas colunas onde quem chamou esperava uma, sem dizer qual é qual.
+
+**Duas afirmações do registro (M8) não se confirmaram**, e cada uma mandava procurar no lugar errado:
+
+- Das "13 colunas geográficas" do R, `year.x`/`year.y` são artefato de join, `date` e
+  `astronomical_season` não são geográficas, e `name_region`/`code_region` vêm do `sus_census_join`,
+  outra função.
+- "O R também cria a coluna `date`" — não cria, **consome**. As únicas linhas com `date` no
+  `sus_spatial_join` do R apagam (`spatial_var$date <- NULL`) ou leem para o metadado temporal. Quem
+  cria é o passo de agregação, nos dois pacotes.
+
+### Fixed — juntar duas vezes deixou de quebrar com erro de recursão do DuckDB
+
+`sus_spatial_join` sobre o resultado de um `sus_spatial_join` falhava com `Binder Error: infinite
+recursion detected: attempting to recursively bind view "_spatial_health"`, porque o nome da view era
+fixo. Reexecutar uma célula de notebook sobre a variável já enriquecida é o caminho natural para cair
+nisso. O nome agora é único por chamada.
+
+### Fixed — o resultado da suíte de testes dependia da ordem
+
+`load_json` e irmãs são `lru_cache` sobre o *caminho relativo* apenas. Os testes que apontam o
+catálogo para um diretório temporário devolviam a variável de ambiente no fim, mas o arquivo falso
+ficava no cache pelo resto do processo, e todo teste seguinte o recebia. Medido contra o código
+commitado: um teste passava sozinho e falhava com `KeyError: 'schema_version'` quando outro módulo
+rodava antes. Um fixture `autouse` limpa os caches entre testes, e uma varredura falha se alguém
+acrescentar um `@lru_cache` novo sem registrá-lo.
+
+### Fixed — o filtro `city=` nunca funcionou, em nenhuma versão
+
+**Leia se você já tentou usar `city=`.** Ele está documentado como paridade com o
+`climasus4r::sus_data_filter_demographics(city=)` e não resolvia um único nome. Eram **três defeitos
+empilhados**, cada um escondendo o seguinte:
+
+1. O caminho do ativo não tinha o prefixo `assets/`, então levantava `FileNotFoundError` mandando
+   rodar `cs.update_climasus_data()` — que não podia ajudar, porque o arquivo estava lá desde
+   sempre, sob o outro prefixo.
+2. Corrigido o caminho, a lista de apelidos de coluna não incluía `code_muni`, que é o nome real.
+   Passava a levantar `ValueError: must have name and code columns`.
+3. Corrigidos os dois, os códigos saíam com **sete** dígitos e o `sus_filter` compara string exata
+   contra `CODMUNRES`, que tem **seis**. O filtro casava **zero linhas, sem erro nenhum** — uma
+   relação vazia, que é um número publicável e errado.
+
+**Por que sobreviveu:** os dois testes que cobriam o filtro mockavam o caminho inteiro — um trocava
+`data_path` por um diretório vazio, o outro substituía a função por `lambda _c: ["355030"]`. O
+defeito estava exatamente no pedaço que o mock removia.
+
+Aproveitando, a fonte também mudou para a que o R usa: `municipio_meta.parquet` (495 KB) em vez do
+arquivo de geometria, e com ela vieram três capacidades que o R tinha e faltavam aqui — aceitar
+**código** de 6 ou 7 dígitos como entrada, **nomear os estados** no aviso de homônimo (`Bom Jesus`
+casa com 5, em PB, PI, RN, RS e SC) e **sugerir a grafia certa** (`Recif` → "Did you mean: Recife?").
+
+**Uma mudança de resultado:** `city="Santarém"` agora resolve só o do Pará. O município 2513653 da
+Paraíba foi renomeado para **Joca Claudino** em 2010, e a fonte nova traz o nome vigente. Ele não se
+perdeu — responde por "Joca Claudino" e pelo código.
+
+### Changed — geometria simplificada por default: o Parquet de saída caiu ~12x
+
+O `sus_spatial_join` passou a juntar a geometria **simplificada**, que é a que o `climasus4r` recebe
+de `geobr::read_municipality(simplified = TRUE)`. Medido de ponta a ponta em 5.196 linhas: **45,3 MB
+→ 3,8 MB**. A resolução cheia continua no catálogo, a um argumento de distância
+(`simplified=False`).
+
+O registro (M9) propunha guardar a geometria em WKB ou numa tabela de dimensão separada. **Medi as
+duas antes de implementar, e nenhuma resolve:** WKB dá 44,6 MB contra 45,3 — ganho nenhum, porque o
+Parquet já dicionariza o WKT repetido e sob `zstd` o binário compacta *pior* que o texto; a tabela
+de dimensão dá 31,0 MB, o mesmo que só trocar a compressão, porque com 853 municípios distintos a
+geometria *única* já são 31 MB. E GeoParquet, que é o default do próprio R para objeto `sf`, dá
+**232,3 MB — cinco vezes pior**.
+
+A causa estava em uma palavra, no builder do catálogo: `geobr.read_municipality(simplified=False)`.
+
+**O que se perde, medido nos 5.570 municípios:** o ponto representativo — a única coisa que o
+`_match_spatial` extrai da geometria — anda uma mediana de **7,5 m**, e com a rede real do INMET
+**nenhum** município troca de estação mais próxima.
+
+### Fixed — as bordas estaduais do mapa não dependem mais de rede
+
+O `_map_load_states` chamava `geobr.read_state(year=2020)` — um download dentro de uma função de
+plot, embrulhado num `except Exception: return None`. Sem rede, as bordas simplesmente não eram
+desenhadas e a figura saía com cara de pronta. Agora lê o ativo local e, se algo falhar, avisa.
+
+### Fixed — as funções de raster falham antes do download, não depois
+
+`sus_grid_pdsi`, `sus_grid_era5` e `sus_grid_pollution_merra2` checam o *engine* de NetCDF na
+primeira linha. Antes, o `sus_grid_pdsi` baixava o arquivo do TerraClimate **com sucesso** e morria
+na leitura, com uma mensagem do `xarray` apontando a documentação dele — depois de o download estar
+pago.
+
+A mensagem nova nomeia o extra que resolve (`pip install 'climasus4py[grid]'`) e diz que o download
+**não começou**, em português, inglês e espanhol. A detecção pergunta ao `xarray`
+(`xr.backends.list_engines()`) em vez de só tentar importar: um engine se registra como plugin, e um
+pacote ser importável não é o mesmo que seu plugin ser carregável.
+
+### Changed — **quebra de contrato** no `sus_pipeline`: as colunas de saída mudaram de nome
+
+**Leia se você consome a saída do `sus_pipeline` pelo nome das colunas.** O caminho rápido devolvia
+`time_group` / `state` / `count`; passou a devolver `date` / a coluna geográfica / a contagem nomeada
+por sistema e idioma (`n_obitos`, `n_deaths`, `n_muertes`). Código que indexa por `df["count"]` ou
+`df["time_group"]` para de funcionar.
+
+A migração é renomear na leitura, e vale conferir mais duas coisas junto: a **coluna de data virou
+`DATE`** — era a string `"2023-01"` — e o **total mudou**, para cima.
+
+Por que mexer: qual dos dois caminhos roda é decidido pelos argumentos, não por você, e enquanto as
+saídas diferiam cair no fallback quebrava o código a jusante. O aviso de fallback chegou a dizer
+"Results should be equivalent but slower", o que era falso em **quatro** dimensões medidas — o
+registro (M52) listava três, e a quarta só apareceu depois de fechar as outras.
+
+O caminho staged foi o alvo da convergência porque é ele que bate com o R. Medido no `climasus4r`: o
+`.data_aggregate_tibble_internal` renomeia a data para `date`, nomeia a contagem com
+`get_smart_column_name(system, "count", lang)` e escolhe a coluna geográfica por prioridade **por
+sistema** — `system_priority$SIM` é `c("ocorrencia", "residencia", ...)`, então série de mortalidade
+se agrega por local de **ocorrência**.
+
+Conferido célula a célula em SIM-DO SP 2023, para `year`, `month`, `week` e `day`.
+
+**O que não convergiu, e está dito:** `geo="state"` existe só no caminho rápido, porque o
+`sus_data_aggregate` não tem `geo` — igual ao R. O *recorte* ali também foi alinhado (o dígito de UF
+passa a vir do mesmo município que o staged usaria), e a função continua avisando quando o fallback
+não consegue honrar o nível.
+
+### Fixed — 335 óbitos voltaram para a contagem: "idade desconhecida" não é 999 anos
+
+O `sus_data_clean_encoding` carregava a **própria cópia** do decodificador de idade do DATASUS,
+escrita antes de a função compartilhada existir. As duas concordavam em tudo menos num código: `999`,
+o sentinela de **idade desconhecida**. A cópia caía no `TRY_CAST` e obtinha **999 anos**, fora da
+faixa plausível de 0 a 120 que o próprio `clean` aplica por default — e a linha era descartada.
+
+Em SIM-DO SP 2023 são **335 registros de óbito** perdidos de qualquer contagem de mortalidade, por
+não declararem a idade da pessoa. Silencioso: o `clean` não diz quantas linhas a faixa removeu.
+
+Foi encontrado medindo de onde vinha a diferença de 335 linhas entre os dois caminhos do
+`sus_pipeline` — que o M52 atribuía a deduplicação. Não era: o `CONTADOR` tem 334.303 valores
+distintos em 334.303 linhas, então a dedup não remove nada ali.
+
+Corrigido chamando o `decode_age_sql` compartilhado, que devolve `NULL` para `999` — o que o R
+devolve. Há teste de que idade desconhecida sobrevive e, como contrapartida, de que idade
+implausível de verdade (código `599`, ou seja 199 anos) continua sendo cortada. Registrado como
+**M119**.
+
+### Fixed — `wct_c` subestimava o vento por 3,6× e as flags de frio disparavam no lado ameno
+
+Duas correções nos indicadores climáticos, as duas revertendo decisões anteriores de replicar o R.
+
+**`wct_c` (M69).** O R converte o vento com `ws * 0.621371`, que é o fator **km/h → mph**, aplicado a
+uma coluna em **m/s**. A prova não precisa de referência externa: o R implementa a mesma grandeza
+física duas vezes — `wcet_c` (Environment Canada, conversão correta) e `wct_c` (NWS) — e as duas
+regressões publicadas concordam entre si a ~0,03 °C. Medido em 4.000 linhas no domínio válido:
+`|wct_c − wcet_c|` caiu de **5,83 °C** de média (máx. 10,31) para **0,0297 °C** (máx. 0,05). O erro
+corria **sempre** para o lado quente, em 100% das linhas, que é o lado perigoso numa análise de onda
+de frio.
+
+**As flags de frio (M72).** `wcet` e `wct` declaram `high_risk = -35`, que cai na cadeia do *extreme*,
+e essa flag disparava em `valor > limiar`. Para sensação térmica de frio, mais frio é pior — então a
+flag era `TRUE` em quase todo lugar e `FALSE` exatamente nos casos perigosos. No valor mais frio da
+amostra ela passou de `FALSE` para `TRUE`, e a fração de `TRUE` caiu de mais de 80% para menos de 20%.
+
+Quatro das 16 flags que o R emite como constante `FALSE` voltaram a disparar, e **só** aquelas em que
+o nome declarado resolve a questão sozinho. Das 30 colunas de flag dos 10 indicadores do R: eram 16
+constantes, 2 invertidas e 12 com informação; são **12, 0 e 18**.
+
+`R_WCT_USES_KMH_FACTOR` e `R_COLD_FLAGS_INVERTED` reproduzem o R exatamente, e é o que as fixturas de
+paridade pedem.
+
+A fórmula do **WBGT (M71)** não foi mexida: a média dos dois termos é deliberada e está na
+documentação do R. O que está errado ali é a documentação **citar** Liljegren (2008) e Bernard &
+Pourmoghani (1999) para uma fórmula que não implementa nenhum dos dois — então o conserto pedido é na
+documentação do `climasus4r`, e está anotado no código para ninguém "consertar" a fórmula.
+
+### Changed — tradução de valor por sistema: dado de SINAN saía com a escala do SIH
+
+O `categories.json` era **plano**, uma entrada por nome de coluna traduzido, enquanto o `climasus4r`
+mantém um dicionário **por sistema**. Onde dois sistemas alimentam a mesma coluna com livros de código
+diferentes, o arquivo plano só cabia um — e os dois acabaram misturados na mesma entrada.
+
+O caso concreto: `education_level` recebe `INSTRU` do **SIH** (`1` Analfabeto, `2` 1º Grau) e
+`CS_ESCOL_N` do **SINAN** (`1` "1 a 4 série incompleta EF", `2` "4 série completa EF"). A entrada
+plana tinha os códigos 1–4 com os rótulos do SIH e 0, 5–10 com os do SINAN, então **dado de SINAN saía
+rotulado com a escala do SIH**. Segunda colisão, achada no caminho: o **SIH codifica feminino como
+`3`**, não `2`.
+
+O arquivo passou a ter `_meta` + `COMMON` + dez seções por sistema, espelhando o `columns.json`. O
+conteúdo plano virou `COMMON` **na íntegra**, e há teste comparando com o arquivo de antes: sem
+`system`, o resultado é byte a byte o que era. `sus_data_standardize` repassa o `system` que já tinha
+resolvido para o passo de valor.
+
+Entrou também o que faltava no `columns.json` de `pt-es` e `pt-pt`: as seções `SIA-AD`, `SIA-AM`,
+`SIA-AQ`, `SIA-AR` e `SIA-PS`, sem as quais 62 campos do SIA não tinham nome traduzido.
+
+### Fixed — `CODESTAB` perdia o zero à esquerda em 5% das linhas
+
+O metadado publicava **uma** lista `all_numeric_columns` com 23 entradas e o importador passava
+`pd.to_numeric` em todas. As 23 eram **três** coisas: quantidade, código identificador de largura fixa
+e código categórico. Medido em SIM-DO SP 2023: **13.294 das 262.909 linhas** com `CODESTAB` (5,1%)
+saíam curtas — `10049` onde o CNES é `0010049`.
+
+A lista virou três (`schema_version` 2), com largura declarada para cada identificador. O importador
+passou a tratar as quatro famílias diferente, e o padding **só preenche, nunca corta** — truncar um
+código para caber numa largura declarada transformaria erro de metadado em perda de dado.
+
+Quatro dos categóricos — `GESTACAO`, `OBITOGRAV`, `LOCOCOR`, `ESCMAE` — **têm livro de rótulos no R** e
+estavam sendo convertidos a número. `GRAESSION`, que não é coluna de nada, saiu da lista.
+
+**Caches gravados antes desta correção têm o dano em disco.** Os quatro em uso foram reimportados:
+**40.134 códigos recuperados**, e a fração varia muito por UF — 17,6% em Sergipe contra os 5,1% de São
+Paulo. Um `climasus-data` anterior ao `schema_version` 2 faz o pacote **avisar** e usar as listas
+corrigidas embutidas, em vez de voltar a corromper calado.
+
+### Added — `sus_as_relation()`, `include_metadata` e `read_metadata`
+
+`sus_as_relation(df)` fecha a família `sus_as_*`, que só saía de relação e nunca entrava: o
+`sus_as_duckdb` e o `sus_as_arrow` recebem relação, e o único caminho de `DataFrame` para relação era
+`get_connection().from_df`, de módulo interno — tanto que a mensagem de erro do `sus_export` tinha de
+citá-lo para ser acionável.
+
+`sus_export(include_metadata=True)` embute o `sus_meta` no schema do Parquet, desviando pelo
+`sus_meta(to_parquet=)`. Default `False`, porque gravar por default custaria a materialização via
+Arrow — que é a vantagem pela qual o `sus_export` existe. Verificado que o dado gravado pelos dois
+caminhos é **idêntico**: o parâmetro troca desempenho por metadata, não por dado.
+
+`sus_data_read(read_metadata=True)` lê o embutido e cai para o sidecar `<base>_metadata.txt` do R
+quando existe. O sidecar é **lido e nunca escrito** — escrever seria um terceiro mecanismo; ler é o
+que deixa um arquivo exportado no R chegar aqui com procedência.
+
+### Added — `sus_data_read()` lê vários arquivos, e `geo_basis` diz qual recorte você quer
+
+O `sus_data_read` lia **um** arquivo; passou a aceitar arquivo, diretório recursivo, glob e lista,
+devolvendo **uma** relação preguiçosa sobre todos. Os arquivos são unidos **por nome de coluna**, como
+o `bind_rows` do R: o `read_parquet` do DuckDB une por *posição* no default, o que despejaria a coluna
+de um arquivo na do outro quando a ordem do esquema difere.
+
+`sus_climate_aggregate(geo_basis=...)` diz qual recorte geográfico usar — `"residence"`,
+`"occurrence"`, `"notification"`. Residência e ocorrência são recortes epidemiológicos **diferentes**,
+e a ordem de uma lista não deveria decidir isso em silêncio. Havia **cinco** listas de coluna de
+município no pacote, divergindo também na ordem; todas passaram a ler uma declaração única no
+`climasus-data`, então validação e detecção não podem mais discordar.
+
+### Added — o `manifest.json` do `climasus-data` é conferido na carga
+
+Era gerado e nunca verificado. Agora o `get_path` compara o md5 do arquivo pedido com o do manifest e
+**avisa** na divergência, nomeando o arquivo e dizendo o conserto. Avisa uma vez por arquivo por
+processo: aviso repetido em laço é ruído, e ruído é como um aviso de verdade passa batido.
+
+**Não aborta.** Um `climasus-data` que se recusa a carregar porque um checksum está velho transforma
+problema de inventário em pacote quebrado, e quem sente é o usuário final que não editou nada.
+`CLIMASUS_DATA_STRICT=1` eleva a erro, para CI. `verify_integrity()` confere tudo e **devolve** as
+listas, porque quem quer falhar uma build precisa delas.
+
+O diretório `viz/` entrou no manifest: o `climasus4py` lê `viz_labels.json` e `viz_config.json` em
+tempo de execução, então deixá-los fora punha dois arquivos que o pacote lê fora do contrato.
+
+
+### Added — `sus_mod_plot_pool()` deixa de ser stub
+
+O stub dizia que **não havia `x` válido que a função pudesse receber**, porque o `sus_mod_pool` era
+stub também. Resolvido.
+
+Os três tipos do R portados: `"overall"` (curva agrupada com faixa de IC), `"forest"` (a estimativa
+própria de cada cidade mais o BLUP recuado abaixo, ordenado por RR com o menor embaixo — como o R) e
+`"spaghetti"` (curvas BLUP em cinza atrás da agrupada). As cores `#4472C4` e os cinzas ficaram
+idênticas às do R, para as figuras dos dois pacotes serem comparáveis a olho.
+
+`interactive=True` levanta `ImportError` — `plotly` não é empacotado pelo `climasus4py`, mesmo
+precedente do `sus_mod_plot_dlnm` e do `sus_mod_plot_burden`. Recusar é melhor que devolver estático
+em silêncio.
+
+**Dois detalhes que valem registro.** O recuo para `"overall"` quando não há BLUP muda o *gráfico*,
+não a tabela: quem pediu `"spaghetti"` pediu `city_table`, então a tabela sai de `type` e não do tipo
+efetivamente desenhado. E o aviso de base não compartilhada (M65) é repetido **na hora de plotar** —
+quem abre o gráfico depois não viu o aviso do cálculo, e é olhando a curva que a conclusão é tirada.
+
+Verificado visualmente nos três tipos. Um teste visual inicial saiu degenerado e a explicação vale:
+com `method="fixed"` o `Psi` é zero, então todo BLUP colapsa na média agrupada e as cinco curvas do
+spaghetti ficam exatamente sob a agrupada. Não é defeito — é a propriedade que
+`test_sem_heterogeneidade_todo_estudo_colapsa_na_media` já fixa. Refeito com `reml`, as curvas
+divergem e o encolhimento aparece (cidade com RR 1,2145 → BLUP 1,1665).
+
+Com isso o **M60 fecha** pela via mais direta: os três stubs que ele citava deixaram de ser stubs.
+
+27 testes. `__all__` 95 → 96; stubs de modelagem 9 → 8.
+
+### Added — `sus_mod_metaregression()` deixa de ser stub · **diverge do R de propósito**
+
+Usa o mesmo motor `_mvmeta` do `sus_mod_pool`, já verificado contra o `mvmeta 1.0.3`. Covariáveis
+de cidade são padronizadas, então o bloco do intercepto *é* a curva de uma cidade média — e é ele
+que alimenta o `crosspred`.
+
+**Aqui o Python não copia o R, porque o R está errado (M67).** O `mvmeta` devolve o vetor de
+coeficientes em ordem **outcome-major intercalada** — `y1.(Intercept)`, `y1.x`, `y2.(Intercept)`,
+`y2.x`, … — e o R fatia como se cada moderador ocupasse um bloco contíguo no início.
+
+Medido com interceptos verdadeiros `0,1 0,2 0,3 0,4 0,5` e inclinações `0,9 0,8 0,7 0,6 0,5`, a
+fatia do R devolve **`0,08 0,9226 0,2217 0,7913 0,3404`**: alternando intercepto e inclinação, e
+cobrindo só os três primeiros resultados. O mesmo erro está em `.mr_wald_tests()`, onde a covariável
+1 pega as posições 6..10 — `y3.x, y4.(Intercept), y4.x, y5.(Intercept), y5.x`.
+
+Isso atinge **toda** a saída da função sempre que houver covariável, ou seja sempre. O
+`sus_mod_pool` escapa porque lá `q = 1`, e com um único moderador as duas ordenações coincidem.
+
+O Python usa `MvmetaFit.block(j)`, que acessa por passo `n_moderators`. Dois testes fixam isso, um
+deles sendo o contraexemplo explícito de que a fatia ingênua **não** é o bloco do intercepto.
+
+### Fixed — desenho singular devolvia coeficientes zerados em silêncio (M68)
+
+Achado no meu próprio código, testando a meta-regressão com dado que eu havia montado errado: duas
+covariáveis perfeitamente colineares (`pib = 34 − 40 × pobreza`). Não deu erro — o `_gls` falhava na
+fatoração, devolvia o sentinela de zeros, e o que chegava à saída era **RR = 1,0 com intervalo
+[1,0 , 1,0]** e `Q = inf`. Um resultado fabricado com cara de plausível. A matriz de informação era
+36×36 com posto 24, porque o posto do desenho era 2 e não 3.
+
+`mvmeta_fit()` agora checa o posto de `X` antes de ajustar e nomeia a colinearidade; e se o GLS
+falhar mesmo com `Psi = 0`, levanta em vez de devolver zeros. Covariável constante é caso particular
+(colinear com o intercepto) e passa a ser **descartada com aviso**, que é o que o chamador quis
+dizer — o R escala por 1 e a leva para o ajuste.
+
+Não há checagem separada de "menos cidades que termos": o posto é limitado pelo número de linhas,
+então `m < q` sempre aparece como deficiência de posto. Fixado em teste.
+
+29 testes. `__all__` 94 → 95.
+
+### Added — `sus_mod_pool()` deixa de ser stub: agrupamento multi-cidade de DLNM
+
+O stub recusava rodar alegando depender de `dlnm::crosspred()` e `mvmeta`, "nenhum com
+equivalente em Python". Metade disso já estava desatualizada: o `crosspred` foi portado há tempos.
+Restava o `mvmeta`, agora em `climasus4py/enrichment/_mvmeta.py`.
+
+**Verificado contra o R.** Com `mvmeta 1.0.3` instalado do CRAN, sete casos de `p=1` a `p=16`:
+`coef`, `vcov`, `Psi`, `logLik`, `Q`, `df`, `blup` e a covariância do BLUP batem. Ponta a ponta com
+coeficientes reais de DLNM, `method="fixed"` bate **exato** (coef 9e-13, vcov 4e-13) e o Q de
+Cochran bate exato (4e-12) também no REML. A referência do R está congelada em
+`tests/fixtures/mvmeta/`, para a paridade seguir verificável em máquina sem R.
+
+**Duas armadilhas que o R não sinaliza passaram a ser avisadas.**
+
+A primeira é mais séria do que parece. O agrupamento só faz sentido se as cidades compartilharem a
+**mesma base de exposição** — o coeficiente *k* do crossbasis é o peso da *k*-ésima função daquela
+base, e com nós diferentes a *k*-ésima função é outra coisa em cada cidade. Agrupar assim não dá um
+número aproximado, dá um número **sem sentido**. E isso acontece **por padrão**: os nós saem dos
+quantis da exposição de cada cidade, então duas cidades de climas distintos recebem bases distintas
+automaticamente. Verificado com três cidades sintéticas de 21, 24 e 27 °C — as três bases saem
+diferentes. O caso correto é o que exige esforço deliberado; o caso errado é o comportamento padrão.
+O R valida `lag_max` e `climate_col`, e não valida a base.
+
+A segunda é de identificabilidade. `Psi` é irrestrita, logo custa `p(p+1)/2` parâmetros, enquanto
+*m* cidades de *p* coeficientes fornecem `m*p` números. Um crossbasis padrão dá `p=12`, então `Psi`
+quer **78 parâmetros** e três cidades fornecem **36**. Medido: nem o R nem o Python convergem, os
+dois avisando iterações esgotadas; a verossimilhança fica achatada e segue subindo sem estabilizar
+(178,7 com 300 iterações, 180,1 com 3.000, 181,2 com 20.000; o R parou em 181,3). São pontos de um
+platô, não estimativas — e os coeficientes diferem 13% entre os dois só por onde cada otimizador
+parou. Reinícios aleatórios pioram muito, confirmando que o problema é a superfície e não a semente.
+
+Nenhuma das duas impede o resultado de sair, por paridade. O que muda é deixarem de ser silenciosas.
+Registradas como M65 e M66; corrigir a primeira de verdade exige que `sus_mod_dlnm()` aceite nós
+explícitos, o que mexe em API pública e precisa do coordenador.
+
+23 testes para o `sus_mod_pool`, 54 para o `_mvmeta`.
+
+### Fixed — nulo de texto era gravado no Parquet como a string `"None"` (M63)
+
+Achado enquanto eu auditava outra coisa — o metadado do `climasus-data` — e maior que o que eu
+estava auditando.
+
+`_coerce_datasus_types` limpava as colunas de texto assim:
+
+```python
+df[col].astype(str).str.strip().replace({"": None, "nan": None})
+```
+
+`astype(str)` renderiza **cada ausente como texto**: `None` vira `"None"`, `NaN` vira `"nan"`, `NaT`
+vira `"NaT"`. O `replace` devolvia ao nulo apenas `""` e `"nan"` — então `"None"` e `"NaT"`
+sobreviviam até o Parquet como texto comum. Verificado isolado: a entrada
+`['J189', None, '', nan, 'I219']` saía `['J189', 'None', None, None, 'I219']`.
+
+**Escala medida no cache real:** SIM-DO SP 2023, **54 das 63** colunas de texto afetadas; SIM-DO MG
+2025, **50 de 63**. Nos dois arquivos juntos, **104 colunas e 16.009.675 valores** literais onde
+deveria haver `NULL`. Cinco colunas em **100% das linhas** nos dois arquivos: `ESTABDESCR`,
+`CB_PRE`, `NUDIASOBIN`, `NUDIASINF`, `FONTESINF`.
+
+**Por que isso é pior que um incômodo cosmético:** `IS NULL` não encontra essas linhas,
+`COUNT(coluna)` devolve 334.303 onde o certo é 0, um `GROUP BY` trata `"None"` como categoria real —
+e um relatório de qualidade mostraria **0% de ausência para uma coluna que não tem um único valor**.
+Nada disso levanta erro. O número sai errado e parece certo.
+
+A correção converte para texto **só os valores presentes**. A neutralização dos tokens literais
+ficou, para ser um superset do comportamento antigo: `test_nan_string_becomes_none` fixava que a
+string `"nan"` virasse `None`, e uma coluna de texto do DATASUS não carrega `"nan"` nem `"None"`
+como dado legítimo.
+
+3 testes novos, os três falhando sem o fix. O terceiro percorre o caminho real do importador
+(`coerce` → `pa.Table` → `_write_parquet_atomic` → leitura) e checa `null_count` no arquivo, porque
+é o Parquet em cache que todo o resto do pacote consulta — sem o fix, `null_count` era `0` com
+`"None"` gravado.
+
+**Os parquets já em disco continuam sujos.** O cache reusa por `target.is_file()`, sem versão, então
+o fix vale só para importação nova; os 16 milhões de valores existentes precisam de reescrita local.
+
+### Fixed — a data de recebimento original volta a ser data (M4)
+
+`original_receipt_date` (`DTRECORIGA`) saía como a string `"05012023"` em todos os 334.303
+registros do SIM-DO SP 2023, enquanto o R devolvia uma data. A lista `date_candidates` é mantida à
+mão, e uma coluna que ela nunca ouviu falar fica em texto cru.
+
+**Uma correção a uma medição minha:** mais cedo eu havia registrado que `DTCADINV` e `DTRECORIGA`
+não eram cobertas por lista nenhuma. Estava errado quanto ao `DTCADINV` — comparei nomes **crus**
+contra uma lista que mistura crus e **traduzidos**, e a conversão roda *depois* do rename: o
+`DTCADINV` vira `investigation_registration_date`, que está na lista. Medido na saída real, das 11
+colunas de data do SIM-DO **10 já convertiam**. Faltava uma, exatamente como o achado dizia desde o
+início.
+
+Ler `all_date_columns` do `climasus-data` **não** resolveria: aquele metadado publica `DTRECORIG`,
+sem o `A` final, e não casa com a coluna real. Corrigir o metadado segue sendo o certo a longo prazo
+e precisa do coordenador — **mesma dependência do M5**.
+
+A correção é um fallback por forma depois da lista explícita, para colunas cujo nome sugere data,
+**convertendo só o que de fato parseia**.
+
+**O guard de parse não é paranoia, e o `batch_number` é a prova.** `NUMEROLOTE` também tem oito
+dígitos — `20230001`, ano mais sequência — e uma heurística por nome ou por forma sem o guard
+transformaria número de lote em data. Medido no mesmo dado: **0 de 334.303** números de lote
+parseiam como DDMMYYYY, contra **334.303 de 334.303** das datas de recebimento. Exijo 100% e não
+maioria, porque converter "quase tudo" nulificaria as sobras em silêncio — o defeito do M59 por
+outro caminho.
+
+Verificado: `original_receipt_date` passou de `VARCHAR "05012023"` para `DATE 2023-01-04`, com
+**zero nulos criados**; `batch_number` seguiu `VARCHAR`; e a contagem de colunas de data foi de 10
+para 11. 4 testes novos, incluindo os dois contraexemplos que definem o comportamento.
+
+### Changed — a coluna de estação passa a ser `station_code` de ponta a ponta (M10) · **quebra compatibilidade**
+
+`sus_climate_inmet()` emitia `wmo_code` enquanto `sus_climate_compute_heatwaves()`,
+`sus_climate_compute_coldwaves()` e os seis helpers (`hw_*` / `cw_*`) exigiam `station_code` —
+**oito funções inutilizáveis com a saída do próprio pacote**, e o erro era só um nome.
+
+**O que decidiu a questão foi o dado: a coluna `wmo_code` não continha código WMO.** Os valores são
+`A701`, `A705`, `A706` — códigos do INMET, com prefixo de letra. Código WMO é numérico de cinco
+dígitos; São Paulo é 83781. Das 350.400 linhas de SP 2023, **100% têm prefixo `A` e nenhuma é só
+dígitos**. E o R guarda exatamente os mesmos valores sob o nome `station_code`.
+
+Ou seja, a coluna estava com o **nome errado**, e a entrada da 0.2.0a4 que canonizou `wmo_code` foi
+escrita supondo que ela guardasse código WMO. Não foi reverter uma decisão deliberada — foi corrigir
+uma decisão tomada sobre premissa falsa. Isso resolveu junto a paridade, o bloqueio e a exatidão do
+nome.
+
+**De onde veio o nome:** do próprio arquivo do INMET, que rotula o campo como `CODIGO (WMO):` e
+coloca dentro dele o código do INMET. Conferido nos três fixtures do repositório — 2008 (`A828`),
+2015 (`A806`) e 2023 (`A806`): o rótulo está errado **na fonte** nos três anos. O parser transcreveu
+o rótulo literalmente, o que exonera quem o escreveu: ele pegou o nome do campo na origem.
+
+O mapa justificou a direção: `wmo_code` aparecia 14 vezes e só no lado produtor; `station_code`
+aparecia **138 vezes** em todo o resto — heatwaves 50, coldwaves 30, os plots 26, aggregate 9, mais
+anomaly, fill, indicators e uniplu. Levar `wmo_code` aos 138 pontos divergiria do R em toda a cadeia
+de clima e propagaria um nome incorreto.
+
+**O cache exigiu cuidado.** Parquet gravado antes desta correção tem `wmo_code` **em disco**, e uma
+relação lida dele carregaria o nome antigo para fora do pacote — o bloqueio persistiria, agora só
+para quem já tinha cache, o que é pior por ser silencioso. A normalização ficou em
+`_cast_inmet_types`, ponto único por onde passam os dois caminhos (parse novo e cache), sem tocar
+nos arquivos nem pedir redownload. Há teste para cache antigo, novo e híbrido com as duas colunas.
+
+Verificado **sem nenhum contorno**, direto na saída do `sus_climate_inmet`: heatwaves devolve 245
+eventos, coldwaves 297, e os seis helpers rodam. As oito funções que o achado dava como inutilizáveis
+passaram a funcionar; o default de `station_col` do `sus_climate_anomaly` ficou correto por
+consequência.
+
+Quem lê `wmo_code` no resultado precisa passar a ler `station_code`. 8 testes novos, incluindo um que
+documenta o fato decisivo e falha se a fonte mudar — reabrindo a discussão com evidência em vez de
+memória. Cinco testes que afirmavam o nome antigo foram atualizados, um deles com a **polaridade
+invertida**: garantia que o parser *não* emitia `station_code`, e agora garante que não emite
+`wmo_code`.
+
+### Notes — M24 investigado: o defeito é do R, o Python está correto
+
+**Veredito invertido, e nenhuma mudança foi feita no Python.** O M24 estava registrado como
+divergência do Python na fração atribuível — af total +8%, heat −29%, cold +85%, com a ordem
+heat/cold invertida e desvios de até +306% por faixa de percentil, prioridade Alta contra nós.
+
+`dlnm::crosspred(cb, model, at = x)` devolve `allRRfit` na ordem **crescente de `x`**, não na ordem
+em que `x` foi passado. O `.saf_component` do `climasus4r` pareia esse vetor **posicionalmente** com
+`cases` e `in_range`, que estão em ordem de **data**. Como os valores de `x` são contínuos e todos
+distintos, os comprimentos coincidem (1812 = 1812) e **o R não emite aviso nenhum**: cada dia
+recebe silenciosamente o RR de outro dia.
+
+**A prova não deixa margem.** Com a mesma série sintética de 5 anos nos dois lados:
+
+| | total | heat | cold |
+|---|---:|---:|---:|
+| Python (pareamento correto) | 0,056669 | −0,007568 | 0,064237 |
+| Python com o RR embaralhado — `rr[argsort(x)]` | **0,054892** | **0,032898** | **0,021994** |
+| R (medido) | **0,054892** | **0,032898** | **0,021994** |
+
+Reproduzir o embaralhamento reproduz o R **até a sexta casa decimal**. Isso identifica a causa, não
+a aproxima.
+
+**O que foi descartado no caminho, cada um por medição** — e vale registrar porque as três primeiras
+hipóteses eram plausíveis e erradas: a **fórmula** (o `.saf_component` do R e o `_component_af` do
+Python são estruturalmente idênticos, linha a linha); a **centragem** (`cen` idêntico, 21,98056); a
+**base spline** (curvas de RR comparadas num grid de 10 a 34 °C, cobrindo *as duas caudas* —
+idênticas até a 7ª casa, diferença máxima **zero**); a **entrada** (`nrow` 1812, `n_cases` 26328,
+min/max/média de `x` e a contagem de 906 dias de cada lado do `cen`, todos idênticos); e a **seleção
+de coeficientes** (o Python usa fatia posicional e o R usa nome, mas a matriz de desenho põe a
+crossbasis logo após o intercepto, então a fatia está certa).
+
+Isso também explica os três sintomas do achado: o **total** sai próximo (~3%) porque os óbitos
+diários são homogêneos e a soma embaralhada fica perto da certa; a **decomposição** fica arbitrária;
+e o **IC cruzando zero** no Python não é defeito — é o comportamento correto quando o `cen` cai
+dentro de uma zona ampla de risco mínimo, situação em que dias pouco acima dele têm RR abaixo de 1.
+Como observação de método, válida para os dois lados: centrar no `ref_value` por percentil, em vez
+da temperatura de mortalidade mínima, é o que permite componente negativo.
+
+O lado R está no `IDEIAS.md` com a correção sugerida. Pelo princípio de paridade, bug do R é
+apontado e não corrigido daqui — mas **este precisa ir ao coordenador com prioridade**: afeta o
+`climasus4r` publicado, no número que vai para publicação, e propaga para `sus_mod_excess` e
+`sus_mod_swot` (as divergências de 9–13% e a mudança de classe do `O_cat` que o achado registrou são
+consequência disso, e também são o R).
+
+`tests/test_af_pairing.py` existe para **impedir que alguém alinhe o Python ao R aqui** numa rodada
+futura de comparação: um dos quatro testes falha de propósito se os dois passarem a coincidir.
+
+### Added — `sus_mod_burden()` exportado, destravado pelo M24
+
+Estava implementado e sem exportar justamente por consumir `climasus_af`, que o M24 dava como
+errado. Com o `sus_mod_af` provado correto, o bloqueio caiu. Verificado pela API pública: heat 2242
++ cold 1320 = 3562 = total. `__all__` de 92 para 93.
+
+### Changed — `sus_export()` não sobrescreve mais por default (M17) · **quebra compatibilidade**
+
+O default de `overwrite` estava **invertido** entre as duas linguagens: no R
+`sus_data_export(overwrite = FALSE)`, aqui `overwrite=True`. A mesma chamada que o R **recusa** para
+proteger um arquivo existente, o Python executava sobrescrevendo — sem erro e sem aviso, dado
+anterior perdido.
+
+`overwrite` agora é `False`. Isso é **aplicar** a regra de paridade, não excetuá-la: conferido nas
+`formals` do R, aqui o R é que está certo. O que seria exceção é replicar o comportamento do R
+quando *ele* erra — não é o caso.
+
+A mensagem virou acionável: nomeia o arquivo e diz para passar `overwrite=True` de propósito.
+
+**`sus_pipeline()` ganhou um parâmetro `overwrite`**, também `False`, repassado ao `sus_export`. Sem
+ele, o re-run com o mesmo `output` falharia com uma mensagem mandando passar um argumento que a
+função não aceitava — erro sem saída. Vale notar que `sus_pipeline` é **só-Python**, então aqui não
+havia referência a seguir: escolhi o comportamento protetivo, igual ao do export, para os dois não
+divergirem entre si.
+
+Quem depende de sobrescrever — re-rodar um pipeline no mesmo caminho, por exemplo — precisa passar
+`overwrite=True` explicitamente a partir daqui.
+
+**Segue em aberto**, e é implementação e não correção: o Python não tem `include_metadata` (default
+`TRUE` no R, grava um arquivo de metadados ao lado para reprodutibilidade), `metadata`,
+`compression_level`, `lang` nem `verbose`. O `include_metadata` **é o mesmo assunto do M19**: hoje o
+`sus_export` descarta a metadata e avisa, enquanto `sus_meta(to_parquet=)` a embute no schema do
+Arrow. O R usa arquivo ao lado; nós embutimos. Implementar sem decidir qual dos dois mecanismos vale
+criaria um **terceiro** caminho de metadata no pacote.
+
+### Fixed — duas docstrings alegavam espelhar função do R que não existe (M62)
+
+A do `sus_pipeline` dizia *"Mirrors `sus_pipeline()` from the R package"*. Não existe `sus_pipeline`
+no `climasus4r` — conferido em `getNamespaceExports` e no NAMESPACE da 1.0.0 — e o controle de
+paridade já registra a função como só-Python. A do `sus_climate` dizia o mesmo.
+
+Alegação falsa de paridade é pior que ausência de nota: manda quem for comparar os dois pacotes
+procurar no R uma função que não está lá, e no pior caso concluir que ela existe e foi mal portada.
+
+**Auditei todas**, para não corrigir só onde tropecei: das 23 alegações `Mirrors` que nomeiam algo
+`sus_*` no pacote, comparadas com os 108 `export()` mais os 72 `S3method()` do NAMESPACE,
+**exatamente estas duas** apontam para função ausente do R. As outras 21 conferem.
+
+Limite declarado: a varredura cobre alegações que nomeiam **função**. As de nível de módulo que
+nomeiam **arquivo** do R (`Mirrors R: climate.R`) não pude verificar, porque só temos o pacote R
+instalado em binário, sem a árvore de fontes.
+
+### Fixed — o CNES volta a ter os zeros à esquerda (M5)
+
+O código CNES tem sete dígitos com zero à esquerda **significativo**, e vinha como número: `0000057`
+saía como `57`, valor que não casa com estabelecimento nenhum em base externa. No SIM-DO SP 2023
+foram **13.294 de 262.909** registros (5,1%), com casos extremos de dois dígitos.
+
+**O achado precisava ser dividido antes de virar correção — dos quatro campos citados, só um é
+código.** `birth_weight` (peso ao nascer em gramas), `number_of_dead_children` e
+`number_of_living_children` são **quantidades**: `0520` não é mais correto que `520`, nem `01` que
+`1`. Nesses três é o R que preserva a largura fixa do DATASUS e diverge do significado. Padear todos,
+como a proposta original sugeria, teria trocado um erro por outro.
+
+**E o problema não estava onde o achado registrava.** As colunas já saem `DOUBLE` do parquet: a perda
+acontece em `_coerce_datasus_types`, no importador, que aplica `pd.to_numeric` em tudo o que o
+metadado lista em `all_numeric_columns` — e essa lista de 23 colunas mistura códigos (`CODESTAB`,
+`CODMUNRES`, `CODOCUPMAE`, `LOCOCOR`) com quantidades (`PESO`, `IDADEMAE`, os `QTD*`). O
+`sus_data_standardize` não convertia nada; só herdava.
+
+Medido: das colunas de código, **só o `CODESTAB` perde zeros de fato**. Os de município começam em 11
+e os de um dígito não têm como encurtar — zero valores curtos em `CODMUNRES`, `CODMUNOCOR`,
+`CODMUNNATU`, `LOCOCOR`, `ESCMAE`, `GESTACAO` e `OBITOGRAV`.
+
+Novo passo 0 no `sus_data_standardize` devolve os códigos de largura fixa a string com `LPAD`,
+**antes do rename** — de propósito, porque os nomes traduzidos variam por língua *e* por sistema:
+`CODESTAB` é `health_facility_code` / `codigo_estabelecimento` / `codigo_establecimiento_salud`, e
+`CODOCUPMAE` é `mother_occupation_code` no SIM-DO mas `mother_occupation_cbo` no SINASC, sem tradução
+PT em um dos dois. Keyed pelo nome cru, uma entrada por coluna cobre tudo. (A primeira versão cravava
+os traduzidos e errava o nome em espanhol; o teste pegou.)
+
+**Não mexi no parquet nem no metadado, de propósito.** Mudar o tipo gravado no cache quebraria a
+leitura de caches existentes com `union_by_name` — `DOUBLE` de um ano contra `VARCHAR` de outro — e
+exigiria redownload. E corrigir o `all_numeric_columns`, separando códigos de quantidades com suas
+larguras, é onde isso deveria morar: mas é metadado compartilhado e precisa do coordenador. **Mesma
+dependência do M4** — convém levar as duas juntas.
+
+Verificado: `57` → `0000057`; os 262.909 não-nulos ficam todos com exatamente 7 caracteres; e os
+71.394 `NULL` seguem `NULL`, com **zero** valores `0000000` inventados, que apareceriam como um
+estabelecimento real. 8 testes novos, todos falham sem a correção, incluindo a contrapartida de que
+`birth_weight`, `number_of_dead_children` e `number_of_living_children` continuam numéricos.
+
+### Fixed — 618 avisos numa chamada viram 7, e os que sobram são os que importam (M61)
+
+`sus_climate_compute_heatwaves()` sobre o INMET SP 2023 emitia **618 avisos**, dos quais **608 eram
+`RuntimeWarning: Mean of empty slice`** do numpy. Agora são **7**, todos `UserWarning` úteis, com o
+resultado intacto: 245 eventos e 83 linhas de resumo, os mesmos de antes.
+
+Isso não era ruído inofensivo. As correções de M21, M52, M58 e M14 tornaram defeitos silenciosos
+visíveis **acrescentando `UserWarning`** — e aviso útil enterrado em 608 linhas de aviso inútil é
+aviso que ninguém lê. Sintoma disso: o próprio M14 registrou o comportamento antigo como tendo
+rodado "sem erro e sem aviso" quando **havia** aviso de baseline curto.
+
+O helper `_nanmean` checava se a fatia estava **vazia** (`sub.size == 0`) mas não se estava **toda
+NaN**. No segundo caso `np.nanmean` devolve NaN de todo jeito, só avisando — e ele roda uma vez por
+dia-do-ano por estação. Passou a checar `np.any(~np.isnan(sub))`. O módulo irmão `coldwaves` já
+guardava todas as agregações assim; só o `heatwaves` estava sem.
+
+Não silenciei avisos globalmente com `catch_warnings`, que seria o remédio errado: engoliria também
+os que queremos que apareçam.
+
+**O gatilho custou três tentativas de fixture para reproduzir**, e vale registrar: é **uma** coluna
+de temperatura ausente por um bloco **contíguo** maior que a janela do baseline (31 dias), com as
+**outras** colunas presentes. São as outras que fazem a linha sobreviver até o baseline; se faltasse
+toda temperatura, a linha seria descartada antes e a fatia sairia vazia — caso que o código antigo já
+tratava. Lacuna *aleatória* não serve: com 35% de ausência, a chance de 31 dias seguidos serem todos
+NA é 0,35³¹. As duas primeiras versões do fixture passavam **com e sem** a correção, e portanto não
+provavam nada. Com o padrão certo são 91 `RuntimeWarning` sem a correção e 0 com ela.
+
+**De quebra, os 3 `FutureWarning` do pandas.** As máscaras booleanas usavam
+`fillna(False).infer_objects(copy=False).astype(bool)` sobre colunas de dtype object — e o
+`infer_objects` **não** evitava o aviso, porque ele nasce no próprio `fillna`. Trocado por
+`.eq(True)`, que dá o mesmo resultado (`NaN == True` é `False`) sem passar pelo downcast deprecado.
+São três sítios, e só aparecem com a lista **default** de sete métodos, porque UTCI/WBGT/HI pedidos
+sem as colunas é que produzem o dtype object.
+
+4 testes novos, incluindo a contrapartida de que os avisos **úteis sobrevivem** — sem ela a correção
+passaria por um `catch_warnings` global que engolisse tudo — e a de que a contagem de eventos não
+muda, porque o conserto é de ruído e não de cálculo.
+
+### Fixed — `baseline_start="2023"` deixa de significar um único dia (M14)
+
+`pd.Timestamp` lê data **parcial** como o primeiro instante do período: `"2023"` vira
+`2023-01-01`, e `"2023-06"` vira `2023-06-01`. Então `baseline_start="2023"` com
+`baseline_end="2023"` — que qualquer pessoa escreve querendo dizer *o ano de 2023* — virava a
+janela `[2023-01-01, 2023-01-01]`, de **um dia**. Não ficava vazia, então o guard que já existe
+(`"Nenhum dado disponível no período baseline especificado"`) não disparava, e o percentil saía de
+um único dia por estação.
+
+O novo helper `period_bound()` expande data parcial para a **borda** do período que ela nomeia —
+início para `baseline_start`, fim para `baseline_end` — usando semântica de `pd.Period`, com
+fallback para `pd.Timestamp` nos formatos que `Period` recusa. Data completa é um período de um dia
+e resolve para si mesma. Confere no bissexto: `"2024-02"` termina em `2024-02-29`.
+
+Verificado no INMET SP 2023: o baseline de ano solto dava **135** eventos e agora dá **245**,
+idêntico ao de datas completas.
+
+**A causa registrada no achado estava errada, e vale dizer por quê.** O diagnóstico original supunha
+baseline que não intersecta os dados e propunha validar o formato — mas esse caminho já estava
+protegido. E o `(0, 0)` que o achado registrou **não reproduziu**: em dado sintético de um ano só a
+contagem é `(0, 0)` nas *duas* formas, porque o percentil vem de uma janela circular de dia-do-ano
+sobre o próprio baseline, e uma onda dentro dele eleva o próprio limiar. Provavelmente foi isso na
+medição original, não a janela colapsada.
+
+**Segunda metade — o aviso mentia.** O `warn_short_baseline` reportava **anos distintos**, então uma
+janela de 2 dias aparecia como `"1 ano"`, errando a severidade por um fator de ~365 justamente no
+caso em que o baseline não serve. Passou a reportar também os dias, nas três línguas:
+`"Período baseline curto: 1 ano(s), 2 dia(s)"`.
+
+13 testes novos, incluindo a contrapartida de que a janela **truncada** que o bug produzia
+(`2020-01-01` a `2022-01-01`) dá resultado diferente — sem ela o teste passaria com o defeito
+intacto — e o `coldwaves`, corrigido junto porque parseia do mesmo jeito.
+
+**Achado no caminho — M61, e ele mina o que estamos fazendo.** Uma chamada de
+`sus_climate_compute_heatwaves()` sobre o INMET SP 2023 emite **618 avisos, dos quais 608 são
+`RuntimeWarning: Mean of empty slice`** do numpy. Os 10 restantes são os que o usuário precisa ler.
+Viemos corrigindo defeitos silenciosos acrescentando `UserWarning` — M21, M52, M58 e o próprio
+M14 — e aviso útil enterrado em 608 linhas de aviso inútil é aviso que ninguém lê. Sintoma disso: o
+M14 registrou o comportamento antigo como tendo rodado "sem erro e sem aviso" quando **havia** aviso
+de baseline curto, provavelmente perdido nessa enxurrada. Registrado, não corrigido, para não
+misturar com esta correção.
+
+### Fixed — idade desconhecida deixa de virar 999 anos e inflar as faixas de idosos (M6)
+
+`IDADE='999'` é o sentinela do DATASUS para **idade desconhecida**. A codificação do SIM é de três
+dígitos: o primeiro é a unidade (0 minutos, 1 horas, 2 dias, 3 meses — todos abaixo de um ano;
+4 anos; 5 anos acima de 100) e o resto é a quantidade. O `'9'` não é unidade nenhuma, então o
+valor caía no `TRY_CAST` final e voltava como **999 anos** — e as colunas derivadas então
+arquivavam esses registros como `age_group='60+'`, `ibge_age_group='80+'` e
+`climate_risk_group='High Risk (65+)'`.
+
+O efeito, medido no SIM-DO SP 2023: cada faixa de idosos perdeu **exatamente 335 registros** depois
+da correção.
+
+| | Antes | Agora |
+|---|---:|---:|
+| `age_group='60+'` | 248.787 | 248.452 |
+| `ibge_age_group='80+'` | 109.758 | 109.423 |
+| `climate_risk_group` High Risk | 227.791 | 227.456 |
+
+A regra é **estrutural** — recusa código de três dígitos cuja unidade não esteja em 0–5 — e não uma
+consulta a `_IGNORED_VALUES`, que lista `"999"` mas também `"0"`, `"9"` e `"99"`, sentinelas de
+campos *categóricos* como sexo e raça. Aplicar a lista inteira aqui descartaria idade
+legitimamente codificada. Recusar unidade fora de faixa cobre o `999` e qualquer `6xx`/`7xx`/`8xx`
+que apareça, sem chutar sobre valores numéricos curtos.
+
+**A conta das 471 divergências fechou em duas direções opostas:** 335 nesta, onde o Python errava,
+mais **136** na oposta, onde o **R** erra — `DTNASC` nulo com `IDADE` válida codificada, que o
+Python decodifica certo e o R devolve `NA`. `335 + 136 = 471`, exatamente o número registrado. A
+divergência residual esperada contra o R passa a ser de 136 linhas, **todas a favor do Python**; o
+lado R foi para o `IDEIAS.md`, porque bug do R é apontado e não corrigido daqui.
+
+8 testes novos; 6 falham sem a correção, incluindo a contrapartida de que código válido (`400`,
+`465`, `599`, `099`) continua decodificando e que a regra de três dígitos não toca idade curta já
+decodificada.
+
+### Fixed — a agregação para de trocar residência por ocorrência (M21, M29, M52)
+
+**O `sus_data_aggregate()` escolhia a coluna geográfica pela ordem default** quando `system=` não
+era passado. Para o SIM, `geo_candidates["SIM"]` põe **ocorrência** primeiro e a lista `"common"`
+põe **residência** — então o usuário recebia uma série de mortalidade por local de residência
+pensando estar vendo por local de ocorrência. São recortes epidemiológicos diferentes: onde a
+pessoa morava contra onde morreu.
+
+A correção tem duas metades, porque ler o metadado não bastava — **ele não estava sendo gravado**:
+
+1. `sus_data_aggregate()` passou a **ler** o `system` do `sus_meta` quando o argumento não vem.
+   Argumento explícito continua tendo precedência: o metadado é o padrão, não uma imposição.
+2. Descoberto no caminho: **só o `sus_data_import()` gravava o `system`.** O
+   `sus_data_standardize()` *recebe* o system (ou o detecta com `detect_system`) e não gravava —
+   apenas herdava do estágio anterior. Uma cadeia que começasse de um parquet cru perdia o system
+   mesmo com o usuário informando, e a correção (1) não teria efeito nela. Agora grava o que
+   resolveu, por argumento ou por detecção.
+
+Verificado no SIM-DO SP 2023: a agregação sem `system=` devolve **12.639** linhas por
+`occurrence_municipality_code` com a contagem `n_deaths` — **igual ao R**. Antes devolvia 14.129 por
+`residence_municipality_code` com a contagem `n`.
+
+**O aviso tem critério.** Quando não há system em lugar nenhum, a ordem default decide — e isso só
+é uma escolha de verdade quando a relação tem **mais de uma** coluna candidata, que é exatamente
+quando importa e quando é invisível. Avisa nesse caso e fica quieto quando há uma só: aviso em toda
+agregação viraria ruído, e ruído se aprende a ignorar.
+
+De quebra, as candidatas de coluna geográfica saíram de dentro do `_agg_detect_geo_col()` para o
+helper `_agg_geo_candidates()`, usado pela detecção **e** pelo aviso — duas cópias de uma ordem de
+prioridade acabariam discordando sobre qual coluna foi escolhida.
+
+**M29 explicado, e não era defeito.** O resíduo de 19 linhas que sobrava mesmo depois de igualar o
+`system` vem do `sus_data_clean_encoding()`, que deduplica: a mesma cadeia sem ele dá 12.639, com
+ele dá 12.620. O dedup remove 335 linhas cruas (334.303 → 333.968), e essas 335 colapsam 19 grupos
+(mês, município, sexo) inteiros. Nenhuma das hipóteses registradas antes — datas inválidas,
+município nulo, grupos com contagem zero. **O lado Python daquela comparação tinha deduplicação e o
+do R não: a diferença era a cadeia, não a função.**
+
+A lição de método é o que sobra: comparar função a função exige que a **cadeia inteira** seja a
+mesma dos dois lados, não só a chamada final. É a mesma classe de erro do `astype(str)` que fez 22
+linhas parecerem divergentes quando a diferença era só dtype.
+
+**E isso isolou a terceira dimensão do M52.** A diferença de 335 óbitos entre os dois caminhos do
+`sus_pipeline` (334.303 no fast contra 333.968 no staged), registrada como não isolada, é
+exatamente esse dedup: `334.303 − 333.968 = 335`, e o `clean_encoding` medido isolado remove
+precisamente 335 linhas. A causa é estrutural — o staged roda `clean_encoding` e o fast path, sendo
+um CTE único sobre o parquet, não tem etapa de dedup. Não era tratamento de nulo nem residência
+contra ocorrência, como eu havia suposto. O M52 fica com as três diferenças explicadas; **qual
+comportamento é o certo continua sendo decisão de API.**
+
+7 testes novos; 5 falham sem a correção, medido com `git stash`.
+
+### Fixed — `sus_filter(uf=...)` deixa de devolver o país inteiro (M58)
+
+Pedir `uf="SP"` a uma relação sem coluna de UF — o caso do SIM e do SINASC, que carregam apenas
+`CODMUNRES` — devolvia o **Brasil inteiro** com um `UserWarning`. Aviso em notebook passa batido,
+e o número que sai dali é publicável e errado por um fator de ~5.
+
+O tamanho do problema, medido no dado real: sobre o SIM-DO SP 2023 (334.303 linhas), `uf="RJ"`
+devolvia as **334.303** — uma análise de mortalidade do Rio usaria em silêncio os dados de São
+Paulo. Agora devolve **0**, e `uf="MG"` também.
+
+Os dois primeiros dígitos do código IBGE de município **são** o código do estado, e o fast path do
+`sus_pipeline` já usava isso; a correção só trouxe a mesma técnica para o `sus_filter`. A ordem de
+precedência é: coluna de UF se existir, senão derivar do município, e só avisar quando **não há
+nenhuma das duas** — aí o aviso passou a dizer explicitamente que o resultado não está restrito ao
+que foi pedido. Os códigos vêm de `load_uf_codes()`, não de lista embutida.
+
+**A trilha de auditoria diz de onde veio o estado:** o histórico grava `uf='SP' (derived from
+CODMUNRES)`. Isso importa porque residência e ocorrência são recortes epidemiológicos diferentes, e
+quem lê o resultado depois precisa saber qual foi — a mesma preocupação do M21 e do M52.
+
+De quebra, as candidatas de coluna de município, que estavam inline dentro do bloco de filtro de
+município, viraram `_MUNI_COLUMN_CANDIDATES` com o helper `_detect_muni_column`, usado agora pelos
+dois — filtro e derivação — para não poderem divergir. E UF desconhecida passou a ser recusada
+nomeando (`Unknown UF(s): ['XX']`) em vez de filtrar pelas que reconheceu e descartar o resto.
+
+7 testes novos; 6 falham sem a correção, medido com `git stash`. O caminho com coluna de UF
+presente continua igual, com teste fixando isso.
+
+### Fixed — a suíte volta a ser instrumento: 66 → 36 falhas (M53)
+
+**Primeiro o erro de coleta.** `tests/test_metadata_external.py` importava `_season_case_sql` e
+`_seasonal_patterns_config`, renomeados para `_astronomical_season_sql` e `_seasonal_config`, e o
+`ImportError` interrompia a coleta da **suíte inteira** — não só daquele arquivo. Ele agora roda e
+dá 29 passes.
+
+**O achado central da triagem:** as 66 falhas não eram 66 problemas, eram ~6 causas, e a maior de
+longe era teste afirmando assinatura que não existe mais. Conferi a produção com uma varredura
+estática sobre **588 assinaturas** do pacote, comparando cada chamada com os parâmetros aceitos:
+**zero chamadas de produção com argumento inexistente**. Depois do M16 o código está limpo nesse
+eixo, e as falhas eram arqueologia — testes escritos contra uma API *anterior à paridade*.
+Conferido nas `formals` do R, o Python de hoje é que está certo: `time_unit` (contra `time` e
+`time_resolution`), ausência de flag por variável (o R também tem só `create_calendar_vars`) e
+ausência de `stats`.
+
+**Quatro bugs reais saíram da triagem** — e é o que justifica ter feito isso antes das outras
+correções:
+
+**1. `age_breaks` sem sentinela descartava os idosos — M59, o mais grave.** Com
+`age_breaks=[0, 18, 65]`, uma lista que qualquer pessoa escreveria, as idades 68, 90 e 100 saíam
+com `age_group` **NULL**: `['0-17', '18-64', '18-64', None, None, None, '0-17', '0-17']`. Três de
+oito perdidos, todos do mesmo lado da distribuição — os idosos, que são a população de interesse
+em estudo de clima e saúde. E o `NULL` resultante é indistinguível de idade faltante no dado, então
+a análise a jusante trata perda sistemática como ausência aleatória.
+
+`_age_group_sql` só abre a última faixa quando o próximo break é o sentinela 999; sem ele fecha o
+intervalo e todo mundo acima cai no `ELSE NULL`. Os cinco presets do catálogo terminam no
+sentinela, então nenhum deles cai nisso — só uma lista escrita à mão. E
+`sus_pipeline(age_group=[0, 18, 65])` passa lista, ou seja o caminho que liguei em 07/09 ao
+corrigir o M16 entregava direto no defeito. A faixa de topo passou a ser sempre aberta.
+
+O conserto exigiu um cuidado: `age_breaks` tem `AGE_BREAKS_DEFAULT` como default **mutável**
+compartilhado, e anexar o sentinela na própria lista contaminaria a constante do módulo para todas
+as chamadas seguintes do processo. Copia antes de anexar, com teste fixando isso.
+
+**2. Preset de faixa etária inexistente caía no default em silêncio.**
+`_age_breaks_for_preset("whoo")` devolvia `AGE_BREAKS_DEFAULT` — faixas epidemiológicas em vez das
+da OMS, sem nenhum sinal. O único chamador é `sus_pipeline(age_group="who")`, então um typo
+trocava o agrupamento pedido. Agora recusa nomeando os cinco válidos, como o `hemisphere` já fazia.
+
+**3. `sus_climate_plot_fill()` quebrava com DataFrame vazio.** `available_stations[0]` sem checar
+se havia estação — um frame vazio tem a coluna mas nenhuma estação nela. O `IndexError` não dizia
+nada sobre o dado estar vazio. Agora trata como `"all"` e devolve o gráfico vazio.
+
+**4. `sus_pipeline()` não checava o `None` documentado do `sus_data_import()`.** O importador
+documenta devolver `None` quando não há dado; ninguém checava, e o `None` seguia adiante para
+quebrar fundo no fast path ou no `clean_encoding`, com erro que não dizia nada sobre o problema
+real. Agora recusa com `RuntimeError` nomeando `system`, `uf` e `year`.
+
+**Unificação do log de auditoria.** O `sus_meta(add_history=...)` público anexava a string **crua**
+enquanto o `_stage.add_history()` interno punha timestamp, então a trilha acabava com dois formatos
+na mesma lista — metade parseável por hora e metade não. Os dois passaram por
+`format_history_entry()`. A deduplicação de repetição consecutiva teve de passar a comparar a
+**mensagem** e não a entrada final: duas mensagens iguais gravadas com um segundo de diferença são
+strings diferentes.
+
+**Dois achados novos registrados.** **M58** — `sus_filter(uf=...)` sem coluna de UF apenas *avisa e
+segue*, enquanto os filtros irmãos (`sex`, `race`, `municipality`) recusam; quem pede `uf="SP"`
+recebe o Brasil inteiro acreditando ter filtrado, e um `UserWarning` em notebook passa batido. Há
+solução melhor que escolher entre avisar e recusar: derivar a UF dos dois primeiros dígitos do
+código de município, exatamente como o fast path já faz. **M57** — o R tem `date_col` e `age_col`
+em `sus_data_create_variables` e o Python não; é a mesma família do M10 e do M21, três funções que
+detectam coluna automaticamente sem oferecer override, e vale decidir como política.
+
+**A causa de origem do M52 apareceu de graça.** O `tests/test_aggregate.py` defasado chama
+`sus_data_aggregate(rel, time=..., geo="state", extra_groups=..., week_format=...)` e espera coluna
+`time_group`. Ou seja o `sus_data_aggregate` **já teve** um `geo` e **já emitiu** `time_group` — que
+é exatamente o esquema que o fast path produz hoje. A divergência não foi acidente de dois autores:
+o `sus_data_aggregate` foi reescrito para casar com o R, que não tem `geo`, e o fast path ficou com
+o esquema antigo que ninguém migrou. Isso também explica por que o `geo` do `sus_pipeline` não tem
+para onde ir no caminho staged.
+
+**O que falta — 36 falhas em três arquivos**, e não são renomeações: `test_climate_aggregate.py`
+(14), `test_climate_inmet.py` (13) e `test_aggregate.py` (9) testam APIs **supersedidas** e
+precisam de reescrita. O primeiro chama `sus_climate_aggregate(rel_de_clima, time_resolution=,
+stats=)` com **um** argumento, quando a função atual, como a do R, exige saúde e clima. É trabalho
+de escrever teste novo, não de portar.
+
+### Added — `sus_as_arrow()` e `sus_as_duckdb()`: a travessia da metadata
+
+Duas funções novas em [`io/convert.py`](climasus4py/climasus4py/io/convert.py). Existem por um
+motivo só: fazer o `sus_meta` sobreviver à troca de formato. `collect_arrow()` entrega o dado e
+descarta a procedência; estas entregam as duas coisas — a mesma divisão que o R faz.
+
+`sus_as_arrow()` embute o `sus_meta` como JSON na metadata do schema, sob a chave
+`climasus_meta`, que é exatamente onde `sus_meta(from_parquet=...)` procura. Uma relação **sem**
+metadata devolve tabela sem a chave, de propósito: estampar payload vazio faria um leitor tomá-lo
+por procedência real. O `collect_arrow()` **não** mudou, e há teste fixando isso — não se altera
+o contrato de uma função pública existente de carona.
+
+`sus_as_duckdb()` fixa a relação como tabela real sob um nome conhecido e cria a companheira
+`<nome>__meta`. Diferente do R, **não move dado entre engines**: em Python o dado já está no
+DuckDB. Quando a conexão alvo é a compartilhada o trabalho fica dentro do banco; para conexão
+diferente há fallback por Arrow, porque uma relação pertence à conexão que a criou.
+
+Verificado com round-trip pelos leitores que já existiam, incluindo o caminho de conexão de
+arquivo, que é o que exercita o fallback. 16 testes em `tests/test_convert.py`.
+
+### Changed — duas funções do R que já existiam aqui sob outro nome
+
+`write_parquet_climasus()` e `write_duckdb_climasus()` **não** são funções separadas em Python:
+são `sus_meta(rel, to_parquet=...)` e `sus_meta(rel, to_duckdb=...)`. Estavam registradas como
+ausentes; o round-trip foi verificado e a metadata volta idêntica, com a mesma estratégia do R —
+JSON no schema do Arrow para Parquet, tabela companheira para DuckDB.
+
+Uma diferença deliberada: o R nomeia a tabela de metadata `.__sus_meta__` e aqui é
+`<tabela>__meta`. Preferi a consistência interna — o sufixo que o leitor do próprio pacote
+espera — a copiar um nome que não faz parte de contrato entre as duas linguagens.
+
+### Fixed — `sus_export()` avisa quando descarta a metadata (M19)
+
+O registro anterior do M19 dizia "Python não grava metadados". Está errado como descrição do
+pacote: `sus_meta(rel, to_parquet=...)` grava. O problema real é pior — há **dois caminhos de
+gravação de Parquet com resultados diferentes, e o nome óbvio é o que perde informação**.
+`sus_export()` usa `COPY TO`, que é o que o torna rápido por não materializar em Python, e
+`COPY TO` carrega só o dado.
+
+Agora `sus_export()` avisa quando a relação carrega `sus_meta` e o formato é Parquet, apontando a
+alternativa. Não avisa quando não há nada a perder, nem em CSV, que não tem onde guardar.
+
+Não mexi na assinatura: qual dos dois deve ser o default é decisão de API — gravar metadata por
+default custaria a materialização via Arrow, perdendo a vantagem que é a razão de o `sus_export()`
+existir. M19 fica aberto por isso.
+
+### Fixed — `sus_mod_burden()` resumia o componente errado
+
+O bloco de `total_burden` filtrava pelo literal `"total"` em vez do `component` pedido. Com
+`component="heat"` ou `"cold"` a seleção ficava vazia. O sintoma visível era `IndexError` no
+`top_an`, mas o dano silencioso vinha antes: `an_total` somava um frame vazio e dava **0**, e
+`af_pct_avg` dava **NaN**. Sem aquelas duas últimas linhas do bloco, a função devolveria zeros sem
+reclamar.
+
+Passou a usar o componente pedido; `"all"` segue resumindo totais, que é o documentado e o que o
+`_burden_rank()` usa para ranquear. Verificado na cadeia real — `dlnm` → `af` → `burden`, 3
+cidades, 5 anos de série diária: os quatro valores de `component` rodam, e **heat (1942) + cold
+(1479) = 3421 = total**, uma checagem de consistência independente do resultado. 10 testes; 6
+falham sem a correção, medido com `git stash`.
+
+### Changed — duas funções estavam classificadas como stub e não eram
+
+**`sus_mod_plot_vulnerability()`** está inteiramente implementada: os três tipos (`ranking`,
+`pillars`, `lorenz`) e a mesma assinatura do R. O único `NotImplementedError` é **condicional**,
+sob `interactive=True`, por falta de equivalente ao plotly — limitação de escopo documentada, não
+trabalho pendente. Estava apenas fora do `__init__.py`, e foi assim que entrou como stub no
+controle. Agora exportada, verificada com 12 municípios — o que também endereça a ressalva do M27,
+que era o `sus_mod_vulnerability_index()` ter sido testado com um município só.
+
+**`sus_mod_burden()`** também não era stub: 268 linhas, com o `NotImplementedError` restrito a
+tipos de entrada não suportados (ajuste dlnm cru). **Não foi exportada de propósito** — consome
+`climasus_af`, e o `sus_mod_af()` está com divergência sistemática contra o R (M24). Exportar
+agora seria publicar número derivado de número errado. Fica pronta para o momento em que o M24
+fechar.
+
+`__all__` foi de 89 para 92.
+
+### Notes — o controle tinha uma função fantasma (M56)
+
+`sus_grid_plot` **nunca existiu no `climasus4r`**: não aparece em `getNamespaceExports()` e o
+NAMESPACE da v1.0.0 tem zero linha com `grid_plot`. O diff nome por nome entre as 108 linhas de
+função R do controle e os 108 `export()` deu exatamente um de cada lado — fantasma
+`sus_grid_plot`, ausente `export("%>%")`, o pipe do magrittr, que é reexportado pelo pacote mas
+não é função a portar.
+
+Então o número real de funções R a portar é **107**, não 108.
+
+A lição é a que importa: a contagem batia (108 = 108) e por isso a checagem de integridade
+passava. **Dois erros que se cancelam produzem um total correto** — conferir cardinalidade não
+substitui conferir os elementos. A checagem virou um diff nominal contra o NAMESPACE.
+
+Na mesma passagem, quatro funções saíram da fila como **não se aplica**, com evidência no código
+R: `sus_rap_addin_export` (`rstudioapi::getSourceEditorContext` — lê o código selecionado no
+editor do RStudio), `sus_rap_gui` (`shiny::runApp` — um "RAP Editor" de 130 linhas, que é produto
+e não função de biblioteca), `sus_rap_template` (`renv::` mais scaffolding de targets/quarto/GitHub
+Actions) e `sus_install_deps` (em Python o mecanismo são os extras do `pyproject`, já declarados).
+
+Ficam com categoria própria em vez de "feita": sair da fila não é o mesmo que ter sido
+implementado. A fila real caiu de **31 para 20** — 11 stubs e 9 ausentes.
+
+### Fixed — o teto de ~91 MiB tinha nome e endereço (M44)
+
+**Não havia orçamento misterioso do DuckDB.** `_process_year()`, em
+[`core/climate_inmet.py`](climasus4py/climasus4py/core/climate_inmet.py), aplicava seis `SET`
+direto na conexão de `get_connection()` — que é uma **singleton do processo** — e nunca desfazia:
+`memory_limit='96MB'` (que o DuckDB reporta como 91,5 MiB, exatamente o número que aparecia nas
+mensagens de erro), `threads=1`, os dois `allocator_*_flush_threshold` em `1MB`,
+`enable_external_file_cache=false` e `preserve_insertion_order=false`.
+
+Medido: antes de `sus_climate_inmet()` a conexão estava em **6,2 GiB / 8 threads**; depois, em
+**91,5 MiB / 1 thread**. Uma única chamada rebaixava a sessão inteira em 68× de memória e 8× de
+paralelismo, e tudo que rodasse depois herdava isso. É por isso que `sus_climate()` estourava com
+5.197 linhas — o defeito nunca esteve nele.
+
+**Havia um segundo ponto de fuga**, em `_match_spatial()` de
+[`enrichment/climate_aggregate.py`](climasus4py/climasus4py/enrichment/climate_aggregate.py), com
+`memory_limit='2GB'`, `threads=2` e `preserve_insertion_order=false`. Com os dois vazando, o
+estado final da sessão passava a depender da **ordem das chamadas**: `inmet` e depois `aggregate`
+deixava 2 GB; na ordem inversa, 96 MB.
+
+A correção é o gerenciador de contexto `duckdb_settings()` novo em
+[`core/engine.py`](climasus4py/climasus4py/core/engine.py), que captura, aplica e restaura —
+inclusive quando o corpo levanta exceção. O orçamento apertado continua valendo para o passo que
+precisa dele: é deliberado, faz o DuckDB derramar em disco em vez de segurar tudo na RAM. Só
+deixou de valer para o resto da sessão.
+
+**A cadeia que falhava agora roda:** `sus_climate_inmet` → `sus_data_standardize` →
+`sus_spatial_join` → `sus_climate` devolve `(5197, 91)`, contra `OutOfMemoryException` antes. A
+relação do INMET materializa suas 350.400 linhas com o orçamento cheio.
+
+**O que ficou sem verificar, e por isso o M44 está marcado como parcial:** a afirmação original
+era que `sus_climate_inmet()` estoura com 8 anos. Reverificar exige baixar 8 anos de INMET — não
+há cache de download na máquina, o teste de 2023 leu do asset empacotado do `climasus-data`. A
+falha dos 8 anos era provavelmente no passo de união/materialização, que agora roda com o
+orçamento cheio em vez dos 96 MB, mas isso é inferência e não medição.
+
+**Armadilha achada no caminho — M54.** A primeira versão do `duckdb_settings()` restaurava com
+`RESET`, o que parecia mais correto. No DuckDB 1.5.3, `RESET memory_limit` muda o valor **relatado
+por `current_setting`** de volta ao default e **não desfaz o limite realmente aplicado**: a
+consulta seguinte ainda falha com `(91.5 MiB/91.5 MiB used)` enquanto o ajuste lê `6.2 GiB`. Isso
+é traiçoeiro porque toda checagem baseada em `current_setting` diz que está tudo bem — foi o que
+me fez acreditar que a correção funcionava, até testar com uma consulta de verdade em vez de ler o
+ajuste. `duckdb_settings()` restaura com `SET` explícito; o custo é uma perda de precisão no
+round-trip de texto (`6.2 GiB` reparseia como `6.1 GiB`) que **converge em dois ciclos** (6,2 →
+6,1 → 6,0 → estável), cerca de 3% do orçamento. Restauração que lê certo e não vale é pior que
+perder 3%.
+
+`tests/test_engine_settings.py` (6 testes) fixa isso, incluindo
+`test_restores_the_enforced_limit_not_just_the_reading`, que falha se alguém trocar de volta para
+`RESET` — coisa que nenhuma leitura de `current_setting` detectaria.
+
+### Fixed — primeira rodada de correções (M45, M16, M37) e o M51 que apareceu no caminho
+
+**`sus_pipeline()` devolvia tabela vazia na chamada default — M51.** É o pior defeito encontrado
+até agora, e foi achado por acidente, ao conferir a correção do M16. `sus_pipeline("SIM-DO",
+uf="SP", year=2023)` — só defaults — retornava `(0, 3)`: zero linha, sem erro e sem aviso.
+
+A causa está em [`core/pipeline.py`](climasus4py/core/pipeline.py) `_date_parse_sql()`. O cache
+de `sus_data_import()` grava `DTOBITO` como `TIMESTAMP_NS`; o `CAST(col AS VARCHAR)` produz
+`"2023-01-01 00:00:00"`, que cai no ramo `STRPOS(v,'-') = 5` e era passado a
+`TRY_STRPTIME(v, '%Y-%m-%d')` — formato que **rejeita** a hora no fim. Toda data virava `NULL` e
+o `WHERE __date IS NOT NULL` a jusante descartava a tabela inteira. O ramo `ELSE TRY_CAST(v AS
+DATE)` teria resolvido, mas o `CASE` nunca chegava nele.
+
+A correção troca aquele ramo por `TRY_CAST(v AS TIMESTAMP)`. A ordem ISO não é ambígua, então
+castear é seguro; os ramos de `DDMMYYYY` e `dd/mm/yyyy` ficaram intactos de propósito, porque a
+ordem brasileira **precisa** ser explícita — `01/02/2023` tem de ser 1º de fevereiro, não 2 de
+janeiro. SP 2023 passou de 0 para **334.303 óbitos em 12 meses**.
+
+Vale registrar por que passou batido: o fixture `_make_sim_do_parquet` grava `DTOBITO` como
+string no formato cru do DATASUS (`"15012022"`), nunca exercitando o caminho tipado — e
+`test_includes_iso_format` afirmava apenas que a substring `%Y-%m-%d` aparecia no SQL, isto é,
+garantia a presença exata do trecho defeituoso. Nenhum teste executava o SQL gerado.
+
+**Caminho staged do `sus_pipeline()` levantava `TypeError` — M16.** Duas das cinco chamadas
+usavam argumentos inexistentes. `sus_data_create_variables()` recebe `age_breaks` (lista), não
+`age_group` — o preset vindo do pipeline agora é traduzido por `_age_breaks_for_preset()` — e não
+recebe mais `epi_week`, porque a semana epidemiológica é emitida por `create_calendar_vars`,
+ligado por padrão. `sus_data_aggregate()` recebe `time_unit`, não `time`.
+
+O argumento `geo` **não tem como ser honrado** no caminho staged: `sus_data_aggregate()` não tem
+esse parâmetro, ele detecta a coluna geográfica a partir dos dados. Em vez de devolver um recorte
+diferente em silêncio, o pipeline agora confere o nível obtido e **avisa** quando não consegue
+entregar o pedido. Resolver de vez exige um parâmetro `geo` em `sus_data_aggregate()`, que é
+mudança de API pública — ver M52.
+
+**`sus_census()` duplicava todas as linhas no default — M37.** Com `year=None`, ler todas as
+safras com `union_by_name` dava ao `LEFT JOIN` uma linha de censo por ano para o mesmo município,
+multiplicando cada registro de saúde pelo número de safras instaladas. Unir as safras nunca fez
+sentido: os parquets não têm coluna de ano para distingui-las. Agora `year=None` resolve para a
+safra mais recente e diz qual escolheu. Fator de linhas voltou a **1,00×** (era 2,00×).
+
+De brinde, o aviso de que `census_2010.parquet` contém dados **sintéticos** existia apenas no
+caminho legacy; passou a valer também para o lazy, que é o recomendado. Antes era possível
+publicar número sintético sem nenhum sinal.
+
+**`sus_data_plot_aggregate_map()` nunca funcionava — M45.** `_map_load_meta()` e `_map_load_geo()`
+montavam o caminho a partir de `climasus_data.__file__` em vez de usar o helper `data_path()`, que
+o resto do pacote já usava. Os dois assets agora carregam: `municipio_meta` (5570, 20) e
+`municipalities` (5570, 7) em EPSG:4326.
+
+### Notes — o estado da suíte de testes (M52, M53)
+
+**O `pytest` não estava instalado** no ambiente do projeto, e as 35 suítes nunca haviam sido
+executadas aqui. Instalado (9.1.1) para validar as correções.
+
+**A base é vermelha: 66 falhas, 421 passes, 12 skipped** — antes de qualquer mudança desta
+rodada, medido com `git stash`. Além disso `tests/test_metadata_external.py` **não coleta**:
+importa `_season_case_sql` de `core.variables`, que não existe mais, e o `ImportError` interrompe
+a coleta da suíte inteira. As falhas se concentram em testes escritos contra uma API que o pacote
+já mudou (`test_variables.py`, `test_meta.py`, `test_quality.py`, `test_conversions.py`).
+
+Isso importa mais do que parece: com a suíte vermelha, não se distingue regressão nova de falha
+velha — e foi exatamente por isso que M16 e M51 sobreviveram. Havia teste cobrindo os dois
+trechos, **afirmando o contrato errado**. Teste que fixa o defeito é pior que teste ausente,
+porque dá sensação de cobertura. Depois desta rodada: **66 falhas e 429 passes** — nenhuma
+regressão, 8 testes novos.
+
+Os três testes que fixavam o defeito foram reescritos para conferir os kwargs capturados contra a
+**assinatura real** via `inspect.signature().bind()`, em vez de confiar num mock que aceita
+`**kwargs` sem validar. `TestDateParseSql` passou a **executar** o SQL nos seis formatos
+(`DDMMYYYY`, ISO, ISO+hora, coluna `DATE`, coluna `TIMESTAMP`, `dd/mm/yyyy`) e conferir a data
+resultante; e `TestFastSqlRunsOnTypedDates` roda `_build_fast_sql()` sobre os dois fixtures —
+string e timestamp — exigindo `COUNT` total 3.
+
+**Os dois caminhos do `sus_pipeline()` não são equivalentes — M52.** O aviso de fallback promete
+textualmente *"Results should be equivalent but slower"*. Só foi possível comparar depois que os
+dois passaram a devolver dados, e divergem em três dimensões: o esquema de saída
+(`time_group`/`state`/`count` contra `date`/`<geo detectada>`/`n_deaths`), a dimensão geográfica
+(o fast deriva o estado de `CODMUNRES`, residência; o staged agrega por
+`occurrence_municipality_code`, ocorrência — recortes epidemiológicos diferentes) e o total
+(334.303 contra 333.968 óbitos, 0,1%). Definir um esquema canônico pede mudança de API pública e
+precisa do coordenador. Enquanto não houver decisão, o aviso não deveria prometer equivalência.
+
+### Notes — fim da fase de testes de paridade
+
+Fechadas as últimas seis funções testáveis. **84 de 115 linhas de controle verificadas (73%)**; as 31 restantes são 13 stubs e 18 funções ausentes no Python, que entram na fase de implementação.
+
+**Quatro funcionam.** `sus_explore()` (43 sistemas, 5 regiões), `sus_sql()` nos dois modos — atenção ao placeholder, que é `{data}` e não `{}` —, `sus_mod_ml_predict()` (média 13,81 contra 13,10 observados) e `sus_fill_gaps()`, que reduziu os NAs de temperatura de 18.092 para 4.938. Esse número é o mesmo que `sus_climate_fill_inmet()` imputa: as duas atacam a mesma lacuna por métodos diferentes — interpolação e XGBoost — e sobram 4.938 que a interpolação não cobre.
+
+**`sus_climate()` amplia o M44.** Estourou no mesmo teto de 91,5 MiB, agora com entrada de apenas 5.197 linhas. Isso muda o diagnóstico: o problema não é volume de anos em `sus_climate_inmet()`, é um orçamento de ~91 MiB em algum ponto do caminho DuckDB, muito abaixo do `memory_limit` de 6,2 GiB da conexão. Descobrir onde esse teto é imposto passou a ser a pergunta central.
+
+**`sus_grid_prodes()` é a única grade consertável do nosso lado — M49.** Diferente das seis bloqueadas por fonte externa (M41), aqui o download do TerraBrasilis funciona; o que falha é a interseção espacial, com `df1 contains mixed geometry types`. A camada do PRODES traz tipos geométricos misturados e o overlay do geopandas recusa. Normalizar com `explode()`/`make_valid()` antes da interseção é tratamento defensivo padrão.
+
+**M50 — parâmetros de lista aceitam string e iteram caractere a caractere.** Passar `biomes="MataAtlantica"` produz `'biomes' inválido: M, a, t, A, l, n, i, c`, listando como inválidas as letras de um nome que está na própria lista de válidos. Mesma classe do `lag_days` de `sus_climate_aggregate()`, que exige lista e quebra com `int`. O R é naturalmente tolerante aqui, porque em R um escalar já é um vetor de tamanho 1.
+
+### Added — API pública dos gráficos
+
+Dez funções de plotagem passaram a ser exportadas (`__all__` de 79 para 89): `sus_climate_plot_aggregate()`, `sus_climate_plot_coldwaves()`, `sus_climate_plot_heatwaves()`, `sus_mod_plot_dlnm()`, `sus_mod_plot_af()`, `sus_mod_plot_burden()`, `sus_mod_plot_sensitivity()`, `sus_mod_plot_ml()`, `sus_mod_plot_spatial_moran()` e `sus_mod_plot_swot()`.
+
+### Notes — verificação dos gráficos: geração apenas
+
+**Escopo deliberadamente limitado — M47.** Os gráficos foram testados apenas quanto à **geração**: a função roda e escreve um PNG. Nada do conteúdo foi comparado — nem eixos, nem escalas, nem valores plotados. As dez que passam aparecem com marcador de sucesso no controle, mas a evidência é *"gera arquivo"*, não *"produz o gráfico correto"*. O lado R não foi executado nesta rodada.
+
+**Dez das treze geram**: `sus_climate_plot_fill` (68 KB), `sus_climate_plot_aggregate` (71 KB), `sus_climate_plot_heatwaves` (50 KB), `sus_data_plot_aggregate_ts` (41 KB), `sus_mod_plot_dlnm` (48 KB), `sus_mod_plot_af` (20 KB), `sus_mod_plot_ml` (28 KB), `sus_mod_plot_sensitivity` (43 KB), `sus_mod_plot_swot` (36 KB) e `sus_mod_plot_spatial_moran` (três variantes: padrão, `scatter` e `map`).
+
+**`sus_data_plot_aggregate_map()` nunca funciona — M45, prioridade alta.** Falha sempre com `FileNotFoundError: municipio_meta.parquet not found`, mas o arquivo existe em `climasus-data/assets/spatial/municipio_meta.parquet` (197 KB). A causa está em [`viz/plot_aggregate_map.py`](climasus4py/viz/plot_aggregate_map.py) linha 108: o caminho é montado a partir de `climasus_data.__file__`, resolvendo para `climasus-data/src/climasus_data/assets/spatial/`, diretório que não existe — enquanto o resto do pacote usa `data_path()`, que resolve corretamente. O erro é 100% reprodutível, não depende de dado nem de ambiente, e a mensagem sugere dado faltando, mandando o usuário procurar no lugar errado. Correção de uma linha; vale varrer o pacote por outros usos de `climasus_data.__file__`.
+
+**`sus_climate_plot_coldwaves()` quebra na escala — M46.** `TypeError: Continuous value supplied to discrete scale`. A gêmea `sus_climate_plot_heatwaves()`, chamada com a mesma forma e o mesmo tipo de entrada, gera normalmente — o que isola o defeito no código do plot de ondas de frio e dá uma referência direta para o conserto.
+
+**`sus_mod_plot_burden()`** não é testável no Python: depende de `sus_mod_burden()`, que é stub. No R gera normalmente (7 KB) — é o caso inverso do usual, com o R tendo a funcionalidade completa.
+
+**Cruzamento com o lado R** (9 das 13 geram lá): sete geram em **ambos** (`climate_plot_aggregate`, `data_plot_aggregate_ts`, `mod_plot_dlnm`, `mod_plot_af`, `mod_plot_ml`, `mod_plot_sensitivity`, `mod_plot_swot`); três só no Python (`climate_plot_fill`, `climate_plot_heatwaves`, `mod_plot_spatial_moran`); duas só no R (`data_plot_aggregate_map`, `mod_plot_burden`); e uma em nenhum (`climate_plot_coldwaves`, por causas diferentes em cada lado). O R gerar o `aggregate_map` confirma que o dado do M45 existe e está acessível — o `FileNotFoundError` do Python é defeito de código, não de dado.
+
+**`interactive` entrega coisas diferentes com o mesmo valor — M48.** O default é `TRUE`/`True` nos dois lados para o gráfico de ondas de calor, mas o R **aborta** exigindo `plotly` enquanto o Python devolve um ggplot **estático sem avisar** que ignorou o pedido de interatividade. `sus_climate_plot_fill` tem natureza parecida: o R exige `DT` porque seu `output_type` aceita `plot`/`table`/`metrics`/`all`, e o Python aceita apenas `"plot"` — escopo menor, não defeito. Há ainda assimetria interna no Python: `sus_climate_plot_coldwaves` **não tem** o parâmetro `interactive`, enquanto sua gêmea `sus_climate_plot_heatwaves` tem, e o R tem nos dois.
+
+**Correção a uma nota anterior:** a ausência de `verbose` nos gráficos de onda de calor e de frio **não** é inconsistência introduzida no Python — conferido nas `formals` do R, essas duas também não têm `verbose` lá. É comportamento herdado.
+
+**Observação para a comparação futura:** `data_plot_aggregate_ts` e `mod_plot_dlnm` devolvem objetos `patchwork` no R (composição de subpainéis) e `ggplot` simples no Python, e os PNGs do R são consistentemente menores (8–29 KB contra 20–48 KB). Pode indicar densidade de conteúdo diferente, não apenas resolução.
+
+**Inconsistências de assinatura encontradas no caminho.** `sus_climate_plot_heatwaves()` e `sus_climate_plot_coldwaves()` **não têm parâmetro `verbose`**, ao contrário do resto da família. `sus_climate_plot_fill()` exige três argumentos obrigatórios (`df_filled`, `df_original` e `target_var`). `sus_mod_plot_spatial_moran()` usa `(x, municipalities, type)` e não aceita `var`.
+
+### Added — índices de seca padronizados
+
+`sus_climate_compute_spi()` e `sus_climate_compute_spei()` passaram a ser exportadas (`__all__` de 77 para 79).
+
+### Notes — validação do SPI e do SPEI contra o `climasus4r`
+
+Entrada **idêntica** nos dois lados: série mensal de CHIRPS com 480 linhas (96 meses de 2016-01 a 2023-12 × 5 municípios da RM de São Paulo), escalas 1, 3, 6 e 12 meses.
+
+**`sus_climate_compute_spi()` tem paridade numérica exata.** 100% dos valores idênticos dentro de 1e-6 nas quatro escalas — 480/480, 470/470, 455/455 e 425/425 —, com `|diff|` máxima 0,0000. É a primeira função com paridade exata em **cálculo estatístico**, e não apenas em tabela de metadados.
+
+**`sus_climate_compute_spei()` espelha o extremo úmido — M43.** 99% dos valores batem, e a divergência é assimétrica: no lado seco são **zero** divergências em 240 valores; no lado úmido são exatamente **5**, e essas 5 linhas são o mês mais chuvoso de cada município. Todas recebem o mesmo valor no Python — `2,561682`, que é exatamente `−(mínimo global)` — enquanto o R devolve `2,153875`. O Python dá média exatamente `0,0000` e amplitude perfeitamente simétrica; o R dá `−0,0042` e amplitude assimétrica, que é o que um índice ajustado a dados reais deve ter. Como o SPI compartilha o mesmo mecanismo de padronização e bate 100%, a falha está na camada do SPEI e não no núcleo comum.
+
+**`sus_climate_inmet()` estoura memória com 8 anos — M44, prioridade alta.** Reproduzível por quantidade de anos com `uf="SP"`: 1 ano funciona (350.400 linhas), 3 anos funcionam (1.051.200), 8 anos falham com `OutOfMemoryException`. A mensagem reporta apenas ~91 MiB em uso, quando o `memory_limit` efetivo da conexão é 6,2 GiB — a contabilidade do erro não reflete o limite global. Isso importa porque SPI e SPEI exigem `min_n = 24` meses e o uso típico é com décadas de série: a função de importação de clima limita a análise a ~3 anos numa biblioteca cujo propósito é estudo clima-saúde plurianual. Para testar o bloco foi preciso agregar ano a ano.
+
+### Added — API pública das grades raster e o extra `[grid]`
+
+As 11 funções `sus_grid_*` passaram a ser exportadas (`__all__` de 66 para 77): `sus_grid_era5()`, `sus_grid_chirps()`, `sus_grid_fires()`, `sus_grid_koppen()`, `sus_grid_pdsi()`, `sus_grid_prodes()`, `sus_grid_smvi()`, `sus_grid_pollution_ghap()`, `sus_grid_pollution_cams()`, `sus_grid_pollution_merra2()` e `sus_grid_join()`. O código já existia no repositório desde `e3538c3`, mas sem import no `__init__.py`.
+
+### Fixed — dependências de raster não declaradas, incluindo o engine NetCDF
+
+Criado o extra **`[grid]`**: `climasus4py[spatial]`, `xarray`, `rioxarray`, `exactextract`, `pyproj` e `netCDF4`. As quatro primeiras eram usadas pelas funções `sus_grid_*` sem estar declaradas — chegavam ao ambiente só por carona. Todos os imports dessas libs são **lazy**, dentro das funções, então a ausência não quebrava `import climasus4py` (diferente do caso do `scipy`).
+
+O caso do **`netCDF4`** é o mais relevante: sem engine, `sus_grid_pdsi()` **baixava o arquivo TerraClimate `.nc` com sucesso e falhava na leitura**, com o `xarray` apontando a própria documentação de instalação — mensagem incompreensível para quem não conhece o ecossistema, e só depois de gastar o download. Com o engine instalado a função devolve os valores esperados. O mesmo vale para `sus_grid_era5()`, que também lê `.nc`.
+
+### Notes — validação das grades raster contra o `climasus4r`
+
+Escopo mínimo (2023, mês 1, cinco municípios da RM de São Paulo) para não baixar raster do país inteiro. **Quatro das onze funções puderam ser executadas.**
+
+**`sus_grid_chirps()` tem paridade.** Os dois lados devolvem 5 × 3 com as mesmas colunas, e a chuva difere no máximo 0,054 mm sobre ~274 mm — diferença relativa de 0,026%, atribuível à precisão da extração raster (`exactextract` no Python, `exactextractr` no R). No R foi preciso instalar `exactextractr` 0.10.1.
+
+**`sus_grid_join()` não duplica linhas** (5.197 → 5.197), em contraste com `sus_census()` (M37). Exige ponte manual: a função pede `code_muni` e `date` onde o pipeline entrega `occurrence_municipality_code` e `death_date`, com o desalinhamento de 6 contra 7 dígitos — cenário do M1.
+
+**Seis funções estão inacessíveis por fonte externa — M41.** Quatro falham com `HTTP 403` no **Zenodo** (`era5`, `pollution_cams`, `pollution_ghap` e, do bloco anterior, `sus_climate_uniplu`): mesmo erro, mesmo provedor, todas buscando dados derivados publicados pelo autor do pacote — o que aponta causa única e não quatro problemas. `sus_grid_fires()` recebe `HTTP 404` de `queimadas.dgi.inpe.br/api/focos/`, e um 404 indica endpoint inexistente nesse caminho, isto é URL provavelmente desatualizada no código — este parece corrigível do nosso lado. `sus_grid_smvi()` baixa 109 MB e não encontra CSV após extração; `sus_grid_pollution_merra2()` exige conta NASA Earthdata. Todas reportaram a falha com mensagem clara e classificaram 403 como permanente.
+
+**`sus_grid_pdsi()` e `sus_grid_koppen()` funcionam no Python e falham no R — M42**, invertendo o padrão usual. No `koppen` a assinatura do R tem `koppen_sf`, que talvez precise ser fornecido explicitamente; vale reteste antes de tratar como defeito.
+
+### Added — API pública de censo e socioeconômico
+
+Três funções que já existiam passaram a ser exportadas: `sus_census_select()`, `sus_socio_compute_indicators()` e `sus_socio_list_indicators()`. O `__all__` foi de 63 para 66 nomes.
+
+### Notes — validação de censo e socioeconômico contra o `climasus4r`
+
+**`sus_socio_list_indicators()` tem paridade exata.** 22 × 9 nos dois lados, mesmos 22 identificadores e todas as 8 colunas de valor idênticas (o `multiplier` difere só em dtype — `int64` no Python, `float64` no R).
+
+**`sus_census()` duplica todas as linhas no caminho default — M37, prioridade alta.** Com `year=None` (o default), uma entrada de 5.197 linhas sai com 10.375, fator exatamente 2,00×: 5.178 registros aparecem duas vezes, cada cópia com valores diferentes de `population_2010`, `gini`, `income_per_capita` e `pct_urban`. A tabela de censo tem duas safras por município (2010 e 2022) e o default não desambigua. Com `year=2010` ou `year=2022` explícito o resultado volta a 5.197 (1,00×). O R não tem o problema: `sus_census_join(year = 2010)` devolveu 5.196 para 5.196 de entrada. Como o default é o caminho que se usa primeiro, qualquer análise socioeconômica sai com o dobro dos eventos e indicadores misturados entre duas safras, sem aviso.
+
+Há também divergência de contrato: o R tem 13 parâmetros e **baixa** o censo via `censobr`; o Python tem 4 e **espera receber** o censo pronto. No R a função é a porta de entrada do censo, no Python é só o join — o que explica a diferença de colunas (146 contra 118).
+
+**`sus_census_select()` está bloqueada no Python — M38.** Procura cinco dicionários que não existem no `climasus-data` (`dictionaries/pt-en/census_{population,households,families,mortality,emigration}.json`) e aborta. O R funciona (304 × 8) porque traz os dicionários embutidos no pacote. Não é defeito de código: é metadado ausente no repositório compartilhado.
+
+**`sus_socio_compute_indicators()` não foi testada com entrada válida — M39.** A chamada usou dado de saúde onde a função espera dado pós-censo. O erro do R foi informativo de um jeito que o do Python não: `"Current stage 'derive' is below required 'spatial'"` contra `"No indicators available with the current columns"`. É evidência direta de que o guard de estágio do R está ativo e o `assert_after()` do Python nunca é chamado — o que reforça M34 e as duas observações de [`IDEIAS.md`](IDEIAS.md).
+
+### Added — `sus_welcome()` exportada
+
+A função já existia em `utils/welcome.py` com assinatura equivalente à do R (`lang`, `output`, `open`), mas não tinha import no `__init__.py`. O `__all__` foi de 62 para 63 nomes.
+
+### Notes — validação dos utilitários contra o `climasus4r`
+
+`sus_welcome()` tem paridade limpa: os dois lados imprimem o painel no console e devolvem `None`/`NULL`.
+
+**`sus_meta()` divergente em campos e vocabulário — M34.** O metadado do R tem 13 campos contra 5 do Python, e `sus_meta(valid_values="stage")` lista **10 estágios** no R (`import`, `clean`, `stand`, `filter_cid`, `filter_demo`, `derive`, `aggregate`, `spatial`, `climate`, `census`) contra os 6 de `CANONICAL_STAGES`. Além da contagem, os nomes divergem (`stand`/`standardize`, `derive`/`variables`, e o R separa `filter_cid` de `filter_demo`) — e os três que o R trata como canônicos (`spatial`, `climate`, `census`) são justamente os que o Python grava fora da própria lista, o que conecta às duas observações registradas em [`IDEIAS.md`](IDEIAS.md). O campo `type` também usa vocabulário diferente: `"raw"` no R, `"health"` no Python.
+
+**`sus_chat()` com contratos incompatíveis — M36.** No R depende de `rstudioapi` para abrir um painel dentro do RStudio e falha fora dele; no Python devolve a string da URL, sem efeito colateral. Mesma intenção, nada em comum.
+
+**Bug no lado R nas funções de cache — M35.** `sus_cache_info()` reportou `file_count = 0` para um cache com 97 arquivos e 470 MB, porque a varredura não é recursiva e não há arquivos na raiz do diretório. `sus_cache_clear()` sofre do mesmo problema e não apagou arquivos em subdiretório. Do lado Python ficam duas ressalvas de desenho: o default de `cache_dir` é `dados/cache`, **relativo ao diretório de trabalho** (o R usa `~/.climasus4r_cache`), e a função apaga sem confirmação nem `dry-run`. Os parâmetros de filtro também não têm interseção (`older_than_days` no R contra `system`/`uf`/`before` no Python).
+
+### Added — API pública da cadeia de modelagem exposição-resposta
+
+Dez funções que já existiam passaram a ser exportadas: `sus_mod_dlnm()`, `sus_mod_af()`, `sus_mod_sensitivity()`, `sus_mod_casecrossover()`, `sus_mod_its()`, `sus_mod_excess()`, `sus_mod_ml()`, `sus_mod_ml_predict()`, `sus_mod_vulnerability_index()` e `sus_mod_swot()`. O `__all__` foi de 52 para 62 nomes.
+
+### Notes — validação da cadeia de modelagem contra o `climasus4r`
+
+Comparação com a **mesma série diária** nos dois lados (SP 2023, 365 dias, 14,24 óbitos/dia, 15 colunas de lag), para isolar o modelo da preparação de dados.
+
+**A reimplementação do DLNM está numericamente exata.** `sus_mod_dlnm()` reescreve `dlnm::crossbasis`/`crosspred` em numpy/statsmodels, e comparado com o pacote R `dlnm` 2.4.10 original os resultados são idênticos dentro de 1e-6: `exposure_response` 5/5 colunas, `lag_response` 5/5, `models` 12/12. O mesmo vale para `sus_mod_sensitivity()` (`rr_table` 9/9, `comparison` 11/11).
+
+**`sus_mod_af()` diverge sistematicamente — M24, prioridade alta.** Com o modelo abaixo comprovadamente exato, a fração atribuível não bate: `af` total +8%, `heat` −29%, `cold` +85%, e por quantil o desvio chega a +306% (Below P25). Não é ruído de Monte Carlo — a ordem `heat`/`cold` está invertida entre as duas linguagens, o desvio tem direção preferencial e os intervalos de confiança do Python cruzam zero, o que fração atribuível não admite. A divergência propaga para `sus_mod_excess()` (9–13%) e no `sus_mod_swot()` chega a mudar a categoria `O_cat`, virando diferença qualitativa.
+
+**`sus_mod_ml()`** tem paridade estrutural (`predictions` 361×4, `importance` 5×4 nos dois lados); valores não foram comparados porque XGBoost é estocástico.
+
+**Ressalvas de cobertura.** `sus_mod_vulnerability_index()` foi validada com **um único município**, o que torna a normalização minmax degenerada — a `vi_table` saiu idêntica, mas o normalizador não foi exercitado (M27). `sus_mod_its()` e `sus_mod_casecrossover()` rodam nos dois lados, mas o Python devolve classe própria em vez de `dict`, o que impediu a comparação tabela a tabela (M26). `sus_mod_burden()` continua stub no Python.
+
+### Fixed — `scipy` e `statsmodels` não estavam declarados no `pyproject.toml`
+
+Dez módulos do pacote importam `scipy` ou `statsmodels`, mas nenhuma das duas aparecia no `pyproject.toml`. Elas só chegavam ao ambiente **por carona** de outros pacotes — `scipy` via `geopandas`/`esda`/`libpysal`, `statsmodels` via `plotnine`/`spreg` —, então um `pip install climasus4py` limpo não as trazia.
+
+- **`scipy` foi para as dependências core.** Não é opcional: [`enrichment/climate_aggregate.py`](climasus4py/enrichment/climate_aggregate.py) faz `from scipy.spatial import cKDTree` **no nível de módulo**, e o `__init__.py` importa esse módulo. Sem `scipy`, portanto, o próprio `import climasus4py` falhava — a instalação produzia um pacote impossível de importar.
+- **`statsmodels` virou o extra `[model]`**, usado por `sus_mod_dlnm()`, `sus_mod_its()`, `sus_mod_casecrossover()` e `sus_mod_excess()`. Nesses casos o import é feito dentro das funções, que levantam `ImportError` com instrução de instalação — comportamento de dependência opcional, coerente com `[excel]` e `[ml]`. Incluído também em `[all]`.
+
+Nenhuma das duas é dependência nova: o código já as exigia. A correção apenas declara o que era fato.
+
+### Added — API pública da cadeia de clima
+
+12 funções que já existiam no pacote passaram a ser exportadas em `climasus4py/__init__.py`. Antes elas só eram alcançáveis por import direto do submódulo (`from climasus4py.enrichment.climate_heatwaves import ...`); `cs.<função>` levantava `AttributeError`. O `__all__` foi de 39 para 51 nomes.
+
+- **Normais climatológicas e anomalias** — `sus_climate_normals()`, `sus_climate_normals_meta()`, `sus_climate_anomaly()`.
+- **Ondas de calor e de frio** — `sus_climate_compute_heatwaves()`, `sus_climate_compute_coldwaves()` e os seis auxiliares `hw_get_events()`, `hw_active_days()`, `hw_count_by_year()`, `cw_get_events()`, `cw_active_days()`, `cw_count_by_year()`.
+- **Fonte alternativa de chuva** — `sus_climate_uniplu()`.
+
+### Notes — validação da Fase 2 contra o `climasus4r`
+
+Comparação R vs Python com SIM-DO / SP / 2023, parquets gerados pelos dois lados.
+
+**Paridade confirmada.** `sus_climate_normals_meta()` é 100% idêntica (36 × 5, todos os valores). `sus_climate_compute_heatwaves()` e `sus_climate_compute_coldwaves()` produzem resultados idênticos aos do R — 103 e 128 eventos, 14.600 diários, 37 no summary, 309 e 384 dias ativos —, e `hw_active_days`/`hw_count_by_year`/`cw_active_days`/`cw_count_by_year` batem em 100% das colunas. Em `hw_get_events`/`cw_get_events`, 13–14 das 20 colunas são exatamente iguais; as numéricas divergentes são arredondamento float32 vs float64 (|diff| máx. 7,6e-06) e a única divergência real é o contador de `event_id`.
+
+**Divergência de cobertura.** `sus_climate_compute_indicators()` devolve 36 colunas contra 64 do R, com só 15 em comum: faltam 8 índices (`cdd_c`, `gdd_c`, `hdd_c`, `et_c`, `pet_c`, `utci_c`, `wcet_c`, `wct_c`), 30 flags de confiança e 8 classificações — consequência dos parâmetros ausentes na assinatura (`confidence_flags`, `verify_physics`, `region`, `apply_validity_mask`). Em contrapartida calcula 4 que o R não tem (`at_c`, `consecutive_hot_days`, `dpd_c`, `heat_wave`). Registrado como **M12**.
+
+**Bloqueio de nomenclatura (M10).** `sus_climate_compute_heatwaves()` e `sus_climate_compute_coldwaves()` exigem `station_code`, mas a saída canônica usa `wmo_code` (decisão registrada em [0.2.0a4]) — falham com `ValueError: Missing required columns: ['station_code']` e não expõem `station_col` para contornar. Renomear a coluna resolve, então o nome é o único bloqueio; com os seis auxiliares são oito funções afetadas. `sus_climate_anomaly()` sofre a versão branda: tem `station_col`, mas o default está errado para a saída do próprio pacote. Não corrigido aqui — escolher entre reverter para `station_code` (paridade com o R) ou atualizar os consumidores é decisão de paridade.
+
+**Correctness silencioso (M14).** Com `baseline_start="2023"` em vez de `"2023-01-01"`, `sus_climate_compute_heatwaves()` devolve zero eventos sem erro nem aviso; a mesma chamada com data completa devolve 103. O R recusa a entrada malformada com `"No data available in the specified baseline period."`
+
+**Dependências opcionais.** `sus_climate_fill_inmet()` exige o extra `[ml]`/`[xgboost]` e `sus_climate_normals()` o extra `[excel]`. Ambos já estavam declarados no `pyproject.toml` — nenhuma dependência nova foi adicionada. O R depende simetricamente dos pacotes `xgboost` e `readxl`, ausentes no ambiente de teste, então essas duas funções não puderam ser comparadas.
+
+**Fonte externa.** `sus_climate_uniplu()` falha nos dois lados com `HTTP 403` no download do UNIPLU-BR no Zenodo — falhar identicamente confirma problema da fonte, não de código.
+
+### Status de verificação das 13 funções exportadas
+
+| Função | Verificada contra o R? |
+|---|---|
+| `sus_climate_normals_meta` | Sim — 100% idêntica (36 × 5, todos os valores) |
+| `sus_climate_normals` | Sim — 105.438 × 11 nos dois lados, 99,91% das células (ver M22) |
+| `sus_climate_anomaly` | Sim — 480 × 16 nos dois lados |
+| `sus_climate_compute_heatwaves` | Sim — 103 eventos nos dois lados. **Bloqueada por M10** |
+| `sus_climate_compute_coldwaves` | Sim — 128 eventos nos dois lados. **Bloqueada por M10** |
+| `hw_active_days`, `hw_count_by_year` | Sim — 100% das colunas idênticas |
+| `cw_active_days`, `cw_count_by_year` | Sim — 100% das colunas idênticas |
+| `hw_get_events`, `cw_get_events` | Sim — só o contador de `event_id` difere |
+| `sus_data_ts_quality` | Sim — mesmos 4 componentes, assinatura idêntica |
+| **`sus_climate_uniplu`** | **Não — nunca executada em nenhum dos dois lados** |
+
+`sus_climate_uniplu()` está exportada para ficar alcançável, mas **seu comportamento é desconhecido**: o download do Zenodo retorna `HTTP 403` e não foi possível executá-la nem no R nem no Python. Deve ser revalidada quando a fonte voltar, antes de ser considerada em paridade.
+
 ## [0.2.0a4] - 2026-05-26
 
 ### Fixed - INMET header correctness

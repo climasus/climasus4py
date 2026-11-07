@@ -121,8 +121,17 @@ class TestStageTracking:
         assert_after(rel, "clean")  # get_stage → None → retorna cedo
 
     def test_canonical_stages_order(self):
+        """A ordem é contrato: o `assert_after` compara índices.
+
+        Os três últimos entraram em 22/09/2026 (M34). Eles já eram
+        escritos pelo pacote e estavam fora desta lista, e `assert_after`
+        retorna em silêncio para estágio que não conhece — então toda
+        checagem de ordem a jusante da agregação passava sem verificar
+        nada. A ordem dos três é a do `climasus4r`.
+        """
         assert CANONICAL_STAGES == [
-            "import", "clean", "standardize", "filter", "variables", "aggregate"
+            "import", "clean", "standardize", "filter", "variables",
+            "aggregate", "spatial", "climate", "census",
         ]
 
     def test_set_stage_returns_same_relation(self):
@@ -347,10 +356,59 @@ class TestPipelineStaging:
             verbose=False,
         )
 
-        assert variables_kwargs.get("epi_week") is True
+        # Os mocks aceitam **kwargs, então nome de argumento errado não
+        # levanta erro aqui -- é assim que o pipeline chamava
+        # ``age_group=``/``epi_week=``, que não existem, e quebrava com
+        # TypeError só em uso real. Conferir contra a assinatura verdadeira.
+        import inspect
 
-    def test_aggregate_receives_time_and_geo(self, monkeypatch, tmp_path):
-        """sus_data_aggregate deve receber time e geo."""
+        from climasus4py.core.variables import (
+            sus_data_create_variables as real_variables,
+        )
+
+        inspect.signature(real_variables).bind(object(), **variables_kwargs)
+
+        # A semana epidemiológica sai de create_calendar_vars (ligado por
+        # padrão); não existe argumento ``epi_week`` para repassar.
+        assert "epi_week" not in variables_kwargs
+        assert variables_kwargs.get("lang") == "pt"
+
+    def test_variables_receives_age_breaks_from_age_group(self, monkeypatch, tmp_path):
+        """age_group do pipeline vira age_breaks (lista) em create_variables."""
+        import inspect
+
+        from climasus4py.core import pipeline as mod
+        from climasus4py.core.variables import (
+            sus_data_create_variables as real_variables,
+        )
+
+        variables_kwargs: dict = {}
+        calls: list[str] = []
+
+        def capturing_variables(rel, **kwargs):
+            variables_kwargs.update(kwargs)
+            return rel
+
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
+        monkeypatch.setattr(mod, "sus_data_clean_encoding", _make_passthrough("clean", calls))
+        monkeypatch.setattr(mod, "sus_data_standardize", _make_passthrough("standardize", calls))
+        monkeypatch.setattr(mod, "sus_filter", _make_passthrough("filter", calls))
+        monkeypatch.setattr(mod, "sus_data_create_variables", capturing_variables)
+        monkeypatch.setattr(mod, "sus_data_aggregate", _make_passthrough("aggregate", calls))
+
+        mod.sus_pipeline(
+            "SIM-DO", "SP", 2022,
+            age_group=[0, 18, 65],
+            cache_dir=tmp_path,
+            verbose=False,
+        )
+
+        inspect.signature(real_variables).bind(object(), **variables_kwargs)
+        assert variables_kwargs.get("age_breaks") == [0, 18, 65]
+        assert "age_group" not in variables_kwargs
+
+    def test_aggregate_receives_time_unit(self, monkeypatch, tmp_path):
+        """sus_data_aggregate recebe time_unit; nao existe argumento geo."""
         from climasus4py.core import pipeline as mod
 
         aggregate_kwargs: dict = {}
@@ -377,8 +435,17 @@ class TestPipelineStaging:
             verbose=False,
         )
 
-        assert aggregate_kwargs.get("time") == "year"
-        assert aggregate_kwargs.get("geo") == "municipality"
+        import inspect
+
+        from climasus4py.core.aggregate import sus_data_aggregate as real_aggregate
+
+        inspect.signature(real_aggregate).bind(object(), **aggregate_kwargs)
+
+        assert aggregate_kwargs.get("time_unit") == "year"
+        assert "time" not in aggregate_kwargs
+        # sus_data_aggregate nao tem argumento geo: detecta a coluna
+        # geografica a partir dos dados, ajudada por ``system``.
+        assert "geo" not in aggregate_kwargs
 
 
 # ---------------------------------------------------------------------------
@@ -513,10 +580,32 @@ class TestDateParseSql:
         sql = _date_parse_sql("DTOBITO")
         assert "%d%m%Y" in sql
 
-    def test_includes_iso_format(self):
+    @pytest.mark.parametrize(
+        ("literal", "esperado"),
+        [
+            # DDMMYYYY, o formato cru do DATASUS
+            ("'01022023'", "2023-02-01"),
+            ("'2023-02-01'", "2023-02-01"),
+            # ISO com hora no fim: é assim que uma coluna DATE/TIMESTAMP
+            # aparece depois de CAST(... AS VARCHAR). '%Y-%m-%d' rejeitava,
+            # zerando toda data já tipada e devolvendo tabela vazia.
+            ("'2023-02-01 00:00:00'", "2023-02-01"),
+            ("DATE '2023-02-01'", "2023-02-01"),
+            ("TIMESTAMP '2023-02-01 03:00:00'", "2023-02-01"),
+            # Barra é ordem brasileira: 01/02 é 1º de fevereiro, não 2 de janeiro
+            ("'01/02/2023'", "2023-02-01"),
+        ],
+    )
+    def test_parses_every_supported_format(self, literal, esperado):
+        from climasus4py.core.engine import get_connection
         from climasus4py.core.pipeline import _date_parse_sql
-        sql = _date_parse_sql("MY_DATE")
-        assert "%Y-%m-%d" in sql
+
+        sql = _date_parse_sql("x").replace(
+            'CAST("x" AS VARCHAR)', f"CAST({literal} AS VARCHAR)"
+        )
+        obtido = get_connection().sql(f"SELECT {sql} AS d").fetchone()[0]
+        assert obtido is not None, f"{literal} nao foi parseado"
+        assert obtido.strftime("%Y-%m-%d") == esperado
 
     def test_includes_br_format(self):
         from climasus4py.core.pipeline import _date_parse_sql
@@ -542,6 +631,45 @@ def _make_sim_do_parquet(path: Path, n: int = 3) -> None:
         "CAUSABAS": ["J189", "I219", "K920"][:n],
     })
     pq.write_table(pa.Table.from_pandas(df), path)
+
+
+def _make_sim_do_parquet_typed(path: Path, n: int = 3) -> None:
+    """Igual ao anterior, mas com DTOBITO já TIMESTAMP.
+
+    É o formato que o cache de ``sus_data_import`` realmente grava; o fixture
+    de string DDMMYYYY acima nunca exercitou esse caso, e por isso o fast path
+    passou a devolver zero linha sem que nenhum teste notasse.
+    """
+    df = pd.DataFrame({
+        "DTOBITO": pd.to_datetime(["2022-01-15", "2022-02-20", "2022-03-05"][:n]),
+        "CODMUNRES": [355030, 330455, 355030][:n],
+        "CAUSABAS": ["J189", "I219", "K920"][:n],
+    })
+    pq.write_table(pa.Table.from_pandas(df), path)
+
+
+class TestFastSqlRunsOnTypedDates:
+    """Regressão: o fast path precisa devolver linhas, não SQL bem-formado."""
+
+    @pytest.mark.parametrize(
+        "fabrica", [_make_sim_do_parquet, _make_sim_do_parquet_typed]
+    )
+    def test_counts_all_rows(self, tmp_path, fabrica):
+        from climasus4py.core.pipeline import _build_fast_sql
+
+        p = tmp_path / "data.parquet"
+        fabrica(p)
+
+        sql = _build_fast_sql([p], None, None, None, "month", "state")
+        assert sql is not None
+
+        df = get_connection().sql(sql).df()
+        # A contagem sai "n" e nao "count": sem `system`, o
+        # get_smart_column_name do R cai em "n" (D3/M52).
+        assert df["n"].sum() == 3, (
+            "toda data virou NULL e o WHERE __date IS NOT NULL zerou o resultado"
+        )
+        assert set(df["state"]) == {"35", "33"}
 
 
 class TestBuildFastSql:
@@ -652,7 +780,8 @@ class TestBuildFastSql:
         conn = get_connection()
         result_df = conn.sql(sql).df()
         assert len(result_df) > 0
-        assert "count" in result_df.columns
+        assert "n" in result_df.columns, (
+            "sem system, o nome da contagem e o fallback do R: n")
 
 
 # ---------------------------------------------------------------------------
@@ -713,6 +842,124 @@ class TestPipelineFastPath:
         assert "clean" in calls
 
 
+class TestAvisoDeFallbackNaoPrometeEquivalencia:
+    """O aviso de fallback nao pode mentir sobre o que muda (M52).
+
+    A frase original era, literal: "Results should be equivalent but
+    slower". Era falsa em QUATRO dimensoes medidas -- esquema de saida,
+    recorte geografico, total de registros e o TIPO da coluna de data --
+    e prometer equivalencia num aviso e pior que nao avisar, porque quem
+    le para de conferir.
+
+    Em 21/09/2026 a D3 convergiu os dois caminhos: as quatro diferencas
+    foram fechadas e ha teste comparando as tabelas celula a celula em
+    tests/test_pipeline_convergencia.py. Entao o aviso mudou de assunto
+    -- deixou de enumerar divergencias e passou a dizer que as saidas
+    coincidem, nomeando a UNICA coisa que nao converge: geo='state', que
+    o sus_data_aggregate nao tem porque o R nao tem.
+
+    Um aviso que enumerasse divergencias inexistentes seria tao ruim
+    quanto o que prometia equivalencia inexistente, e por isso esta
+    classe cobra o texto novo em vez de so proibir o antigo.
+    """
+
+    @staticmethod
+    def _dispara_fallback(tmp_path, monkeypatch):
+        """Faz o fast path falhar depois de montar o SQL, e captura o aviso."""
+        import warnings as w
+
+        from climasus4py.core import pipeline as mod
+
+        df = pd.DataFrame({
+            "DTOBITO": ["15012022", "20022022"],
+            "CODMUNRES": [355030, 330455],
+        })
+        parquet_path = tmp_path / "cache" / "SIM-DO" / "SP_2022_all.parquet"
+        parquet_path.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(pa.Table.from_pandas(df), parquet_path)
+
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(df))
+        monkeypatch.setattr("climasus4py.utils.data.resolve_uf", lambda uf: ["SP"])
+        # o CTE monta, mas a execucao levanta -> cai no fallback
+        monkeypatch.setattr(
+            mod, "_build_fast_sql",
+            lambda *a, **k: "SELECT * FROM nao_existe_essa_tabela",
+        )
+        calls: list[str] = []
+        _patch_all_stages(monkeypatch, mod, calls)
+
+        with w.catch_warnings(record=True) as capturados:
+            w.simplefilter("always")
+            mod.sus_pipeline(
+                "SIM-DO", "SP", 2022, lang="pt", time="month", geo="state",
+                epi_week=False, age_group=None,
+                cache_dir=tmp_path / "cache", verbose=False,
+            )
+        return [str(c.message) for c in capturados], calls
+
+    def test_o_fallback_acontece(self, tmp_path, monkeypatch):
+        msgs, calls = self._dispara_fallback(tmp_path, monkeypatch)
+
+        assert "clean" in calls
+        assert any("fast path failed" in m for m in msgs)
+
+    def test_nao_promete_mais_equivalencia(self, tmp_path, monkeypatch):
+        """A guarda contra a frase voltar."""
+        msgs, _ = self._dispara_fallback(tmp_path, monkeypatch)
+        texto = " ".join(msgs)
+
+        assert "should be equivalent" not in texto
+        # Antes esta linha cobrava "NOT ... equivalent", porque o aviso
+        # enumerava divergencias. Fechadas as quatro (D3), o aviso passou
+        # a afirmar a coincidencia -- e afirmar isso e uma promessa tao
+        # forte quanto a antiga, entao o que a sustenta e o teste celula a
+        # celula em tests/test_pipeline_convergencia.py, citado aqui para
+        # que os dois nao se desencontrem.
+        assert "SAME table" in texto
+        assert "cell by cell" in texto
+
+    @pytest.mark.parametrize("marca", [
+        "SAME table",        # o que o aviso afirma agora
+        "schema",            # as quatro dimensoes conferidas
+        "geographic cut",
+        "totals",
+        "type",
+        "cell by cell",      # como foi conferido
+        "geo='state'",       # a unica coisa que nao converge
+        "D3",
+    ])
+    def test_o_aviso_nomeia_o_que_conferiu(self, tmp_path, monkeypatch, marca):
+        """Um aviso util diz o que sabe, e como sabe."""
+        msgs, _ = self._dispara_fallback(tmp_path, monkeypatch)
+
+        assert marca in " ".join(msgs)
+
+    @pytest.mark.parametrize("sumiu", ["time_group", "333,968",
+                                       "should be equivalent"])
+    def test_o_aviso_nao_enumera_mais_divergencia_que_nao_existe(
+            self, tmp_path, monkeypatch, sumiu):
+        """Divergencia fechada nao pode seguir sendo anunciada.
+
+        time_group era o nome antigo da coluna do fast path, e 333.968 o
+        total antigo do staged. Anunciar os dois faria quem le conferir
+        uma diferenca que nao existe mais -- o mesmo desperdicio de
+        atencao, na direcao oposta.
+        """
+        msgs, _ = self._dispara_fallback(tmp_path, monkeypatch)
+
+        assert sumiu not in " ".join(msgs)
+
+    def test_a_convergencia_esta_no_docstring(self):
+        """Quem le a API descobre antes de cair no fallback."""
+        from climasus4py.core.pipeline import sus_pipeline
+
+        doc = sus_pipeline.__doc__ or ""
+
+        assert "produce the same table" in doc
+        assert "do not produce the same table" not in doc
+        assert "M52" in doc and "M119" in doc
+
+
 class TestPipelineStagedOutput:
     def test_output_param_calls_sus_export(self, monkeypatch, tmp_path):
         """Quando output é definido no staged path, sus_export deve ser chamado."""
@@ -740,3 +987,55 @@ class TestPipelineStagedOutput:
 
         assert len(export_calls) == 1
         assert str(output_path) in export_calls[0]
+
+    @pytest.mark.parametrize("pedido", [False, True])
+    def test_output_forwards_overwrite(self, monkeypatch, tmp_path, pedido):
+        """O overwrite chega ao sus_export (M17, 09/09/2026).
+
+        O pipeline chamava sus_export sem passar nada, herdando o default
+        antigo de sobrescrever em silencio -- e como nao tinha parametro
+        proprio, o usuario nao tinha como pedir outra coisa. Depois de o
+        default virar protetivo, sem o repasse o re-run falharia com uma
+        mensagem que manda passar overwrite=True numa funcao que nao aceita.
+        """
+        from climasus4py.core import pipeline as mod
+
+        recebidos: list[dict] = []
+
+        def mock_export(rel, path, **kwargs):
+            recebidos.append(kwargs)
+
+        calls: list[str] = []
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
+        _patch_all_stages(monkeypatch, mod, calls)
+        monkeypatch.setattr(mod, "sus_export", mock_export)
+
+        mod.sus_pipeline(
+            "SIM-DO", "SP", 2022,
+            epi_week=True,
+            output=tmp_path / "r.parquet",
+            overwrite=pedido,
+            cache_dir=tmp_path,
+            verbose=False,
+        )
+
+        assert recebidos and recebidos[0].get("overwrite") is pedido
+
+    def test_output_defaults_to_protecting(self, monkeypatch, tmp_path):
+        """Sem dizer nada, o pipeline nao sobrescreve."""
+        from climasus4py.core import pipeline as mod
+
+        recebidos: list[dict] = []
+        calls: list[str] = []
+        monkeypatch.setattr(mod, "sus_data_import", _make_import_mock(_synthetic_sim_do()))
+        _patch_all_stages(monkeypatch, mod, calls)
+        monkeypatch.setattr(mod, "sus_export", lambda rel, path, **kw: recebidos.append(kw))
+
+        mod.sus_pipeline(
+            "SIM-DO", "SP", 2022,
+            epi_week=True,
+            output=tmp_path / "r.parquet",
+            cache_dir=tmp_path,
+            verbose=False,
+        )
+        assert recebidos[0].get("overwrite") is False

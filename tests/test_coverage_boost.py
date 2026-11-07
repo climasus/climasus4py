@@ -7,7 +7,6 @@ aiming to push overall coverage from 76% to ≥ 80%.
 from __future__ import annotations
 
 import importlib.util
-from pathlib import Path
 from unittest.mock import patch
 
 import climasus_data as _cdata
@@ -48,18 +47,16 @@ class TestClimateFillHelpers:
         assert _detect_datetime_col(df) is None
 
     def test_engineer_features_adds_lag_columns(self):
-        """_engineer_features adds temporal and lag columns — covers lines 102-118."""
+        """_engineer_features builds R's time, lag and rolling columns."""
         from climasus4py.enrichment.climate_fill import _engineer_features
-        df = pd.DataFrame({
-            "_datetime": pd.date_range("2023-01-01", periods=20, freq="h"),
-            "temp": list(range(20)),
-        })
-        out = _engineer_features(df, "temp")
-        assert "_hour" in out.columns
-        assert "_dayofweek" in out.columns
-        assert "_month" in out.columns
-        assert "temp_lag1" in out.columns
-        assert "temp_rolling_mean3" in out.columns
+        dt = pd.Series(pd.date_range("2023-01-01", periods=20, freq="h"))
+        y = pd.Series(range(20), dtype="float64")
+        out = _engineer_features(dt, y, "temp")
+        assert "hour" in out.columns
+        assert "weekday" in out.columns
+        assert "month" in out.columns
+        assert "temp_lag_1" in out.columns
+        assert "temp_rolling_mean_3" in out.columns
         assert len(out) == 20
 
     def test_fill_linear_no_station_col(self):
@@ -74,13 +71,6 @@ class TestClimateFillHelpers:
         # Two values were NaN → should be imputed
         assert out["is_imputed_temp"].sum() == 2
 
-    def test_cache_path_returns_path(self, tmp_path):
-        """_cache_path constructs a valid path — covers lines 151-152."""
-        from climasus4py.enrichment.climate_fill import _cache_path
-        result = _cache_path("S001", "tair_dry_bulb_c", tmp_path)
-        assert isinstance(result, Path)
-        assert result.parent == tmp_path
-        assert result.suffix == ".joblib"
 
 
 # ---------------------------------------------------------------------------
@@ -343,12 +333,20 @@ class TestVariablesConfigFallback:
         assert "presets" in result
         assert isinstance(result["presets"], dict)
 
-    def test_seasonal_patterns_config_fallback(self):
-        """When load_json raises FileNotFoundError, returns defaults — covers 57-59."""
+    def test_seasonal_config_fallback(self):
+        """Sem o JSON do climasus-data, cai no default embutido.
+
+        Renomeado em 09/09/2026 (M53): ``_seasonal_patterns_config`` virou
+        ``_seasonal_config``. Aproveito para afirmar que o fallback e
+        UTILIZAVEL, e nao so um dict qualquer -- o teste antigo aceitaria
+        ``{}``, que passaria e deixaria a funcao quebrar no primeiro acesso.
+        """
         from climasus4py.core import variables as vars_mod
         with patch.object(vars_mod, "load_json", side_effect=FileNotFoundError):
-            result = vars_mod._seasonal_patterns_config()
+            result = vars_mod._seasonal_config()
         assert isinstance(result, dict)
+        assert set(result["astronomical"]["patterns"]) == {"south", "north"}
+        assert set(result["astronomical"]["patterns"]["south"]["summer"]) == {12, 1, 2}
 
 
 # ---------------------------------------------------------------------------
@@ -462,31 +460,30 @@ class TestClimateAggregatePaths:
     def _make_rel(self, data: dict):
         return get_connection().from_df(pd.DataFrame(data))
 
-    def test_detect_date_column_raises_when_no_date(self):
-        """Relation without date/time column → ValueError — covers line 104."""
-        from climasus4py.enrichment.climate_aggregate import _detect_date_column
-        rel = self._make_rel({"station": ["A"], "temp": [25.0]})
-        with pytest.raises(ValueError, match="date"):
-            _detect_date_column(rel)
+    # Atualizado em 09/09/2026 (M53). ``_detect_date_column`` nao existe mais
+    # neste modulo -- a validacao de entrada foi reorganizada em
+    # ``_validate_climate_data`` / ``_validate_date_overlap``. O teste que
+    # exercitava ``stats=[...]`` foi REMOVIDO: esse parametro nao existe na
+    # assinatura atual, que e a do R (health_data, climate_data, climate_var,
+    # time_unit, ...). Ele testava uma API anterior, sem equivalente para
+    # portar aqui; a cobertura de sus_climate_aggregate entra na reescrita de
+    # tests/test_climate_aggregate.py, registrada no M53.
 
-    def test_days_above_threshold_skipped_when_no_threshold(self):
-        """stat='days_above_threshold' with threshold=None skips — covers line 217."""
-        from climasus4py.enrichment.climate_aggregate import sus_climate_aggregate
-        rel = self._make_rel({
-            "date": pd.date_range("2023-01-01", periods=10, freq="D"),
-            "tair_dry_bulb_c": [20.0 + i for i in range(10)],
-        })
-        # Include days_above_threshold in stats but don't pass threshold=
-        result = sus_climate_aggregate(
-            rel,
-            stats=["mean", "days_above_threshold"],
-            # threshold intentionally omitted → None
-        )
-        assert result is not None
-        df = result.df()
-        assert "tair_dry_bulb_c_mean" in df.columns
-        # days_above_threshold should be absent since threshold=None
-        assert not any("days_above" in c for c in df.columns)
+    def test_climate_data_without_date_is_rejected(self):
+        """Clima sem coluna de data recusa com mensagem propria."""
+        from climasus4py.enrichment.climate_aggregate import _validate_climate_data
+
+        rel = self._make_rel({"station_code": ["A"], "temp": [25.0]})
+        with pytest.raises(ValueError, match="date"):
+            _validate_climate_data(rel)
+
+    def test_climate_data_without_station_is_rejected(self):
+        """E sem coluna de estacao tambem, nomeando as aceitas."""
+        from climasus4py.enrichment.climate_aggregate import _validate_climate_data
+
+        rel = self._make_rel({"station": ["A"], "temp": [25.0]})
+        with pytest.raises(ValueError, match="station"):
+            _validate_climate_data(rel)
 
 
 # ---------------------------------------------------------------------------

@@ -6,15 +6,21 @@ Tracks which pipeline stage each relation has passed through, enabling
 The metadata dict stored per relation has the shape::
 
     {
-        "stage":   str,           # e.g. "filter"
+        "stage":   str,           # e.g. "clean"
         "system":  str | None,    # e.g. "SIM-DO"
         "type":    str | None,    # e.g. "health" or "climate"
-        "history": list[str],     # ordered stages visited
+        "stages":  list[str],     # ordered stages visited (e.g. ["import", "clean"])
+        "history": list[str],     # timestamped log messages (mirrors R sus_meta$history)
     }
+
+Note: ``stages`` tracks which pipeline functions were called (for assert_after).
+      ``history`` tracks human-readable timestamped messages (for quality_report).
+      Mirrors climasus4r::sus_meta(add_history=) behaviour.
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from weakref import WeakKeyDictionary
 
 import duckdb
@@ -26,7 +32,62 @@ CANONICAL_STAGES: list[str] = [
     "filter",
     "variables",
     "aggregate",
+    # The three enrichment stages, in R's order (M34). They were written
+    # by the package and absent from this list, which had two costs.
+    # `assert_after` silently returns for a stage it does not know, so
+    # nothing downstream of aggregation was ever checked; and the three
+    # enrichments all wrote the single string "enrichment", so a spatial
+    # join, a climate join and a census join were indistinguishable in
+    # the metadata — while `climasus4r` tells them apart.
+    "spatial",
+    "climate",
+    "census",
 ]
+
+#: Vocabulary map to ``climasus4r``, which uses ten stage names against
+#: these nine. It is a map and not a rename because the R spellings are
+#: not better — ``stand`` for standardize, ``derive`` for variables — and
+#: renaming would break every caller that reads the metadata. What was
+#: missing was any way to compare the two, which is what this provides.
+#:
+#: R splits filtering in two (``filter_cid`` for ICD and ``filter_demo``
+#: for demographics) where this package has one ``sus_filter``, so the
+#: mapping is one-to-many in that direction.
+R_STAGE_EQUIVALENTS: dict[str, tuple[str, ...]] = {
+    "import":      ("import",),
+    "clean":       ("clean",),
+    "standardize": ("stand",),
+    "filter":      ("filter_cid", "filter_demo"),
+    "variables":   ("derive",),
+    "aggregate":   ("aggregate",),
+    "spatial":     ("spatial",),
+    "climate":     ("climate",),
+    "census":      ("census",),
+}
+
+#: Stage names this package used to write, and what they mean now.
+#: ``"enrichment"`` was written by the spatial, climate and census joins
+#: alike; metadata saved before M34 still carries it, and resolving it to
+#: the earliest of the three keeps `assert_after` conservative rather
+#: than letting an old relation claim a later stage than it reached.
+LEGACY_STAGE_ALIASES: dict[str, str] = {
+    "enrichment": "spatial",
+}
+
+
+def canonical_stage(stage: str | None) -> str | None:
+    """Resolve a stage name, translating the names this package retired.
+
+    Args:
+        stage: Stage name as stored, possibly a retired spelling.
+
+    Returns:
+        The canonical name, or *stage* unchanged when it is already
+        canonical or unknown.
+    """
+    if stage is None:
+        return None
+    return LEGACY_STAGE_ALIASES.get(stage, stage)
 
 # WeakKeyDictionary so relations can be garbage-collected without leaks.
 _stage_map: WeakKeyDictionary[
@@ -40,28 +101,103 @@ def set_stage(
     *,
     system: str | None = None,
     rel_type: str | None = None,
+    _inherit_from: duckdb.DuckDBPyRelation | None = None,
+    extra: dict | None = None,
 ) -> duckdb.DuckDBPyRelation:
     """Record *stage* (and optional metadata) for *rel* and return it.
+
+    When a pipeline function transforms a relation into a new object
+    (e.g. after ``.filter()`` or ``.project()``), the WeakKeyDictionary
+    loses the original metadata. Pass ``_inherit_from=original_rel`` to
+    copy the parent metadata (system, type, stages, history) into the
+    new relation before recording the new stage.
 
     Args:
         rel: DuckDB relation to tag.
         stage: Pipeline stage name, e.g. ``"import"`` or ``"clean"``.
         system: DATASUS system identifier (e.g. ``"SIM-DO"``).
         rel_type: Relation type (e.g. ``"health"`` or ``"climate"``).
+        _inherit_from: Optional parent relation whose metadata should be
+            inherited. Use when *rel* is a new object derived from the
+            parent (e.g. after filter/project operations).
+        extra: Additional metadata keys to merge in, for the descriptive
+            fields R's ``sus_meta`` carries beyond the pipeline-stage
+            core — ``years``, ``n_stations``, ``temporal`` and so on.
+            Keys already present are overwritten; unrelated keys survive.
 
     Returns:
         The same *rel* (allows ``return set_stage(rel, "clean")``).
     """
+    # start from current meta (may be empty for a new relation object)
+    existing = dict(_stage_map.get(rel, {}))
+
+    # inherit parent metadata when the relation object changed
+    if _inherit_from is not None:
+        parent = _stage_map.get(_inherit_from, {})
+        # parent fills in missing keys — existing has priority
+        for k, v in parent.items():
+            if k not in existing or not existing[k]:
+                existing[k] = v
+
+    stages: list[str] = list(existing.get("stages", []))
+    if not stages or stages[-1] != stage:
+        stages.append(stage)
+
+    # Carry forward whatever else the metadata held. This used to rebuild
+    # the dict from the five core keys alone, so any descriptive field a
+    # reader function had attached was dropped the next time a pipeline
+    # stage was recorded.
+    merged = {k: v for k, v in existing.items()
+              if k not in ("stage", "system", "type", "stages", "history")}
+    if extra:
+        merged.update(extra)
+
+    _stage_map[rel] = {
+        **merged,
+        "stage":   stage,
+        "system":  system    if system   is not None else existing.get("system"),
+        "type":    rel_type  if rel_type is not None else existing.get("type"),
+        "stages":  stages,
+        "history": list(existing.get("history", [])),
+    }
+    return rel
+
+
+def format_history_entry(message: str) -> str:
+    """Stamp *message* with the current time, as the history log expects.
+
+    One place decides the format so every writer produces the same shape.
+    ``sus_meta(add_history=...)`` used to append the raw string while this
+    module's :func:`add_history` stamped it, which left the audit trail
+    holding two different formats in one list — half the entries parseable
+    by timestamp and half not.
+    """
+    return f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}"
+
+
+def add_history(
+    rel: duckdb.DuckDBPyRelation,
+    message: str,
+) -> duckdb.DuckDBPyRelation:
+    """Append a timestamped message to the relation's history log.
+
+    Mirrors ``climasus4r::sus_meta(add_history=...)`` — each pipeline
+    function calls this after its work to build an auditable log::
+
+        "[2023-01-01 10:01:00] Imported DATASUS SIM-DO (SE) via FTP"
+        "[2023-01-01 10:02:00] Cleaned character encoding (UTF-8)..."
+
+    Args:
+        rel: DuckDB relation to update.
+        message: Human-readable description of the operation performed.
+
+    Returns:
+        The same *rel*.
+    """
     existing = _stage_map.get(rel, {})
     history: list[str] = list(existing.get("history", []))
-    if not history or history[-1] != stage:
-        history.append(stage)
-    _stage_map[rel] = {
-        "stage": stage,
-        "system": system if system is not None else existing.get("system"),
-        "type": rel_type if rel_type is not None else existing.get("type"),
-        "history": history,
-    }
+    history.append(format_history_entry(message))
+    _stage_map[rel] = {**existing, "history": history}
     return rel
 
 
@@ -83,7 +219,7 @@ def get_stage(rel: duckdb.DuckDBPyRelation) -> str | None:
 def get_meta(rel: duckdb.DuckDBPyRelation) -> dict | None:
     """Return the full metadata dict for *rel*, or ``None`` if unknown.
 
-    Keys: ``stage``, ``system``, ``type``, ``history``.
+    Keys: ``stage``, ``system``, ``type``, ``stages``, ``history``.
 
     Args:
         rel: DuckDB relation to look up.
@@ -105,14 +241,19 @@ def assert_after(rel: duckdb.DuckDBPyRelation, stage: str) -> None:
         ValueError: If the current stage precedes *stage* in
             ``CANONICAL_STAGES``.
     """
-    current = get_stage(rel)
+    current = canonical_stage(get_stage(rel))
     if current is None:
         return
 
     try:
         current_idx = CANONICAL_STAGES.index(current)
-        required_idx = CANONICAL_STAGES.index(stage)
+        required_idx = CANONICAL_STAGES.index(canonical_stage(stage))
     except ValueError:
+        # An unknown stage means the check cannot be made, not that it
+        # passed — but raising here would turn any custom stage into a
+        # hard error. Returning is the existing contract; what changed
+        # (M34) is that the three enrichment stages are now known, so
+        # they stopped falling through this branch.
         return
 
     if current_idx < required_idx:

@@ -10,6 +10,7 @@ import sys
 import urllib.request
 from unittest.mock import MagicMock
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -61,14 +62,22 @@ class TestCoerceTypes:
         result = _coerce_datasus_types(df)
         assert pd.isna(result["DTOBITO"].iloc[0])
 
-    def test_numeric_column_codmunres_coerced(self):
-        """CODMUNRES (coluna numérica) deve ser convertida para float/int."""
+    def test_identifier_column_codmunres_stays_text(self):
+        """CODMUNRES é IDENTIFICADOR e fica texto (M64).
+
+        Este teste cobrava o contrário — numérico — porque o metadado
+        publicava as 23 colunas numa lista só, e `pd.to_numeric` passava
+        por cima de código e quantidade sem distinguir. Código de
+        município não entra em conta nenhuma, e o irmão dele na mesma
+        lista, `CODESTAB`, perdia o zero à esquerda em 5,1% das linhas.
+        As três listas foram separadas em 21/09/2026.
+        """
         from climasus4py.core.importer import _coerce_datasus_types
 
         df = pd.DataFrame({"CODMUNRES": ["355030", "330455"]})
         result = _coerce_datasus_types(df)
-        assert pd.api.types.is_numeric_dtype(result["CODMUNRES"])
-        assert result["CODMUNRES"].iloc[0] == 355030
+        assert not pd.api.types.is_numeric_dtype(result["CODMUNRES"])
+        assert result["CODMUNRES"].iloc[0] == "355030"
 
     def test_invalid_numeric_becomes_nan(self):
         """Valor não-numérico em coluna numérica deve virar NaN."""
@@ -104,6 +113,61 @@ class TestCoerceTypes:
         result = _coerce_datasus_types(df)
         assert result["CAUSABAS"].iloc[0] is None
 
+    def test_real_none_does_not_become_the_string_none(self):
+        """None de verdade deve continuar nulo, e nao virar a string 'None'.
+
+        Regressao: ``astype(str)`` renderiza cada ausente como texto --
+        None vira "None", NaN vira "nan", NaT vira "NaT". O codigo antigo
+        so devolvia "" e "nan" para nulo, entao "None" e "NaT" sobreviviam
+        ate o Parquet como texto comum. Medido no cache real: 54 das 63
+        colunas de texto do SIM-DO SP 2023 afetadas, cinco delas em 100%
+        das linhas (ESTABDESCR, CB_PRE, NUDIASOBIN, NUDIASINF, FONTESINF).
+        """
+        from climasus4py.core.importer import _coerce_datasus_types
+
+        df = pd.DataFrame({"CAUSABAS": ["J189", None, np.nan, pd.NaT, "I219"]})
+        result = _coerce_datasus_types(df)["CAUSABAS"]
+
+        assert result.tolist() == ["J189", None, None, None, "I219"]
+        assert result.isna().sum() == 3
+
+    def test_all_null_text_column_reports_full_missingness(self):
+        """Coluna inteiramente vazia deve reportar 100% de ausencia.
+
+        E a consequencia pratica do bug: com "None" gravado como texto,
+        ``isna()`` devolvia zero e um relatorio de qualidade diria 0% de
+        ausencia para uma coluna que nao tem um unico valor.
+        """
+        from climasus4py.core.importer import _coerce_datasus_types
+
+        df = pd.DataFrame({"ESTABDESCR": [None] * 20})
+        result = _coerce_datasus_types(df)["ESTABDESCR"]
+
+        assert result.isna().all()
+        assert result.nunique(dropna=True) == 0
+
+    def test_nulls_survive_the_parquet_round_trip(self, tmp_path):
+        """O nulo tem de chegar nulo no Parquet, nao so no DataFrame.
+
+        Percorre o caminho real do importador (coerce -> Table -> escrita)
+        e le de volta, porque e o arquivo em cache que todo o resto do
+        pacote consulta depois.
+        """
+        from climasus4py.core.importer import (
+            _coerce_datasus_types,
+            _write_parquet_atomic,
+        )
+
+        df = _coerce_datasus_types(
+            pd.DataFrame({"CAUSABAS": ["J189", None, "I219"]})
+        )
+        alvo = tmp_path / "round_trip.parquet"
+        _write_parquet_atomic(pa.Table.from_pandas(df, preserve_index=False), alvo)
+
+        coluna = pq.read_table(alvo).column("CAUSABAS")
+        assert coluna.null_count == 1
+        assert coluna.to_pylist() == ["J189", None, "I219"]
+
     def test_mixed_df_all_columns_processed(self):
         """DataFrame com data, numérico e string: todos processados."""
         from climasus4py.core.importer import _coerce_datasus_types
@@ -115,7 +179,7 @@ class TestCoerceTypes:
         })
         result = _coerce_datasus_types(df)
         assert pd.api.types.is_datetime64_any_dtype(result["DTOBITO"])
-        assert result["CODMUNRES"].iloc[0] == 355030
+        assert result["CODMUNRES"].iloc[0] == "355030", "identificador (M64)"
         assert result["CAUSABAS"].iloc[0] == "J189"
 
 
@@ -441,23 +505,45 @@ class TestSusImportModes:
         with pytest.raises(ValueError, match="Unsupported file format"):
             sus_data_import("SIM-DO", "SP", 2022, path=str(fake_xlsx), cache_dir=tmp_path, verbose=False)  # noqa: E501
 
-    def test_no_data_raises_runtime_error(self, tmp_path, monkeypatch):
-        """Quando download falha e cache está vazio, deve levantar RuntimeError."""
+    def _sem_download(self, tmp_path, monkeypatch):
+        """Deixa o importador sem nenhuma fonte: download falha, sem DBC."""
         from climasus4py.core import importer as _imp
 
         monkeypatch.setattr(_imp, "resolve_uf", lambda uf: ["SP"])
         monkeypatch.setattr(_imp, "_geographic_scope", lambda s: "state")
         monkeypatch.setattr(_imp, "_cache_partition_id", lambda s, u: u)
         monkeypatch.setattr(_imp, "_state_filter_expression", lambda s, u: None)
-        # Simular falha em todos os downloads
         monkeypatch.setattr(urllib.request, "urlopen", _make_urlopen_failure())
-        # Sem DBC reader disponível
         monkeypatch.setattr(_imp, "_resolve_dbc_path", lambda *a, **kw: None)
+        return _imp
+
+    def test_no_data_returns_none(self, tmp_path, monkeypatch):
+        """Sem dado, o importador devolve None -- e o que a docstring promete.
+
+        Atualizado em 09/09/2026 (M53). O teste exigia RuntimeError, que nao e
+        mais o contrato desta funcao: ela documenta "``None`` when no data is
+        available for the requested parameters".
+        """
+        _imp = self._sem_download(tmp_path, monkeypatch)
+        resultado = _imp.sus_data_import(
+            "SIM-DO", "SP", 2022, cache_dir=tmp_path, cache=False, verbose=False
+        )
+        assert resultado is None
+
+    def test_pipeline_turns_that_none_into_a_clear_error(self, tmp_path, monkeypatch):
+        """A intencao do teste antigo vale -- no nivel em que o usuario esta.
+
+        O ``None`` documentado nao era checado por ninguem: o sus_pipeline
+        seguia com rel=None e quebrava fundo no fast path ou no
+        clean_encoding, com um erro que nao dizia nada sobre o problema real.
+        Agora o pipeline recusa nomeando system/uf/year.
+        """
+        from climasus4py.core import pipeline as _pipe
+
+        self._sem_download(tmp_path, monkeypatch)
+        monkeypatch.setattr(_pipe, "sus_data_import", lambda *a, **kw: None)
 
         with pytest.raises(RuntimeError, match="No data imported"):
-            _imp.sus_data_import(
-                "SIM-DO", "SP", 2022,
-                cache_dir=tmp_path,
-                cache=False,
-                verbose=False,
+            _pipe.sus_pipeline(
+                "SIM-DO", "SP", 2022, cache_dir=tmp_path, verbose=False
             )

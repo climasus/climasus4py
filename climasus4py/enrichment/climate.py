@@ -99,7 +99,12 @@ def sus_climate(
     JOINs them via DuckDB SQL. The relation remains lazy until the user
     materialises with ``.df()`` or ``cs.materialize(...)``.
 
-    Mirrors ``climasus4r::sus_climate`` (legacy reference).
+    **Python-only**: ``climasus4r`` exports no ``sus_climate``. This
+    docstring used to claim it mirrored one, which sent anyone comparing
+    the two packages looking for a function that is not there — the same
+    slip that was in ``sus_pipeline``. Checked against the NAMESPACE of
+    climasus4r 1.0.0; of 23 ``Mirrors`` claims in the package, these two
+    were the only ones naming something absent from the R.
 
     Args:
         rel: Lazy DuckDB relation with health data containing a
@@ -130,7 +135,17 @@ def sus_climate(
     geo_col = (
         detect_geo_column(list(rel.columns), level="municipality") or "municipality_code"
     )
-    date_col = detect_date_column(list(rel.columns)) or "date"
+    # Deteccao POR SISTEMA, lendo o sistema do sus_meta -- a mesma que o
+    # sus_data_aggregate e o sus_climate_aggregate usam. Pela lista
+    # generica, um arquivo do SINAN seria juntado ao clima pela data de
+    # NASCIMENTO do paciente, porque ele traz DT_NASC ao lado de
+    # DT_NOTIFIC (M127). Sem sistema no metadado a lista comum decide, e
+    # ela tambem passou a vir ordenada por categoria.
+    from ..core._stage import get_meta
+    from ..core.aggregate import _agg_detect_date_col
+
+    _sistema = (get_meta(rel) or {}).get("system")
+    date_col = _agg_detect_date_col(list(rel.columns), _sistema) or "date"
     vars_list: list[str] = list(variables) if variables is not None else list(_DEFAULT_VARIABLES)
     _ = lags  # reserved for future windowed joins; preserved in signature for parity
 
@@ -168,4 +183,5 @@ def sus_climate(
         sql = _join_direct(geo_col, date_col, obs_paths, vars_list)
 
     result = rel.query("_climate_health", sql)
-    return set_stage(result, "enrichment")
+    # "climate", not the generic "enrichment" (M34).
+    return set_stage(result, "climate")

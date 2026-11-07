@@ -9,6 +9,7 @@ from pathlib import Path
 
 import duckdb
 import pandas as pd
+import pytest
 
 from climasus4py.utils.inmet_parser import (
     _build_select_clause,
@@ -88,7 +89,7 @@ class TestParseHeader:
             "region": "S",
             "UF": "SC",
             "station_name": "FLORIANOPOLIS",
-            "wmo_code": "A806",
+            "station_code": "A806",
             "latitude": "-27,6025",
             "longitude": "-48,61999999",
             "altitude": "1,8",
@@ -104,10 +105,15 @@ class TestParseHeader:
         assert 'AS "date"' in clause
         assert 'AS "year"' in clause
         assert "'FLORIANOPOLIS' AS \"station_name\"" in clause
-        assert "'A806' AS \"wmo_code\"" in clause
+        assert "'A806' AS \"station_code\"" in clause
         assert '"PRECIPITAÇÃO TOTAL, HORÁRIO (mm)"' in clause
         assert 'AS "rainfall_mm"' in clause
-        assert 'AS "station_code"' not in clause
+        # Guarda de polaridade INVERTIDA em 09/09/2026 (M10). Antes esta linha
+        # afirmava que o parser NAO emitia "station_code", porque o canonico
+        # era "wmo_code". Hoje e o contrario: o nome vem do rotulo errado do
+        # INMET ("CODIGO (WMO)" com um codigo do INMET dentro) e o canonico e
+        # station_code, que e o que o climasus4r usa.
+        assert 'AS "wmo_code"' not in clause
 
     def test_region_extracted(self, tmp_path):
         path = _write_csv(tmp_path, _MINIMAL_CSV)
@@ -127,11 +133,11 @@ class TestParseHeader:
         assert "station_name" in df.columns
         assert df["station_name"].iloc[0] == "CURITIBA"
 
-    def test_wmo_code_extracted(self, tmp_path):
+    def test_station_code_extracted(self, tmp_path):
         path = _write_csv(tmp_path, _MINIMAL_CSV)
         df = _parse_df(path)
-        assert "wmo_code" in df.columns
-        assert df["wmo_code"].iloc[0] == "A803"
+        assert "station_code" in df.columns
+        assert df["station_code"].iloc[0] == "A803"
 
     def test_latitude_numeric(self, tmp_path):
         """Latitude com vírgula decimal deve ser convertida para float."""
@@ -181,7 +187,7 @@ class TestParseData:
             "region",
             "UF",
             "station_name",
-            "wmo_code",
+            "station_code",
             "latitude",
             "longitude",
             "altitude",
@@ -224,12 +230,37 @@ class TestParseData:
         df = _parse_df(path)
         assert "sr_kj_m2" in df.columns
 
-    def test_qc_solar_nighttime_zero(self, tmp_path):
-        """Nighttime solar radiation is forced to zero in SQL."""
+    def test_nao_ha_regra_de_noite_para_radiacao(self, tmp_path):
+        """A radiacao medida e preservada, inclusive de madrugada (M28).
+
+        Este teste afirmava o oposto -- que o parser forca a zero toda
+        radiacao das 18h as 05h. A regra existia e estava errada: os
+        timestamps do INMET sao UTC (o docstring do modulo diz isso) e o
+        Brasil e UTC-3, entao a janela cobria 15h-02h LOCAL e jogava fora
+        a tarde inteira.
+
+        Medido em SP 2023 contra o R, com join por (station_code, date):
+        65.049 linhas em que o Python devolvia 0,0 e o R devolvia medicao
+        positiva, media 881 kJ/m2 e maximo 6471. A media da coluna dava
+        958,29 contra 1270,22 do R -- 33% -- enquanto contagem de
+        nao-nulos, minimo e maximo batiam, que e por que a divergencia
+        parecia inexplicavel.
+
+        O R nao tem regra equivalente: o .verify_solar_radiation calcula a
+        irradiancia extraterrestre por geometria solar e apenas AVISA
+        acima de 110% dela. Remover a regra e o que restaura a paridade.
+        """
         path = _write_csv(tmp_path, _MINIMAL_CSV)
         df = _parse_df(path)
+
         assert df["date"].iloc[0].hour == 0
-        assert df["sr_kj_m2"].iloc[0] == 0.0
+        assert df["sr_kj_m2"].iloc[0] == pytest.approx(125.5)
+
+    def test_os_limites_fisicos_seguem_valendo(self, tmp_path):
+        """Remover a regra de noite nao afrouxou a faixa 0-40000."""
+        from climasus4py.utils.inmet_parser import _PHYSICAL_LIMITS
+
+        assert _PHYSICAL_LIMITS["sr_kj_m2"] == (0.0, 40000.0)
 
     def test_rainfall_first_row_value(self, tmp_path):
         """Primeira linha: precipitação 0,4 → 0.4 float."""

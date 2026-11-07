@@ -15,11 +15,29 @@ output/
 dados/
 *.parquet
 
+# Armazenamento temporario do DuckDB. Ele cria .tmp/ na pasta de trabalho
+# quando uma consulta transborda para disco -- rodar a Etapa B deixou 3,4 MB
+# de duckdb_temp_storage_*.tmp aqui. Sao arquivos de sessao, nao do pacote.
+.tmp/
+# ...except test fixtures. The blanket *.parquet rule silently kept the
+# frozen R reference for the indicator parity tests out of the repo, so
+# those tests passed locally and would fail on a fresh clone with a
+# FileNotFoundError. Parquet is the right format here: it preserves the
+# exact float bytes the parity assertions compare at zero tolerance.
+!tests/fixtures/**/*.parquet
+
 # Local config
 config.yaml
 
 # Notebooks
 .ipynb_checkpoints/
+
+# Exploracao na raiz do repo: comparacoes R vs Python rodadas a mao, com
+# caminhos absolutos da maquina do Andrey e saida de celula embutida. Sao
+# rascunho de trabalho, nao material do pacote -- decidido em 21/09/2026.
+/Comparacoes*.ipynb
+/pipeline*.ipynb
+/pipeline R.r
 
 # Operating system
 .DS_Store

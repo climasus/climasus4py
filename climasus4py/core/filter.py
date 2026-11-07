@@ -5,6 +5,7 @@ Mirrors R: filter.R + utils-cid.R
 
 from __future__ import annotations
 
+import warnings
 import duckdb
 
 from ..utils.cid import codes_for_groups, expand_cid_ranges
@@ -17,7 +18,10 @@ from ..utils.data import (
     detect_education_column,
     detect_sex_column,
     expand_city_to_codes,
+    load_json,
+    load_uf_codes,
 )
+from ._stage import add_history, set_stage
 from ._sql import sql_string
 from .engine import get_connection, schema_columns
 
@@ -35,6 +39,11 @@ _SEX_SYNONYMS: dict[str, list[str]] = {
     "female": ["2"],
     "feminino": ["2"],
     "femenino": ["2"],
+}
+
+_SEX_TRANSLATED: dict[str, list[str]] = {
+    "1": ["Male", "Masculino"],
+    "2": ["Female", "Feminino"],
 }
 
 
@@ -63,19 +72,143 @@ def expand_sex_synonyms(sex: str | list[str]) -> list[str]:
                 "'Masculino'/'Feminino', or 'Femenino'."
             )
         result.extend(_SEX_SYNONYMS[key])
-    return list(dict.fromkeys(result))  # deduplicate, preserve order
+    return list(dict.fromkeys(result))
 
+
+# ---------------------------------------------------------------------------
+# Region expansion
+# ---------------------------------------------------------------------------
+
+def expand_region_to_states(region: str | list[str]) -> list[str]:
+    """Resolve region name(s) to list of state abbreviations."""
+    regions_data = load_json("metadata/regions.json")
+    region_list  = [region] if isinstance(region, str) else list(region)
+    all_states: list[str] = []
+
+    for reg in region_list:
+        reg_norm = reg.lower().strip().replace("-", "_").replace(" ", "_")
+        found    = False
+
+        for category in regions_data["categories"].values():
+            for key, data in category["regions"].items():
+                aliases      = [key] + data.get("aliases", [])
+                aliases_norm = [
+                    a.lower().replace("-", "_").replace(" ", "_")
+                    for a in aliases
+                ]
+                if reg_norm in aliases_norm:
+                    all_states.extend(data["states"])
+                    found = True
+                    break
+            if found:
+                break
+
+        if not found:
+            raise ValueError(
+                f"Region {reg!r} not found in regions.json. "
+                f"Valid options: norte, nordeste, sudeste, sul, centro_oeste, "
+                f"amazonia_legal, cerrado, caatinga, pantanal, pampa, "
+                f"semi_arido, matopiba, sudene, fronteira_brasil, "
+                f"dengue_hyperendemic."
+            )
+
+    return list(dict.fromkeys(all_states))
+
+
+# ---------------------------------------------------------------------------
+# UF column detection helper
+# ---------------------------------------------------------------------------
+
+_UF_COLUMN_CANDIDATES = (
+    "abbrev_state", "state", "UF", "SG_UF",
+    "notification_uf", "UF_ZI", "uf_gestor",
+)
+
+# Shared with the municipality filter below so both it and the UF derivation
+# resolve to the same column. Order matters: residence first, which is the
+# usual epidemiological denominator.
+_MUNI_COLUMN_CANDIDATES = (
+    "CODMUNRES", "municipality_code", "ID_MUNICIP",
+    "residence_municipality_code", "occurrence_municipality_code",
+)
+
+
+def _detect_uf_column(columns: list[str]) -> str | None:
+    """Auto-detect UF/state column from schema."""
+    return next((c for c in _UF_COLUMN_CANDIDATES if c in columns), None)
+
+
+def _detect_muni_column(columns: list[str]) -> str | None:
+    """Auto-detect municipality-code column from schema."""
+    return next((c for c in _MUNI_COLUMN_CANDIDATES if c in columns), None)
+
+
+def _uf_prefix_sql(muni_col: str, uf_list: list[str]) -> str:
+    """SQL matching rows whose municipality code belongs to *uf_list*.
+
+    The first two digits of an IBGE municipality code are the state code
+    (35 for São Paulo, 33 for Rio de Janeiro), which is how the fast path
+    in ``sus_pipeline`` already derives state from ``CODMUNRES``. Doing
+    the same here lets ``uf=`` work on SIM/SINASC data, which carry no UF
+    column of their own — previously the filter warned and returned the
+    whole country.
+
+    Raises:
+        ValueError: If a requested UF has no IBGE code, rather than
+            filtering by the ones it recognised and silently dropping
+            the rest.
+    """
+    states = load_uf_codes()
+    desconhecidas = [u for u in uf_list if u.upper() not in states]
+    if desconhecidas:
+        raise ValueError(
+            f"Unknown UF(s): {desconhecidas}. "
+            f"Expected two-letter abbreviations such as 'SP' or 'RJ'."
+        )
+    codigos = sorted({str(states[u.upper()]["code"]) for u in uf_list})
+    vals = ", ".join(sql_string(c) for c in codigos)
+    return f'SUBSTR(CAST("{muni_col}" AS VARCHAR), 1, 2) IN ({vals})'
+
+
+# ---------------------------------------------------------------------------
+# Sex column translation detection
+# ---------------------------------------------------------------------------
+
+def _sex_col_is_translated(rel: duckdb.DuckDBPyRelation, sex_col: str) -> bool:
+    """Check if the sex column already contains translated values (Male/Female)
+    instead of raw DATASUS codes (1/2)."""
+    try:
+        sample = (
+            rel.limit(200)
+               .select(f'"{sex_col}"')
+               .fetchdf()[sex_col]
+               .dropna()
+               .astype(str)
+               .unique()
+        )
+        translated = {"Male", "Female", "Masculino", "Feminino",
+                      "male", "female", "masculino", "feminino"}
+        return any(v in translated for v in sample)
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Main filter function
+# ---------------------------------------------------------------------------
 
 def sus_filter(
     rel: duckdb.DuckDBPyRelation,
     *,
     groups: str | list[str] | None = None,
     codes: str | list[str] | None = None,
+    icd_column: str | None = None,
     age_min: int | None = None,
     age_max: int | None = None,
     sex: str | list[str] | None = None,
     race: str | list[str] | None = None,
     uf: str | list[str] | None = None,
+    region: str | list[str] | None = None,
     municipality: str | list[str] | None = None,
     date_start: str | None = None,
     date_end: str | None = None,
@@ -83,6 +216,7 @@ def sus_filter(
     city: str | list[str] | None = None,
     drop_ignored: bool = False,
     match_type: str = "starts_with",
+    verbose: bool = False,
 ) -> duckdb.DuckDBPyRelation:
     """Filter SUS data by disease groups, demographics, geography, and dates.
 
@@ -97,54 +231,37 @@ def sus_filter(
             ``"respiratory"`` or ``["cardiovascular", "dengue"]``.
         codes: Explicit ICD-10 code(s) or ranges, e.g.
             ``["J00-J99", "A90"]``.
-        age_min: Minimum age in years (inclusive). Decoded from DATASUS
-            coded age when the column is in SIM-DO format.
+        icd_column: Column name containing ICD-10 codes. If ``None``
+            (default), auto-detects among ``CAUSABAS``, ``DIAG_PRINC``,
+            ``underlying_cause``, ``cause``.
+        age_min: Minimum age in years (inclusive).
         age_max: Maximum age in years (inclusive).
-        sex: Sex code to keep — ``"M"`` (male) or ``"F"`` (female).
+        sex: Sex value to keep — ``"M"`` / ``"Male"`` / ``"Masculino"``
+            or ``"F"`` / ``"Female"`` / ``"Feminino"``.
+            Works with both raw DATASUS codes (``"1"``/``"2"``) and
+            translated values (``"Male"``/``"Female"``).
         race: ``RACACOR`` code(s) to keep, e.g. ``["1", "4"]``.
-        uf: One or more Brazilian state abbreviations, e.g.
-            ``["SP", "RJ"]``.
-        municipality: Municipality code(s) (IBGE 6-digit), e.g.
-            ``["355030"]``.
-        date_start: Earliest event date (inclusive), ISO format
-            ``"YYYY-MM-DD"``.
-        date_end: Latest event date (inclusive), ISO format
-            ``"YYYY-MM-DD"``.
-        education: Education level code(s) to keep, e.g. ``["1", "2"]``.
-            Auto-detects the column among ``education``,
-            ``education_2010``, ``ESC``, ``ESC2010``.
-            Mirrors ``climasus4r::sus_data_filter_demographics`` education=.
-        city: City name(s) to filter by, e.g. ``"São Paulo"`` or
-            ``["São Paulo", "Rio de Janeiro"]``. Resolved to IBGE codes
-            via ``climasus-data/spatial/municipalities.parquet``.
-            Mirrors ``climasus4r::sus_data_filter_demographics`` city=.
-        drop_ignored: When ``True``, removes rows where any detectable
-            demographic column (sex, race, education, age) contains a
-            coded "ignored/unknown" value (9, 99, Ignorado, etc.).
-            Mirrors ``climasus4r::sus_data_filter_demographics``
-            drop_ignored=.  Default: ``False``.
-        match_type: Controls how ICD-10 codes are matched against the
-            cause column.  ``"starts_with"`` (default) uses a 3-character
-            prefix match (e.g. ``"J18"`` matches ``"J189"``).
-            ``"exact"`` requires the full code to match exactly.
-            Mirrors ``climasus4r::sus_data_filter_cid`` match_type=.
+        uf: One or more Brazilian state abbreviations, e.g. ``["SP", "RJ"]``.
+        region: Brazilian region name(s) in PT/EN/ES.
+        municipality: Municipality code(s) (IBGE 6-digit).
+        date_start: Earliest event date (inclusive), ISO ``"YYYY-MM-DD"``.
+        date_end: Latest event date (inclusive), ISO ``"YYYY-MM-DD"``.
+        education: Education level code(s) to keep.
+        city: City name(s) resolved to IBGE codes.
+        drop_ignored: Remove rows where demographic columns contain
+            coded "ignored/unknown" values. Default: ``False``.
+        match_type: ``"starts_with"`` (default) or ``"exact"`` for ICD matching.
+        verbose: Print progress messages. Default: ``False``.
 
     Returns:
         Lazy DuckDB relation with all specified filters applied.
-
-    Raises:
-        ValueError: If ``match_type`` is not ``"starts_with"`` or
-            ``"exact"``.
+        Registers ``stage="filter"`` and timestamped history in sus_meta.
 
     Example:
-        >>> import climasus4py as cs
         >>> filtered = cs.sus_filter(rel, groups="respiratory",
-        ...                          age_min=15, age_max=64, uf="SP")
-        >>> cs.sus_filter(rel, codes=["A90", "A91"], sex="F").count()
-        >>> cs.sus_filter(rel, groups="respiratory",
-        ...               match_type="exact", codes=["J189"])
-        >>> cs.sus_filter(rel, education=["1", "2"], drop_ignored=True)
-        >>> cs.sus_filter(rel, city="São Paulo")
+        ...                          age_min=15, age_max=64, sex="Male")
+        >>> cs.sus_filter(rel, codes=["A90", "A91"], sex="Female")
+        >>> cs.sus_filter(rel, region="nordeste", groups="dengue")
     """
     _valid_match_types = {"starts_with", "exact"}
     if match_type not in _valid_match_types:
@@ -153,10 +270,24 @@ def sus_filter(
             f"Choose from: {sorted(_valid_match_types)}."
         )
 
+    _original_rel = rel
     columns = schema_columns(rel)
-    conn = get_connection()
+    conn    = get_connection()
 
-    # --- Disease filtering (CID-10) ---
+    if verbose:
+        filters_requested = [k for k, v in {
+            "groups": groups, "codes": codes, "icd_column": icd_column,
+            "age": age_min or age_max, "sex": sex, "race": race,
+            "uf": uf, "region": region, "municipality": municipality,
+            "date": date_start or date_end, "education": education,
+            "city": city,
+        }.items() if v is not None]
+        print(f"sus_filter — {len(filters_requested)} filtro(s): "
+              f"{filters_requested}")
+
+    # ------------------------------------------------------------------
+    # Disease filtering (CID-10)
+    # ------------------------------------------------------------------
     icd_codes: list[str] = []
     if groups:
         group_list = [groups] if isinstance(groups, str) else groups
@@ -166,26 +297,40 @@ def sus_filter(
         icd_codes.extend(expand_cid_ranges(code_list))
 
     if icd_codes:
-        cause_col = detect_cause_column(columns)
+        if icd_column is not None:
+            if icd_column not in columns:
+                raise ValueError(
+                    f"icd_column {icd_column!r} not found in relation. "
+                    f"Available columns: {columns[:10]}..."
+                )
+            cause_col = icd_column
+        else:
+            cause_col = detect_cause_column(columns)
+
         if not cause_col:
             raise ValueError(
                 "No cause/CID column found in the relation. "
                 "Expected one of: CAUSABAS, DIAG_PRINC, underlying_cause, cause."
             )
+
+        if verbose:
+            print(f"  CID — coluna: {cause_col} | códigos: {len(icd_codes)}")
+
         if match_type == "exact":
-            # Exact match: full code must equal one of the requested codes
             unique_codes = sorted(set(icd_codes))
             vals = ", ".join(sql_string(c) for c in unique_codes)
             rel = rel.filter(f'"{cause_col}" IN ({vals})')
         else:
-            # starts_with (default): normalise to 3-char prefix
             unique_codes = sorted({c[:3] for c in icd_codes})
             if len(unique_codes) <= 100:
                 codes_str = ", ".join(sql_string(c) for c in unique_codes)
-                rel = rel.filter(f'SUBSTR("{cause_col}", 1, 3) IN ({codes_str})')
+                rel = rel.filter(
+                    f'SUBSTR("{cause_col}", 1, 3) IN ({codes_str})'
+                )
             else:
-                # Semi-join via temporary table for large code lists
-                codes_sql = ", ".join(f"({sql_string(c)})" for c in unique_codes)
+                codes_sql = ", ".join(
+                    f"({sql_string(c)})" for c in unique_codes
+                )
                 conn.execute(
                     f"CREATE OR REPLACE TEMP TABLE _icd_filter AS "
                     f"SELECT * FROM (VALUES {codes_sql}) AS t(code)"
@@ -195,7 +340,9 @@ def sus_filter(
                     f'ON SUBSTR(r."{cause_col}", 1, 3) = f.code'
                 )
 
-    # --- Age filtering ---
+    # ------------------------------------------------------------------
+    # Age filtering
+    # ------------------------------------------------------------------
     if age_min is not None or age_max is not None:
         age_col = detect_age_column(columns)
         if not age_col:
@@ -203,35 +350,71 @@ def sus_filter(
                 "No age column found in the relation. "
                 "Expected one of: age, age_years, age_code, IDADE, IDADEMAE."
             )
-        decoded = decode_age_sql(age_col)
-        conditions = []
-        if age_min is not None:
-            conditions.append(f'({decoded}) >= {age_min}')
-        if age_max is not None:
-            conditions.append(f'({decoded}) <= {age_max}')
-        rel = rel.filter(" AND ".join(conditions))
 
-    # --- Sex filtering ---
+        # if age_years already exists (post create_variables), use it directly
+        if "age_years" in columns:
+            conditions = []
+            if age_min is not None:
+                conditions.append(f'"age_years" >= {age_min}')
+            if age_max is not None:
+                conditions.append(f'"age_years" <= {age_max}')
+            # exclude sentinel value 999 (DATASUS undecodable age)
+            conditions.append('"age_years" < 999')
+            rel = rel.filter(" AND ".join(conditions))
+        else:
+            decoded    = decode_age_sql(age_col, columns)
+            conditions = []
+            if age_min is not None:
+                conditions.append(f'({decoded}) >= {age_min}')
+            if age_max is not None:
+                conditions.append(f'({decoded}) <= {age_max}')
+            rel = rel.filter(" AND ".join(conditions))
+
+        if verbose:
+            print(f"  Idade — coluna: {age_col} | min={age_min} max={age_max}")
+
+    # ------------------------------------------------------------------
+    # Sex filtering — handles both raw codes ("1"/"2") and
+    # translated values ("Male"/"Female") after sus_data_standardize()
+    # ------------------------------------------------------------------
     if sex is not None:
-        sex_codes = expand_sex_synonyms(sex)  # raises ValueError for unknown values
-        sex_col = detect_sex_column(columns)
+        sex_codes = expand_sex_synonyms(sex)  # always resolves to ["1"] or ["2"]
+        sex_col   = detect_sex_column(columns)
         if not sex_col:
             raise ValueError(
                 "No sex column found in the relation. "
                 "Expected one of: sex, SEXO, CS_SEXO."
             )
-        if len(sex_codes) == 1:
-            rel = rel.filter(f'"{sex_col}" = {sql_string(sex_codes[0])}')
-        else:
-            vals = ", ".join(sql_string(c) for c in sex_codes)
-            rel = rel.filter(f'"{sex_col}" IN ({vals})')
 
-    # --- Race filtering ---
+        if _sex_col_is_translated(rel, sex_col):
+            # column already translated by sus_data_standardize() →
+            # filter by translated labels instead of raw codes
+            translated_vals: list[str] = []
+            for code in sex_codes:
+                translated_vals.extend(_SEX_TRANSLATED.get(code, [code]))
+            vals = ", ".join(sql_string(v) for v in translated_vals)
+            rel  = rel.filter(f'"{sex_col}" IN ({vals})')
+            if verbose:
+                print(f"  Sexo (traduzido) — coluna: {sex_col} | "
+                      f"valores: {translated_vals}")
+        else:
+            # raw DATASUS codes
+            if len(sex_codes) == 1:
+                rel = rel.filter(f'"{sex_col}" = {sql_string(sex_codes[0])}')
+            else:
+                vals = ", ".join(sql_string(c) for c in sex_codes)
+                rel  = rel.filter(f'"{sex_col}" IN ({vals})')
+            if verbose:
+                print(f"  Sexo (código) — coluna: {sex_col} | "
+                      f"códigos: {sex_codes}")
+
+    # ------------------------------------------------------------------
+    # Race filtering
+    # ------------------------------------------------------------------
     if race is not None:
         race_list = [race] if isinstance(race, str) else race
-        race_col = next(
-            (c for c in ("RACACOR", "race") if c in columns),
-            None,
+        race_col  = next(
+            (c for c in ("RACACOR", "race") if c in columns), None
         )
         if not race_col:
             raise ValueError(
@@ -239,48 +422,100 @@ def sus_filter(
                 "Expected one of: RACACOR, race."
             )
         vals = ", ".join(sql_string(r) for r in race_list)
-        rel = rel.filter(f'"{race_col}" IN ({vals})')
+        rel  = rel.filter(f'"{race_col}" IN ({vals})')
+        if verbose:
+            print(f"  Raça — coluna: {race_col} | valores: {race_list}")
 
-    # --- UF filtering ---
+    # ------------------------------------------------------------------
+    # UF filtering
+    # ------------------------------------------------------------------
+    uf_derived_from: str | None = None
     if uf is not None:
         uf_list = [uf] if isinstance(uf, str) else uf
-        uf_col = next(
-            (c for c in ("UF", "SG_UF", "state") if c in columns),
-            None,
-        )
-        if not uf_col:
-            raise ValueError(
-                "No UF/state column found in the relation. "
-                "Expected one of: UF, SG_UF, state."
-            )
-        vals = ", ".join(sql_string(u.upper()) for u in uf_list)
-        rel = rel.filter(f'"{uf_col}" IN ({vals})')
+        uf_col  = _detect_uf_column(columns)
+        if uf_col is not None:
+            vals = ", ".join(sql_string(u.upper()) for u in uf_list)
+            rel  = rel.filter(f'"{uf_col}" IN ({vals})')
+            if verbose:
+                print(f"  UF — coluna: {uf_col} | estados: {uf_list}")
+        else:
+            # No UF column: derive the state from the municipality code
+            # instead of skipping. Skipping meant asking for uf="SP" and
+            # getting the whole country back with only a UserWarning to say
+            # so — easy to miss in a notebook, and the number that comes out
+            # is wrong by a factor of ~5.
+            muni_col = _detect_muni_column(columns)
+            if muni_col is not None:
+                rel = rel.filter(_uf_prefix_sql(muni_col, uf_list))
+                uf_derived_from = muni_col
+                if verbose:
+                    print(
+                        f"  UF — derivada de {muni_col} (2 primeiros digitos) "
+                        f"| estados: {uf_list}"
+                    )
+            else:
+                warnings.warn(
+                    "No UF/state column and no municipality column found — "
+                    "uf filter skipped, so the result is NOT restricted to "
+                    f"{uf_list}. Run sus_spatial_join() first, or use "
+                    "SINAN/SIH data which already carry a UF column.",
+                    UserWarning,
+                    stacklevel=2,
+                )
 
-    # --- Municipality filtering ---
+    # ------------------------------------------------------------------
+    # Region filtering
+    # ------------------------------------------------------------------
+    if region is not None:
+        states = expand_region_to_states(region)
+        uf_col  = _detect_uf_column(columns)
+        if uf_col is None:
+            warnings.warn(
+                "No UF/state column found — region filter skipped. "
+                "Run sus_spatial_join() first, or use SINAN/SIH data "
+                "which already contain a UF column.",
+                UserWarning,
+                stacklevel=2,
+            )
+        else:
+            vals = ", ".join(sql_string(u) for u in states)
+            rel  = rel.filter(f'"{uf_col}" IN ({vals})')
+            if verbose:
+                print(f"  Região — {region!r} → {len(states)} estados")
+
+    # ------------------------------------------------------------------
+    # Municipality filtering
+    # ------------------------------------------------------------------
     if municipality is not None:
         muni_list = [municipality] if isinstance(municipality, str) else municipality
-        muni_col = next(
-            (c for c in ("CODMUNRES", "municipality_code", "ID_MUNICIP") if c in columns),
-            None,
-        )
+        muni_col = _detect_muni_column(columns)
         if not muni_col:
             raise ValueError(
                 "No municipality column found in the relation. "
-                "Expected one of: CODMUNRES, municipality_code, ID_MUNICIP."
+                "Expected one of: CODMUNRES, municipality_code, ID_MUNICIP, "
+                "residence_municipality_code, occurrence_municipality_code."
             )
         vals = ", ".join(sql_string(m) for m in muni_list)
-        rel = rel.filter(f'"{muni_col}" IN ({vals})')
+        rel  = rel.filter(f'"{muni_col}" IN ({vals})')
+        if verbose:
+            print(f"  Município — coluna: {muni_col} | códigos: {muni_list}")
 
-    # --- Date range filtering ---
+    # ------------------------------------------------------------------
+    # Date range filtering
+    # ------------------------------------------------------------------
     if date_start is not None or date_end is not None:
         date_col = next(
-            (c for c in ("death_date", "date", "DTOBITO", "DTNASC") if c in columns),
+            (c for c in (
+                "death_date", "date", "DTOBITO", "DTNASC",
+                "admission_date", "notification_date",
+            ) if c in columns),
             None,
         )
         if not date_col:
             raise ValueError(
                 "No date column found in the relation. "
-                "Expected one of: death_date, date, DTOBITO, DTNASC."
+                "Expected one of: death_date, date, DTOBITO, DTNASC, "
+                "admission_date, notification_date."
             )
         if date_start:
             rel = rel.filter(
@@ -290,24 +525,35 @@ def sus_filter(
             rel = rel.filter(
                 f'TRY_CAST("{date_col}" AS DATE) <= {sql_string(date_end)}'
             )
+        if verbose:
+            print(f"  Data — coluna: {date_col} | {date_start} → {date_end}")
 
-    # --- Education filtering ---
+    # ------------------------------------------------------------------
+    # Education filtering
+    # ------------------------------------------------------------------
     if education is not None:
         edu_list = [education] if isinstance(education, str) else list(education)
-        edu_col = detect_education_column(columns)
+        edu_col  = detect_education_column(columns)
         if not edu_col:
             raise ValueError(
                 "No education column found in the relation. "
                 "Expected one of: education, education_2010, ESC, ESC2010."
             )
         vals = ", ".join(sql_string(e) for e in edu_list)
-        rel = rel.filter(f'"{edu_col}" IN ({vals})')
+        rel  = rel.filter(f'"{edu_col}" IN ({vals})')
+        if verbose:
+            print(f"  Educação — coluna: {edu_col} | valores: {edu_list}")
 
-    # --- City filtering (resolved to IBGE codes) ---
+    # ------------------------------------------------------------------
+    # City filtering (resolved to IBGE codes)
+    # ------------------------------------------------------------------
     if city is not None:
         city_codes = expand_city_to_codes(city)
-        muni_col = next(
-            (c for c in ("CODMUNRES", "municipality_code", "ID_MUNICIP") if c in columns),
+        muni_col   = next(
+            (c for c in (
+                "CODMUNRES", "municipality_code", "ID_MUNICIP",
+                "residence_municipality_code", "occurrence_municipality_code",
+            ) if c in columns),
             None,
         )
         if not muni_col:
@@ -316,18 +562,64 @@ def sus_filter(
                 "Expected one of: CODMUNRES, municipality_code, ID_MUNICIP."
             )
         vals = ", ".join(sql_string(c) for c in city_codes)
-        rel = rel.filter(f'"{muni_col}" IN ({vals})')
+        rel  = rel.filter(f'"{muni_col}" IN ({vals})')
+        if verbose:
+            print(f"  Cidade — {city!r} → códigos: {city_codes}")
 
-    # --- Drop ignored demographic values ---
+    # ------------------------------------------------------------------
+    # Drop ignored demographic values
+    # ------------------------------------------------------------------
     if drop_ignored:
         ignorable_present = [c for c in _IGNORABLE_DEMO_COLUMNS if c in columns]
-        ignored_vals_sql = ", ".join(sql_string(v) for v in _IGNORED_VALUES if v != "")
+        ignored_vals_sql  = ", ".join(
+            sql_string(v) for v in _IGNORED_VALUES if v != ""
+        )
         for col in ignorable_present:
             rel = rel.filter(
                 f'("{col}" IS NOT NULL AND '
                 f'TRIM(CAST("{col}" AS VARCHAR)) NOT IN ({ignored_vals_sql}) AND '
                 f"TRIM(CAST(\"{col}\" AS VARCHAR)) != '')"
             )
+        if verbose:
+            print(f"  Drop ignored — {len(ignorable_present)} colunas")
+
+    # ------------------------------------------------------------------
+    # sus_meta
+    # ------------------------------------------------------------------
+    filters_applied = []
+    if groups:           filters_applied.append(f"groups={groups!r}")
+    if codes:            filters_applied.append(f"codes={codes!r}")
+    if icd_column:       filters_applied.append(f"icd_column={icd_column!r}")
+    if age_min is not None or age_max is not None:
+                         filters_applied.append(f"age=[{age_min},{age_max}]")
+    if sex is not None:        filters_applied.append(f"sex={sex!r}")
+    if race is not None:       filters_applied.append(f"race={race!r}")
+    if uf is not None:
+        # Say WHERE the state came from when it was derived: residence and
+        # occurrence municipality are different epidemiological cuts, and the
+        # audit trail should show which one the filter used.
+        filters_applied.append(
+            f"uf={uf!r} (derived from {uf_derived_from})"
+            if uf_derived_from
+            else f"uf={uf!r}"
+        )
+    if region is not None:     filters_applied.append(f"region={region!r}")
+    if municipality is not None: filters_applied.append(f"municipality={municipality!r}")
+    if date_start or date_end: filters_applied.append(f"date={date_start}→{date_end}")
+    if education is not None:  filters_applied.append(f"education={education!r}")
+    if city is not None:       filters_applied.append(f"city={city!r}")
+    if drop_ignored:           filters_applied.append("drop_ignored=True")
+
+    history_msg = (
+        f"Filtered: {'; '.join(filters_applied)}"
+        if filters_applied else "Filter applied (no criteria)"
+    )
+
+    rel = rel.set_alias("filter")
+    rel = set_stage(rel, "filter", _inherit_from=_original_rel)
+    rel = add_history(rel, history_msg)
+
+    if verbose:
+        print("✓ sus_filter concluído")
 
     return rel
-

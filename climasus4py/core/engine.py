@@ -5,9 +5,11 @@ Mirrors R: engine.R — lazy evaluation via DuckDB instead of duckplyr.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import warnings
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import duckdb
 
@@ -17,6 +19,86 @@ if TYPE_CHECKING:
 
 # Singleton connection — one per process
 _conn: duckdb.DuckDBPyConnection | None = None
+
+
+def _format_setting(value: Any) -> str:
+    """Render a Python value as a DuckDB ``SET`` literal."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    return f"'{value}'"
+
+
+@contextmanager
+def duckdb_settings(
+    conn: duckdb.DuckDBPyConnection | None = None, **overrides: Any
+) -> Iterator[duckdb.DuckDBPyConnection]:
+    """Apply DuckDB settings for a block, then put them back.
+
+    The connection returned by :func:`get_connection` is a process-wide
+    singleton, so a bare ``SET`` inside one function silently reconfigures
+    every later query in the session. Tuning a memory-hungry step down to
+    96 MB and one thread is reasonable *for that step*; leaving the whole
+    process there is not, and it made unrelated functions fail on a few
+    thousand rows.
+
+    Restoration uses an explicit ``SET`` with the captured value, **not**
+    ``RESET``. On DuckDB 1.5.3, ``RESET memory_limit`` updates the value
+    reported by ``current_setting`` back to the default while leaving the
+    limit actually enforced at the lowered value — so a query afterwards
+    still fails with ``(91.5 MiB/91.5 MiB used)`` even though the setting
+    reads ``6.2 GiB``. Only ``SET`` resizes the buffer pool for real.
+
+    The cost is a small formatting loss when a size is read back as text:
+    ``6.2 GiB`` reparses as ``6.1 GiB``. It is bounded, not cumulative —
+    measured on 1.5.3 it converges after two cycles (6.2 → 6.1 → 6.0 →
+    stable), about 3% of the budget. A restore that reads right but does
+    not hold is worse than one that gives up 3%.
+
+    Args:
+        conn: Connection to configure. Defaults to the shared singleton.
+        **overrides: Settings to apply, e.g. ``memory_limit="96MB"``,
+            ``threads=1``.
+
+    Yields:
+        The configured connection.
+
+    Example:
+        >>> with duckdb_settings(memory_limit="96MB", threads=1) as conn:
+        ...     conn.sql("SELECT 1").fetchall()
+        [(1,)]
+    """
+    conn = conn if conn is not None else get_connection()
+
+    previous: dict[str, Any] = {}
+    for key in overrides:
+        try:
+            previous[key] = conn.sql(f"SELECT current_setting('{key}')").fetchone()[0]
+        except duckdb.Error:
+            # Unknown to this DuckDB build; skip rather than guess a value
+            # to restore it to.
+            pass
+
+    for key, value in overrides.items():
+        if key not in previous:
+            continue
+        conn.execute(f"SET {key}={_format_setting(value)}")
+
+    try:
+        yield conn
+    finally:
+        for key, original in previous.items():
+            try:
+                conn.execute(f"SET {key}={_format_setting(original)}")
+            except duckdb.Error as exc:
+                warnings.warn(
+                    f"Could not restore DuckDB setting {key!r} to "
+                    f"{original!r}: {exc}. Later queries in this session may "
+                    f"behave differently.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
 
 
 def get_connection() -> duckdb.DuckDBPyConnection:

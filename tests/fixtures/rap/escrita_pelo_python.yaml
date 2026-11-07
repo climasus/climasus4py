@@ -1,0 +1,32 @@
+rap_version: '1.0'
+created: '2026-09-18 18:11:24'
+pipeline_type: Mortalidade por temperatura
+parameters:
+  uf:
+  - SP
+  - RJ
+  years:
+  - 2015
+  - 2022
+  system: SIM-DO
+  time_unit: year
+  lang: pt
+  seed: 42
+steps:
+- function_name: sus_data_import
+  params: null
+- function_name: sus_data_clean
+  params: null
+- function_name: sus_data_standardize
+  params:
+    lang: pt
+- function_name: sus_data_aggregate
+  params:
+    time_unit: year
+    geo: state
+metadata:
+  python_version: 3.13.14
+  platform: windows
+  package_version: 0.2.0a4
+  generator: climasus4py 0.2.0a4
+data_hash: 1a3c4980

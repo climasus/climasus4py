@@ -50,9 +50,9 @@ def sus_census(
             census variable columns.
         variables: Census variable columns to include. All columns when
             ``None``.
-        year: Census year. When ``None``, all available census parquets
-            are unioned. Legacy only: emits a ``UserWarning`` for
-            ``year=2010`` (synthetic data).
+        year: Census year. When ``None``, the most recent installed vintage
+            is used, warning when more than one is available. Emits a
+            ``UserWarning`` for ``year=2010`` (synthetic data).
 
     Returns:
         **Lazy mode**: ``DuckDBPyRelation`` with census columns added.
@@ -131,11 +131,47 @@ def sus_census(
 
     # Resolve which census file(s) to read
     census_dir: Path = data_path("assets/census")
-    if year is not None:
-        census_read = f"read_parquet({_sql_path(census_dir / f'census_{year}.parquet')})"
-    else:
-        glob_path = _sql_path(census_dir / "census_*.parquet")
-        census_read = f"read_parquet({glob_path}, union_by_name=true)"
+    if year is None:
+        # Reading every vintage with union_by_name gave the LEFT JOIN one
+        # census row per year for the same municipality, so each health record
+        # came back duplicated and every downstream count was multiplied by the
+        # number of vintages installed. The vintages carry no year column to
+        # tell them apart, so unioning them is not a meaningful dataset —
+        # resolve to the most recent one and say which.
+        available = sorted(
+            int(p.stem.removeprefix("census_"))
+            for p in census_dir.glob("census_*.parquet")
+            if p.stem.removeprefix("census_").isdigit()
+        )
+        if not available:
+            raise FileNotFoundError(
+                f"No census_<year>.parquet found in {census_dir}. Check the "
+                "climasus-data installation, or pass a census DataFrame "
+                "explicitly to use the legacy path."
+            )
+        year = available[-1]
+        if len(available) > 1:
+            warnings.warn(
+                f"sus_census: census vintages available: "
+                f"{', '.join(map(str, available))}; using year={year}. "
+                f"Pass year=... to pick another.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+    # The synthetic-data warning that used to stand here was removed on
+    # 19/10/2026, when census_2010.parquet stopped being generated data
+    # and became the real IBGE Census: scripts/build_census.py aggregates
+    # censobr's 20,635,472 person-level records to municipality level,
+    # producing the same 34 variables climasus4r produces, under the same
+    # names. Verified against the R's own output: 34 of 34 columns
+    # identical across the 350 municipalities both sides covered (M139,
+    # M140).
+    #
+    # The file it replaced was runif() with seed=2010 — São Paulo capital
+    # came out 32.65% urban when the capital is 100% urban by definition.
+
+    census_read = f"read_parquet({_sql_path(census_dir / f'census_{year}.parquet')})"
 
     # Build SELECT clause for requested variables
     if variables is not None:
@@ -154,5 +190,6 @@ def sus_census(
     )
 
     result = rel.query("_census_health", sql)
-    return set_stage(result, "enrichment")
+    # "census", not the generic "enrichment" (M34).
+    return set_stage(result, "census")
 
