@@ -59,8 +59,17 @@ def data_path(relative: str) -> Path:
     Example:
         >>> data_path("metadata/datasus_systems.json").exists()
         True
+
+    Files under ``assets/`` (the parquets) are not installed with
+    climasus-data: when one is missing it is downloaded once from GitHub
+    and cached -- see :mod:`climasus4py.utils.assets`.
     """
-    return _find_data_dir() / relative
+    raiz = _find_data_dir()
+    if relative.replace("\\", "/").startswith("assets/"):
+        from .assets import resolve_asset
+
+        return resolve_asset(raiz, relative)
+    return raiz / relative
 
 
 # ---------------------------------------------------------------------------
@@ -116,13 +125,16 @@ def spatial_asset_path(layer: str = "municipalities", *, simplified: bool = True
             f"Unknown spatial layer {layer!r}. Known: {', '.join(SPATIAL_LAYERS)}"
         )
 
-    cheio = data_path(f"assets/spatial/{layer}.parquet")
+    # The full layer is resolved only when it is the one returned: asking
+    # data_path for it downloads it when absent, and municipalities.parquet
+    # is 150 MB against 30 MB for the simplified one.
     if not simplified:
-        return cheio
+        return data_path(f"assets/spatial/{layer}.parquet")
 
     simples = data_path(f"assets/spatial/{layer}_simplified.parquet")
     if simples.is_file():
         return simples
+    cheio = data_path(f"assets/spatial/{layer}.parquet")
 
     if layer not in _AVISOU_SEM_SIMPLIFICADO:
         _AVISOU_SEM_SIMPLIFICADO.add(layer)

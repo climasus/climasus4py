@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Added — os parquets do climasus-data passam a ser baixados quando uma função precisa deles
+
+- **Download sob demanda dos dados do climasus-data (M231).** O pacote `climasus-data` instalado
+  pelo `pip` traz só os dicionários e metadados em JSON. Os parquets ficam de fora: Censo,
+  polígonos de municípios, estados e regiões, tabelas do INMET (cerca de 200 MB). Por isso, quem
+  instalava só pelo `pip` via `sus_spatial_join`, `sus_census`, a junção de clima e os mapas
+  pararem com "arquivo não encontrado". Agora, na primeira vez que uma função pede um desses
+  arquivos, ele é baixado do GitHub, conferido pela assinatura MD5 do `manifest.json` e guardado
+  num cache do usuário (`%LOCALAPPDATA%\climasus4py` no Windows, `~/.cache/climasus4py` nos outros
+  sistemas). As chamadas seguintes leem do cache. Só é baixado o que a função usa: uma junção
+  espacial com censo baixa 31 MB, e não os 150 MB da versão completa dos polígonos.
+- Os arquivos vêm sempre do mesmo commit do climasus-data (`d76f2fc`), então quem instala hoje ou
+  daqui a um ano recebe os mesmos dados. Quem tem o climasus-data local completo (editável ou via
+  `CLIMASUS_DATA_DIR`) continua usando a cópia local, sem baixar nada. Duas variáveis de ambiente
+  ajustam o comportamento: `CLIMASUS_DATA_REF` (outro commit ou branch) e `CLIMASUS_ASSETS_CACHE`
+  (outra pasta de cache).
+
 ### Fixed — gráficos conferidos com o climasus4r pelo que desenham
 
 - **`sus_climate_plot_heatwaves` (M226).** Nas ondas de calor de SP em 2023, 110 dos 245 eventos
