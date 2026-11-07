@@ -47,6 +47,26 @@ def _make_inmet_df(
     return pd.DataFrame(rows)
 
 
+def _make_hourly_df(n_days: int = 20, n_stations: int = 2, seed: int = 3) -> pd.DataFrame:
+    """Hourly series with a diurnal cycle and a few gaps (block + scattered)."""
+    rng = np.random.default_rng(seed)
+    frames = []
+    for k in range(n_stations):
+        dates = pd.date_range("2023-03-01", periods=24 * n_days, freq="h")
+        hours = dates.hour.to_numpy()
+        temp = 24 + 5 * np.sin(2 * np.pi * (hours - 9) / 24) + rng.normal(0, 0.3, len(dates))
+        rain = np.where(rng.random(len(dates)) < 0.1, rng.gamma(1.0, 2.0, len(dates)), 0.0)
+        temp[100:112] = np.nan
+        temp[rng.choice(len(dates), 15, replace=False)] = np.nan
+        rain[200:206] = np.nan
+        frames.append(pd.DataFrame({
+            "station_code": f"A7{k:02d}", "date": dates, "longitude": -46.6,
+            "tair_dry_bulb_c": temp.astype("float32"), "rainfall_mm": rain.astype("float32"),
+            "rh_mean_porc": rng.uniform(40, 99, len(dates)).astype("float32"),
+        }))
+    return pd.concat(frames, ignore_index=True)
+
+
 @pytest.fixture
 def inmet_df():
     return _make_inmet_df()
@@ -100,17 +120,20 @@ def test_backend_xgboost_raises_when_not_installed():
 # ---------------------------------------------------------------------------
 
 
-def test_xgboost_path_fills_gaps(inmet_df):
+def test_xgboost_path_fills_gaps():
     """When xgboost is available, gaps should be filled and flag column present."""
     if not _xgboost_available():
         pytest.skip("xgboost not installed in this environment")
+    # Hourly, so every station has well over the 30 observations R requires.
+    df = _make_hourly_df()
     result = sus_climate_fill_inmet(
-        inmet_df, target_var="tair_dry_bulb_c", backend="xgboost",
+        df, target_var="tair_dry_bulb_c", backend="xgboost",
         parallel=False, verbose=False
     )
     assert isinstance(result, pd.DataFrame)
     assert result["tair_dry_bulb_c"].isna().sum() == 0
     assert "is_imputed_tair_dry_bulb_c" in result.columns
+    assert result["is_imputed_tair_dry_bulb_c"].sum() == df["tair_dry_bulb_c"].isna().sum()
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +162,8 @@ def test_quality_threshold_excludes_bad_stations():
             quality_threshold=0.4, backend="linear", verbose=False
         )
     assert isinstance(result, pd.DataFrame)
+    # As in R: a station over the threshold leaves the output.
+    assert set(result["station_code"]) == {"GOOD"}
 
 
 # ---------------------------------------------------------------------------

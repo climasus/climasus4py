@@ -1,19 +1,34 @@
 """INMET gap-filling using XGBoost (opt-in) or linear fallback.
 
-Mirrors R: sus_climate_fill_inmet (sus_climate_fill_gap.R)
+Mirrors R: ``climasus4r::sus_climate_fill_inmet`` and its per-station worker
+``.process_single_station_xgboost2`` (feature set, feature imputation,
+hyperparameters, target transforms, physical limits, extreme-value smoothing
+and the quality filter). Numbers do not match the R package value by value:
+XGBoost draws its row/column subsamples from a different random generator in
+each language, so the same seed gives different trees. The *method* is the
+same.
 
-Backend resolution (backend="auto"):
-  - xgboost if `pip install climasus4py[xgboost]` or xgboost is available
+Backend resolution (``backend="auto"``):
+  - xgboost if ``pip install climasus4py[xgboost]`` or xgboost is available
   - linear interpolation otherwise, with a UserWarning
 
-Model cache:
-  Per-station per-variable models are cached to
-  ~/.climasus4py/models/<station>_<var>.joblib to avoid retraining.
+Deliberate departures from R (each one a confirmed R defect, see
+MELHORIAS.csv):
+  - Night-time solar radiation: R turns a missing ``sr_kj_m2`` into 0 between
+    18h and 6h of the *UTC* clock, which is 15h-3h in Brasilia, so it zeroes
+    afternoon gaps and leaves pre-dawn gaps to the model. Here night is
+    18h-6h of the station's *solar* time (UTC + longitude / 15).
+  - R does that zeroing after the quality filter, so a station "misses" ~46%
+    of its radiation just because the sun is down and is dropped. Here the
+    zeroing happens before the filter.
+
+Models are not cached (they used to be, keyed by station + variable only, so
+a model trained on one dataset was silently reused on another).
 """
 
 from __future__ import annotations
 
-import hashlib
+import re
 import warnings
 from pathlib import Path
 from typing import Literal
@@ -22,7 +37,7 @@ import numpy as np
 import pandas as pd
 
 # ---------------------------------------------------------------------------
-# INMET canonical variable set
+# INMET canonical variable set (same order as R's .known_climate_vars)
 # ---------------------------------------------------------------------------
 
 KNOWN_INMET_VARS: tuple[str, ...] = (
@@ -46,7 +61,72 @@ KNOWN_INMET_VARS: tuple[str, ...] = (
 )
 
 _STATION_HINTS = ("station_code", "station", "estacao", "cd_estacao")
-_DEFAULT_CACHE_DIR = Path.home() / ".climasus4py" / "models"
+
+# ---------------------------------------------------------------------------
+# Constants mirrored from climasus4r
+# ---------------------------------------------------------------------------
+
+#: Fewer observed hours than this and the station is left untouched (R: 30).
+_MIN_TRAIN = 30
+#: create_lag_features(lag_periods = c(1, 2, 3, 12, 24, 168)).
+_LAGS = (1, 2, 3, 12, 24, 168)
+#: create_rolling_features(windows = c(3, 6, 12, 24), stats = c("mean", "sd")).
+_ROLL_WINDOWS = (3, 6, 12, 24)
+#: base_params of .process_single_station_xgboost2.
+_XGB_PARAMS = {
+    "booster": "gbtree",
+    "eval_metric": "rmse",
+    "objective": "reg:squarederror",
+    "eta": 0.05,
+    "max_depth": 4,
+    "subsample": 0.7,
+    "colsample_bytree": 0.7,
+    "min_child_weight": 3,
+    "alpha": 0.5,
+    "lambda": 2,
+    "gamma": 0.1,
+    "nthread": 1,
+    "tree_method": "hist",
+    "seed": 42,
+}
+_NROUNDS = 200
+_EARLY_STOPPING = 20
+#: .smooth_extreme_predictions(iqr_multiplier = 5), alpha = 0.3.
+_IQR_MULT = 5.0
+_SMOOTH_ALPHA = 0.3
+#: .handle_solar_radiation(night_start = 18, night_end = 6).
+_NIGHT_START, _NIGHT_END = 18, 6
+#: Fallback UTC offset (Brasilia) when there is no longitude column.
+_DEFAULT_UTC_OFFSET_H = -3.0
+#: After filling, R stores these as integers (as.integer(round(x))).
+_ROUNDED_VARS = ("rh_max_porc", "rh_min_porc", "rh_mean_porc", "wd_degrees")
+
+_MSG = {
+    "skip": {
+        "pt": "  Ignorando {n} estação(ões) com >{p}% de valores faltantes em "
+              "{var} -- removidas do resultado: {st}",
+        "en": "  Skipping {n} station(s) with >{p}% missing values in {var} "
+              "-- removed from the output: {st}",
+        "es": "  Omitiendo {n} estación(es) con >{p}% de valores faltantes en "
+              "{var} -- eliminadas del resultado: {st}",
+    },
+    "none_pass": {
+        "pt": "  Pulando '{var}': nenhuma estação passou no limite de {p}%.",
+        "en": "  Skipping '{var}': no station passed the quality threshold of {p}%.",
+        "es": "  Omitiendo '{var}': ninguna estación pasó el umbral de {p}%.",
+    },
+    "done": {
+        "pt": "  Imputação concluída para {var}: {n} linha(s) de {t} ({pc:.2f}%).",
+        "en": "  Imputation completed for {var}: {n} row(s) out of {t} ({pc:.2f}%).",
+        "es": "  Imputación completada para {var}: {n} fila(s) de {t} ({pc:.2f}%).",
+    },
+}
+
+
+def _msg(key: str, lang: str, **kw) -> str:
+    tabela = _MSG[key]
+    return tabela.get(lang, tabela["pt"]).format(**kw)
+
 
 # ---------------------------------------------------------------------------
 # Helpers: availability checks
@@ -92,30 +172,203 @@ def _detect_datetime_col(df: pd.DataFrame) -> str | None:
     return None
 
 
+def _as_naive_utc(dt: pd.Series) -> pd.Series:
+    dt = pd.to_datetime(dt)
+    if getattr(dt.dt, "tz", None) is not None:
+        dt = dt.dt.tz_convert("UTC").dt.tz_localize(None)
+    return dt
+
+
 # ---------------------------------------------------------------------------
-# Feature engineering
+# Per-variable rules (R: get_transform_rule, prediction clipping)
 # ---------------------------------------------------------------------------
 
 
-def _engineer_features(df: pd.DataFrame, target_var: str) -> pd.DataFrame:
-    """Add temporal lag and rolling features for XGBoost input."""
-    feats = df.copy()
-    feats["_hour"] = pd.to_datetime(feats["_datetime"]).dt.hour
-    feats["_dayofweek"] = pd.to_datetime(feats["_datetime"]).dt.dayofweek
-    feats["_month"] = pd.to_datetime(feats["_datetime"]).dt.month
+def _transform_rule(target_var: str) -> str:
+    """R get_transform_rule(): log1p for rain, sqrt for wind and radiation."""
+    if re.search("rainfall", target_var):
+        return "log1p"
+    if re.search("ws_|gust", target_var):
+        return "sqrt"
+    if re.search("sr_kj", target_var):
+        return "sqrt"
+    return "none"
 
-    for lag in [1, 3, 7, 14]:
-        feats[f"{target_var}_lag{lag}"] = feats[target_var].shift(lag)
 
-    for window in [3, 7]:
-        feats[f"{target_var}_rolling_mean{window}"] = (
-            feats[target_var].rolling(window, min_periods=1).mean()
-        )
-        feats[f"{target_var}_rolling_std{window}"] = (
-            feats[target_var].rolling(window, min_periods=1).std().fillna(0)
-        )
+def _forward(y: np.ndarray, rule: str) -> np.ndarray:
+    if rule == "log1p":
+        return np.log1p(y)
+    if rule == "sqrt":
+        return np.sqrt(y)
+    return y
 
-    return feats
+
+def _inverse(p: np.ndarray, rule: str) -> np.ndarray:
+    if rule == "log1p":
+        return np.expm1(p)
+    if rule == "sqrt":
+        return p ** 2
+    return p
+
+
+def _clip_predictions(preds: np.ndarray, target_var: str) -> np.ndarray:
+    """Physical limits, same regexes and order as R."""
+    if re.search("rh|umid|humidity", target_var, re.IGNORECASE):
+        return np.clip(preds, 0, 100)
+    if re.search("t.*c|temp", target_var, re.IGNORECASE):
+        return np.clip(preds, -90, 60)
+    if re.search("pres|patm", target_var, re.IGNORECASE):
+        return np.clip(preds, 700, 1100)
+    if re.search("rain|precip", target_var, re.IGNORECASE):
+        return np.maximum(preds, 0)
+    if re.search("ws|wind", target_var, re.IGNORECASE):
+        return np.maximum(preds, 0)
+    return preds
+
+
+def _smooth_extreme_predictions(preds: np.ndarray, train_vals: np.ndarray) -> np.ndarray:
+    """R .smooth_extreme_predictions: pull values beyond 5 IQR 30% to the mean."""
+    q1, q3 = np.nanquantile(train_vals, [0.25, 0.75])
+    iqr = q3 - q1
+    lo, hi = q1 - _IQR_MULT * iqr, q3 + _IQR_MULT * iqr
+    out = preds.copy()
+    extreme = (out < lo) | (out > hi)
+    if extreme.any():
+        mean = np.nanmean(train_vals)
+        out[extreme] = _SMOOTH_ALPHA * mean + (1 - _SMOOTH_ALPHA) * out[extreme]
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Feature engineering (R: create_time_features, create_lag_features,
+# create_rolling_features) -- 53 columns with R's names
+# ---------------------------------------------------------------------------
+
+
+def _impute_feature(s: pd.Series) -> pd.Series:
+    """zoo::na.approx(rule = 2) -> na.locf both ways -> mean, as in R."""
+    if s.isna().all():
+        return s
+    s = s.interpolate(method="linear", limit_direction="both")
+    s = s.ffill().bfill()
+    return s.fillna(s.mean())
+
+
+def _time_features(dt: pd.Series) -> pd.DataFrame:
+    """R create_time_features(), minus ``year`` (R's selection regex drops it)."""
+    dt = _as_naive_utc(dt)
+    hour = dt.dt.hour.astype("int64")
+    month = dt.dt.month.astype("int64")
+    doy = dt.dt.dayofyear.astype("int64")
+    quarter = dt.dt.quarter.astype("int64")
+    week = dt.dt.isocalendar().week.astype("int64")
+    weekday = dt.dt.dayofweek.astype("int64")  # Monday = 0, as R wday(week_start=1) - 1
+    season = month.map({12: 0, 1: 0, 2: 0, 3: 1, 4: 1, 5: 1,
+                        6: 2, 7: 2, 8: 2, 9: 3, 10: 3, 11: 3}).astype("int64")
+    two_pi = 2 * np.pi
+    f = pd.DataFrame(index=dt.index)
+    f["hour"] = hour
+    f["day"] = dt.dt.day.astype("int64")
+    f["month"] = month
+    f["dayofyear"] = doy
+    f["quarter"] = quarter
+    f["weekofyear"] = week
+    f["weekday"] = weekday
+    f["is_weekend"] = (weekday >= 5).astype("int64")
+    f["season"] = season
+    f["hour_sin"] = np.sin(two_pi * hour / 24)
+    f["hour_cos"] = np.cos(two_pi * hour / 24)
+    f["month_sin"] = np.sin(two_pi * month / 12)
+    f["month_cos"] = np.cos(two_pi * month / 12)
+    f["dayofyear_sin"] = np.sin(two_pi * doy / 365.25)
+    f["dayofyear_cos"] = np.cos(two_pi * doy / 365.25)
+    f["weekday_sin"] = np.sin(two_pi * weekday / 7)
+    f["weekday_cos"] = np.cos(two_pi * weekday / 7)
+    f["quarter_sin"] = np.sin(two_pi * quarter / 4)
+    f["quarter_cos"] = np.cos(two_pi * quarter / 4)
+    f["weekofyear_sin"] = np.sin(two_pi * week / 52)
+    f["weekofyear_cos"] = np.cos(two_pi * week / 52)
+    for k in range(4):
+        f[f"season_{k}"] = (season == k).astype("int64")
+    f["is_morning"] = ((hour >= 6) & (hour < 12)).astype("int64")
+    f["is_afternoon"] = ((hour >= 12) & (hour < 18)).astype("int64")
+    f["is_evening"] = ((hour >= 18) & (hour < 22)).astype("int64")
+    f["is_night"] = ((hour >= 22) | (hour < 6)).astype("int64")
+    f["hour_decimal"] = hour + dt.dt.minute / 60
+    return f
+
+
+def _lag_features(y: pd.Series, var: str) -> pd.DataFrame:
+    """R create_lag_features(): lags, leads, seasonal lags, diff; NAs imputed."""
+    # Column order as R hands them to XGBoost (the "same_hour" pair comes
+    # first because R's selection regex catches it with the time features).
+    f = pd.DataFrame(index=y.index)
+    f[f"{var}_same_hour_yesterday"] = y.shift(24)
+    f[f"{var}_same_hour_last_week"] = y.shift(168)
+    for k in _LAGS:
+        f[f"{var}_lag_{k}"] = y.shift(k)
+    for k in _LAGS:
+        f[f"{var}_lead_{k}"] = y.shift(-k)
+    f[f"{var}_diff_current_lag_1"] = y - f[f"{var}_lag_1"]
+    return f.apply(_impute_feature)
+
+
+def _rolling_features(y: pd.Series, var: str) -> pd.DataFrame:
+    """R create_rolling_features(): right-aligned mean/sd ignoring NA; imputed.
+
+    zoo::rollmean(fill = NA, align = "right") leaves the first k-1 positions NA
+    and averages the non-missing values of every full window (na.rm = TRUE).
+    """
+    f = pd.DataFrame(index=y.index)
+    n = len(y)
+    for w in _ROLL_WINDOWS:
+        if n < w:
+            f[f"{var}_rolling_mean_{w}"] = y.mean()
+            f[f"{var}_rolling_sd_{w}"] = y.mean()
+            continue
+        r = y.rolling(w, min_periods=1)
+        mean, sd = r.mean(), r.std()
+        mean.iloc[: w - 1] = np.nan
+        sd.iloc[: w - 1] = np.nan
+        f[f"{var}_rolling_mean_{w}"] = _impute_feature(mean)
+        f[f"{var}_rolling_sd_{w}"] = _impute_feature(sd)
+    return f
+
+
+def _engineer_features(dt: pd.Series, y: pd.Series, var: str) -> pd.DataFrame:
+    """The 53 features R gives XGBoost: time + lags/leads/rolling of the target.
+
+    No other meteorological variable is used: when an INMET station goes
+    down, every variable goes missing in the same hour.
+    """
+    return pd.concat([_time_features(dt), _lag_features(y, var),
+                      _rolling_features(y, var)], axis=1)
+
+
+# ---------------------------------------------------------------------------
+# Solar radiation at night
+# ---------------------------------------------------------------------------
+
+
+def _is_night(dt_utc: pd.Series, longitude: pd.Series | None) -> np.ndarray:
+    """Night by the station's solar clock (UTC + longitude / 15 h)."""
+    h = dt_utc.dt.hour + dt_utc.dt.minute / 60
+    if longitude is not None:
+        offset = pd.to_numeric(longitude, errors="coerce").fillna(
+            _DEFAULT_UTC_OFFSET_H * 15) / 15
+    else:
+        offset = _DEFAULT_UTC_OFFSET_H
+    solar = (h + offset) % 24
+    return ((solar >= _NIGHT_START) | (solar < _NIGHT_END)).to_numpy()
+
+
+def _zero_night_radiation(df: pd.DataFrame, var: str, dt_col: str) -> pd.DataFrame:
+    lon = df["longitude"] if "longitude" in df.columns else None
+    night = _is_night(_as_naive_utc(df[dt_col]), lon)
+    fill = night & df[var].isna().to_numpy()
+    if fill.any():
+        df.loc[fill, var] = 0
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -143,141 +396,163 @@ def _fill_linear(
 
 
 # ---------------------------------------------------------------------------
-# XGBoost fill (per station, cached)
+# XGBoost fill, one station (R: .process_single_station_xgboost2)
 # ---------------------------------------------------------------------------
 
 
-def _cache_path(
-    station: str,
-    target_var: str,
-    cache_dir: Path,
-    feature_cols: list[str] | None = None,
-) -> Path:
-    """Build a cache filename keyed by station, var, package version, and feature signature.
-
-    The signature ensures models cached under one version of
-    ``_engineer_features`` are not silently reused after that function
-    changes. ``usedforsecurity=False`` is required for FIPS-mode Python.
-    """
-    from .._version import __version__ as _pkg_version
-
-    key = hashlib.md5(
-        f"{station}_{target_var}".encode(), usedforsecurity=False
-    ).hexdigest()[:12]
-    feat_sig = "noinfo"
-    if feature_cols:
-        sig_input = "|".join(sorted(feature_cols)) + "|" + _pkg_version
-        feat_sig = hashlib.md5(
-            sig_input.encode(), usedforsecurity=False
-        ).hexdigest()[:8]
-    return cache_dir / f"{station}_{target_var}_{key}_v{_pkg_version}_{feat_sig}.joblib"
-
-
 def _fill_xgboost_station(
-    df_station: pd.DataFrame,
+    dt: pd.Series,
+    y: pd.Series,
     target_var: str,
-    station_id: str,
-    cache_dir: Path,
-    run_evaluation: bool,
-    gap_percentage: float,
-) -> tuple[pd.DataFrame, dict | None]:
-    """Fill one station's gaps using XGBoost (train + predict on NaN rows)."""
-    import joblib
+) -> tuple[np.ndarray, np.ndarray]:
+    """Fill one station's series. Inputs must be sorted by time.
+
+    Returns ``(values, imputed_mask)``. With fewer than 30 observed values the
+    series comes back untouched, as in R.
+    """
     import xgboost as xgb
 
-    df_s = df_station.copy().reset_index(drop=True)
-    observed_mask = df_s[target_var].notna()
+    y = pd.Series(y.to_numpy(dtype="float64"), index=range(len(y)))
+    dt = pd.Series(pd.to_datetime(dt).to_numpy(), index=y.index)
+    gaps = y.isna().to_numpy()
+    observed = ~gaps
+    if observed.sum() < _MIN_TRAIN or not gaps.any():
+        return y.to_numpy(), np.zeros(len(y), dtype=bool)
 
-    if observed_mask.sum() < 10:
-        # Not enough data to train — fall back to linear
-        df_s[target_var] = df_s[target_var].interpolate(method="linear")
-        df_s[f"is_imputed_{target_var}"] = df_station[target_var].isna() & df_s[target_var].notna()
-        return df_s, None
+    rule = _transform_rule(target_var)
+    y_obs = y.to_numpy()[observed]
+    with np.errstate(invalid="ignore"):
+        y_train = _forward(y_obs, rule)
 
-    # Evaluation mode: mask gap_percentage of observed rows artificially
-    eval_metrics: dict | None = None
-    if run_evaluation:
-        rng = np.random.default_rng(42)
-        mask_idx = rng.choice(
-            df_s.index[observed_mask],
-            size=max(1, int(observed_mask.sum() * gap_percentage)),
-            replace=False,
+    feats = _engineer_features(dt, y, target_var)
+    x_train = feats.loc[observed]
+    x_train = x_train.loc[:, x_train.notna().any()]
+    x_train = x_train.fillna(x_train.mean())
+    cols = list(x_train.columns)
+
+    try:
+        dtrain = xgb.DMatrix(x_train.to_numpy(dtype="float64"), label=y_train)
+        booster = xgb.train(
+            _XGB_PARAMS, dtrain, num_boost_round=_NROUNDS,
+            evals=[(dtrain, "train")], early_stopping_rounds=_EARLY_STOPPING,
+            verbose_eval=False,
         )
-        true_vals = df_s.loc[mask_idx, target_var].copy()
-        df_s.loc[mask_idx, target_var] = np.nan
-        observed_mask = df_s[target_var].notna()
+    except Exception as exc:  # noqa: BLE001 -- R also catches and skips
+        warnings.warn(f"Model training failed for {target_var}: {exc}", UserWarning,
+                      stacklevel=3)
+        return y.to_numpy(), np.zeros(len(y), dtype=bool)
 
-    # Feature engineering
-    feats = _engineer_features(df_s, target_var)
-    feature_cols = [
-        c for c in feats.columns
-        if c not in (target_var, "_datetime", f"is_imputed_{target_var}")
-        and feats[c].dtype in (np.float64, np.int64, np.float32)
-    ]
-    feature_cols = [c for c in feature_cols if feats[c].notna().any()]
+    try:
+        x_pred = xgb.DMatrix(feats.loc[gaps, cols].to_numpy(dtype="float64"))
+        preds = booster.predict(
+            x_pred, iteration_range=(0, booster.best_iteration + 1))
+        preds = _inverse(preds.astype("float64"), rule)
+        preds = _clip_predictions(preds, target_var)
+        preds = _smooth_extreme_predictions(preds, y_obs)
+    except Exception:  # noqa: BLE001 -- R falls back to the training mean
+        preds = np.full(int(gaps.sum()), np.nanmean(y_obs))
 
-    train_mask = observed_mask & feats[feature_cols].notna().all(axis=1)
-    X_train = feats.loc[train_mask, feature_cols].values
-    y_train = feats.loc[train_mask, target_var].values
+    out = y.to_numpy().copy()
+    out[gaps] = preds
+    return out, gaps
 
-    gap_mask = df_s[target_var].isna()
-    if gap_mask.sum() == 0:
-        df_s[f"is_imputed_{target_var}"] = False
-        return df_s, None
 
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_file = _cache_path(station_id, target_var, cache_dir, feature_cols)
+def _station_groups(df: pd.DataFrame, station_col: str | None, dt_col: str | None):
+    """Yield (station, row labels sorted by time; input order if no time)."""
+    def _ordem(g: pd.DataFrame) -> pd.Index:
+        return g.sort_values(dt_col, kind="stable").index if dt_col else g.index
 
-    if cache_file.exists():
-        model = joblib.load(cache_file)
-        # Validate feature compatibility — guards against stale models if a
-        # bug bypassed the version+feature-signature path component.
-        expected = getattr(model, "n_features_in_", None)
-        if expected is not None and expected != len(feature_cols):
-            cache_file.unlink(missing_ok=True)
-            model = xgb.XGBRegressor(
-                n_estimators=100, max_depth=5, learning_rate=0.1,
-                random_state=42, n_jobs=1, verbosity=0,
-            )
-            model.fit(X_train, y_train)
-            joblib.dump(model, cache_file)
+    if station_col is None:
+        yield None, _ordem(df)
+        return
+    for st, g in df.groupby(station_col, sort=False):
+        yield st, _ordem(g)
+
+
+def _fill_var_xgboost(
+    df: pd.DataFrame,
+    var: str,
+    station_col: str | None,
+    dt_col: str,
+    n_jobs: int,
+) -> tuple[pd.Series, pd.Series]:
+    """Run the per-station fill for one variable; returns (values, flags)."""
+    groups = list(_station_groups(df, station_col, dt_col))
+    tasks = [(df.loc[idx, dt_col], df.loc[idx, var]) for _, idx in groups]
+
+    if n_jobs != 1 and len(tasks) > 1 and _joblib_available():
+        from joblib import Parallel, delayed
+
+        results = Parallel(n_jobs=n_jobs)(
+            delayed(_fill_xgboost_station)(d, y, var) for d, y in tasks)
     else:
-        model = xgb.XGBRegressor(
-            n_estimators=100,
-            max_depth=5,
-            learning_rate=0.1,
-            random_state=42,
-            n_jobs=1,
-            verbosity=0,
-        )
-        model.fit(X_train, y_train)
-        joblib.dump(model, cache_file)
+        results = [_fill_xgboost_station(d, y, var) for d, y in tasks]
 
-    X_gap = feats.loc[gap_mask, feature_cols].fillna(feats[feature_cols].median()).values
-    predictions = model.predict(X_gap)
-    df_s.loc[gap_mask, target_var] = predictions
-    df_s[f"is_imputed_{target_var}"] = gap_mask & df_s[target_var].notna()
+    values = pd.Series(np.nan, index=df.index, dtype="float64")
+    flags = pd.Series(False, index=df.index)
+    for (_, idx), (v, m) in zip(groups, results, strict=True):
+        values.loc[idx] = v
+        flags.loc[idx] = m
+    return values, flags
 
-    if run_evaluation:
-        feats2 = _engineer_features(df_s, target_var)
-        X_eval = feats2.loc[mask_idx, feature_cols].fillna(feats2[feature_cols].median()).values
-        y_pred = model.predict(X_eval)
-        y_true = true_vals.values
-        mae = float(np.mean(np.abs(y_pred - y_true)))
-        rmse = float(np.sqrt(np.mean((y_pred - y_true) ** 2)))
-        ss_res = np.sum((y_true - y_pred) ** 2)
-        ss_tot = np.sum((y_true - y_true.mean()) ** 2)
-        r2 = float(1 - ss_res / ss_tot) if ss_tot > 0 else float("nan")
-        eval_metrics = {
-            "station": station_id,
-            "predictions": pd.Series(y_pred, index=mask_idx),
-            "metrics": {"mae": mae, "rmse": rmse, "r2": r2},
-        }
-        # Restore original gaps
-        df_s.loc[mask_idx, target_var] = np.nan
-        df_s.loc[mask_idx, f"is_imputed_{target_var}"] = False
 
-    return df_s, eval_metrics
+def _store(df: pd.DataFrame, var: str, values: pd.Series) -> None:
+    """Write filled values back keeping the column's float dtype (float32 stays)."""
+    dtype = df[var].dtype
+    if pd.api.types.is_float_dtype(dtype):
+        df[var] = values.astype(dtype)
+    else:
+        df[var] = values
+
+
+# ---------------------------------------------------------------------------
+# Evaluation mode
+# ---------------------------------------------------------------------------
+
+
+def _evaluate_var(
+    df: pd.DataFrame,
+    var: str,
+    station_col: str | None,
+    dt_col: str | None,
+    gap_percentage: float,
+    use_xgboost: bool,
+) -> dict:
+    """Mask ``gap_percentage`` of the observed values per station and score."""
+    rng = np.random.default_rng(42)
+    rows, metrics = [], []
+    for st, idx in _station_groups(df, station_col, dt_col):
+        dt = df.loc[idx, dt_col] if dt_col else pd.Series(np.arange(len(idx)))
+        y = df.loc[idx, var].astype("float64").reset_index(drop=True)
+        obs = np.flatnonzero(y.notna().to_numpy())
+        if len(obs) == 0:
+            continue
+        hide = rng.choice(obs, size=max(1, int(len(obs) * gap_percentage)), replace=False)
+        truth = y.iloc[hide].to_numpy()
+        y_masked = y.copy()
+        y_masked.iloc[hide] = np.nan
+        if use_xgboost:
+            filled, _ = _fill_xgboost_station(dt, y_masked, var)
+        else:
+            filled = y_masked.interpolate(method="linear").to_numpy()
+        pred = filled[hide]
+        ok = ~np.isnan(pred)
+        err = pred[ok] - truth[ok]
+        ss_tot = np.sum((truth[ok] - truth[ok].mean()) ** 2)
+        metrics.append({
+            "station": st,
+            "mae": float(np.mean(np.abs(err))) if ok.any() else np.nan,
+            "rmse": float(np.sqrt(np.mean(err ** 2))) if ok.any() else np.nan,
+            "r2": float(1 - np.sum(err ** 2) / ss_tot) if ss_tot > 0 else np.nan,
+            "n": int(ok.sum()),
+        })
+        rows.append(pd.DataFrame({
+            "date": dt.to_numpy()[hide], "station": st,
+            "true_value": truth, "pred_value": pred,
+        }))
+    data = (pd.concat(rows, ignore_index=True).sort_values("date", ignore_index=True)
+            if rows else pd.DataFrame(columns=["date", "station", "true_value", "pred_value"]))
+    return {"data": data, "metrics": pd.DataFrame(metrics)}
 
 
 # ---------------------------------------------------------------------------
@@ -304,50 +579,68 @@ def sus_climate_fill_inmet(
 ) -> pd.DataFrame | dict:
     """Fill gaps in INMET station data via XGBoost (opt-in) or linear fallback.
 
-    Mirrors ``climasus4r::sus_climate_fill_inmet`` exactly.
+    Follows ``climasus4r::sus_climate_fill_inmet``: one XGBoost model per
+    station and variable, trained on 53 features built from the time stamp
+    and from the variable's own history (lags and leads of 1, 2, 3, 12, 24
+    and 168 hours, the same hour yesterday and last week, rolling mean and
+    standard deviation over 3, 6, 12 and 24 hours). Rain is modelled on
+    ``log1p`` and wind/radiation on the square root; predictions are clipped
+    to physical limits and values beyond 5 IQR are pulled towards the mean.
+    The same seed does not reproduce R's numbers -- the random generators
+    differ -- but the method is the same.
 
     Backend resolution (``backend="auto"``):
       - Uses XGBoost when ``pip install climasus4py[xgboost]`` (or xgboost
-        is importable); trains a model per station per variable.
+        is importable).
       - Falls back to linear interpolation with a ``UserWarning`` when
         XGBoost is unavailable.
 
-    Model cache: ``~/.climasus4py/models/<station>_<var>_<hash>.joblib``
-    A cached model is reused on the second call with the same station/variable.
+    Quality filter (as in R): variables are processed in order and, for each
+    one, a station with more than ``quality_threshold`` of that variable
+    missing is **removed from the output entirely**, with its other
+    variables. If no station passes for a variable, the variable is skipped
+    and nothing is removed. Night-time missing ``sr_kj_m2`` is set to 0 by
+    the station's solar clock *before* the filter, so the dark hours do not
+    count as missing.
 
     Args:
         df: DataFrame with INMET station data, typically from
-            ``sus_climate_inmet()`` or a materialised ``sus_climate_fill_inmet``
-            result. Must contain a datetime column and a numeric target variable.
+            ``sus_climate_inmet()``. Must contain a datetime column and the
+            target variable(s).
         target_var: Column name(s) to impute, or ``"all"`` to impute every
             INMET canonical variable present in *df*.
         datetime_col: Name of the datetime column (auto-detected if ``None``).
         station_col: Name of the station column (auto-detected if ``None``).
-        quality_threshold: Max proportion of missing values per station (0-1).
-            Stations above this threshold are excluded. Default: ``0.4``.
-        run_evaluation: If ``True``, creates artificial MCAR gaps and evaluates
-            model accuracy. Returns a ``dict`` keyed by variable name.
-        gap_percentage: Proportion of observed data to mask for evaluation.
+        quality_threshold: Max proportion of missing values per station and
+            variable (0-1). Default: ``0.4``.
+        run_evaluation: If ``True``, hides ``gap_percentage`` of the observed
+            values of each station, fills them and scores the result. Returns
+            a ``dict`` keyed by variable name.
+        gap_percentage: Proportion of observed data to hide for evaluation.
             Default: ``0.2``.
-        keep_features: Retain engineered lag/rolling columns. Default: ``False``.
+        keep_features: Kept for compatibility with R; as in R the engineered
+            features are internal and never returned.
         parallel: Process stations in parallel using ``joblib``. Default: ``True``.
         workers: Number of parallel workers (``None`` = all CPUs - 1).
         verbose: Print progress messages. Default: ``True``.
-        lang: Message language — ``"pt"``, ``"en"``, ``"es"``.
+        lang: Message language -- ``"pt"``, ``"en"``, ``"es"``.
         backend: ``"auto"`` (XGBoost if available, else linear),
             ``"xgboost"`` (requires the extra), ``"linear"`` (always linear).
-        cache_dir: Directory for model cache files.
-            Default: ``~/.climasus4py/models/``.
+        cache_dir: Deprecated and ignored. Models are no longer cached.
 
     Returns:
-        **Production mode** (``run_evaluation=False``): ``pd.DataFrame`` with
-        imputed values and ``is_imputed_<var>`` flag columns.
+        **Production mode** (``run_evaluation=False``): ``pd.DataFrame`` in
+        the input row order (minus removed stations), with imputed values and
+        ``is_imputed_<var>`` flag columns.
 
-        **Evaluation mode** (``run_evaluation=True``): ``dict`` with one key per
-        variable, each value being ``{"data": df, "metrics": {mae, rmse, r2}}``.
+        **Evaluation mode** (``run_evaluation=True``): ``dict`` with one key
+        per variable, each value being ``{"data": df, "metrics": df}`` --
+        ``data`` holds ``date, station, true_value, pred_value`` for every
+        hidden value and ``metrics`` one row per station (mae, rmse, r2, n).
 
     Raises:
-        ValueError: If *target_var* names are not found in *df*.
+        ValueError: If *target_var* names are not found in *df*, or the
+            XGBoost backend is used without a datetime column.
         ImportError: If ``backend="xgboost"`` and xgboost is not installed.
 
     Example:
@@ -356,7 +649,13 @@ def sus_climate_fill_inmet(
         >>> filled = cs.sus_climate_fill_inmet(df, target_var="tair_dry_bulb_c")
         >>> filled_all = cs.sus_climate_fill_inmet(df, target_var="all")
     """
-    _cache_dir = Path(cache_dir) if cache_dir else _DEFAULT_CACHE_DIR
+    if cache_dir is not None:
+        warnings.warn(
+            "cache_dir is ignored: sus_climate_fill_inmet no longer caches "
+            "models. Old files in ~/.climasus4py/models can be deleted.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     # ------------------------------------------------------------------
     # Resolve backend
@@ -381,10 +680,10 @@ def sus_climate_fill_inmet(
             )
 
     # ------------------------------------------------------------------
-    # Normalise target_var
+    # Normalise target_var (R order for "all")
     # ------------------------------------------------------------------
-    if target_var == "all":
-        vars_to_fill = [c for c in df.columns if c in KNOWN_INMET_VARS]
+    if isinstance(target_var, str) and target_var == "all":
+        vars_to_fill = [v for v in KNOWN_INMET_VARS if v in df.columns]
         if not vars_to_fill:
             warnings.warn(
                 "No canonical INMET variables found in DataFrame. "
@@ -407,151 +706,85 @@ def sus_climate_fill_inmet(
     # ------------------------------------------------------------------
     # Auto-detect station and datetime columns
     # ------------------------------------------------------------------
-    _datetime_col = datetime_col or _detect_datetime_col(df)
+    _dt_col = datetime_col or _detect_datetime_col(df)
     _station_col = station_col or _detect_station_col(df)
-
-    if verbose:
-        _msg = {
-            "pt": (
-                f"[sus_climate_fill_inmet] backend={'xgboost' if use_xgboost else 'linear'}, "
-                f"variáveis={vars_to_fill}"
-            ),
-            "en": (
-                f"[sus_climate_fill_inmet] backend={'xgboost' if use_xgboost else 'linear'}, "
-                f"variables={vars_to_fill}"
-            ),
-            "es": (
-                f"[sus_climate_fill_inmet] backend={'xgboost' if use_xgboost else 'linear'}, "
-                f"variables={vars_to_fill}"
-            ),
-        }
-        print(_msg.get(lang, _msg["pt"]))
-
-    # ------------------------------------------------------------------
-    # Quality filter: exclude stations with too many NaN
-    # ------------------------------------------------------------------
-    result_df = df.copy()
-    stations_excluded: list[str] = []
-
-    if _station_col:
-        stations = result_df[_station_col].unique().tolist()
-        stations_kept = []
-        for st in stations:
-            mask = result_df[_station_col] == st
-            n_total = mask.sum()
-            if n_total == 0:
-                continue
-            # Quality threshold is computed across all target variables —
-            # a station is excluded only when *every* target column exceeds
-            # the missing-rate ceiling. Previously only ``vars_to_fill[0]``
-            # was considered, which silently kept stations that were unusable
-            # for the remaining variables (or excluded ones still good for
-            # them).
-            per_var_ratio = [
-                result_df.loc[mask, v].isna().sum() / n_total
-                for v in vars_to_fill
-            ]
-            if all(r > quality_threshold for r in per_var_ratio):
-                stations_excluded.append(str(st))
-            else:
-                stations_kept.append(st)
-        if verbose and stations_excluded:
-            print(
-                f"  Estações excluídas (>{quality_threshold*100:.0f}% NaN "
-                f"em todas as variáveis): {stations_excluded}"
-            )
-    else:
-        stations_kept = [None]
-
-    # ------------------------------------------------------------------
-    # Fill loop per variable
-    # ------------------------------------------------------------------
-    eval_results: dict[str, dict] = {}
-
-    for var in vars_to_fill:
-        if _datetime_col:
-            result_df = result_df.sort_values(_datetime_col).reset_index(drop=True)
-
-        if use_xgboost and _joblib_available():
-            from joblib import Parallel, delayed
-
-            # Add sentinel datetime column for feature engineering
-            if _datetime_col:
-                result_df["_datetime"] = result_df[_datetime_col]
-            else:
-                result_df["_datetime"] = pd.RangeIndex(len(result_df))
-
-            _n_jobs = workers if workers else -1
-            if not parallel:
-                _n_jobs = 1
-
-            station_list = [st for st in stations_kept if st is not None]
-            if not station_list:
-                # No station column — treat entire df as one station
-                station_list = ["_global"]
-                if _station_col is None:
-                    result_df["_station_tmp"] = "_global"
-                    _station_col = "_station_tmp"
-
-            def _process(
-                st: str,
-                _df: pd.DataFrame = result_df,
-                _scol: str | None = _station_col,
-                _var: str = var,
-            ) -> tuple[str, pd.DataFrame, dict | None]:
-                mask = _df[_scol] == st
-                chunk = _df[mask].copy()
-                chunk_out, metrics = _fill_xgboost_station(
-                    chunk, _var, st, _cache_dir, run_evaluation, gap_percentage
-                )
-                return st, chunk_out, metrics
-
-            station_results = Parallel(n_jobs=_n_jobs)(
-                delayed(_process)(st) for st in station_list
-            )
-
-            # Reassemble
-            chunks = []
-            all_eval: list[dict] = []
-            for _st, chunk_out, met in station_results:  # type: ignore[misc]
-                chunks.append(chunk_out)
-                if met:
-                    all_eval.append(met)
-
-            result_df = pd.concat(chunks, ignore_index=True)
-
-            if _datetime_col:
-                result_df = result_df.drop(columns=["_datetime"], errors="ignore")
-            if "_station_tmp" in result_df.columns:
-                result_df = result_df.drop(columns=["_station_tmp"])
-                _station_col = None
-
-            if run_evaluation and all_eval:
-                eval_results[var] = {
-                    "data": result_df,
-                    "metrics": pd.DataFrame(
-                        [e["metrics"] | {"station": e["station"]} for e in all_eval]
-                    ),
-                }
-
-        else:
-            # Linear fallback
-            result_df = _fill_linear(result_df, var, _station_col, _datetime_col or "date")
-
-        if not keep_features:
-            drop_cols = [
-                c for c in result_df.columns
-                if c.startswith(f"{var}_lag")
-                or c.startswith(f"{var}_rolling")
-                or c in ("_hour", "_dayofweek", "_month")
-            ]
-            result_df = result_df.drop(columns=drop_cols, errors="ignore")
-
-    if run_evaluation:
-        return (
-            eval_results
-            if eval_results
-            else {"_no_gaps": {"data": result_df, "metrics": pd.DataFrame()}}
+    if use_xgboost and _dt_col is None:
+        raise ValueError(
+            "sus_climate_fill_inmet needs a datetime column for the XGBoost "
+            "backend (pass datetime_col=...)."
         )
 
-    return result_df
+    if verbose:
+        rotulo = {"pt": "variáveis", "en": "variables", "es": "variables"}
+        print(
+            f"[sus_climate_fill_inmet] backend={'xgboost' if use_xgboost else 'linear'}, "
+            f"{rotulo.get(lang, rotulo['pt'])}={vars_to_fill}"
+        )
+
+    n_jobs = 1 if not parallel else (workers if workers else -1)
+    result = df.copy()
+
+    # Night radiation -> 0 BEFORE the quality filter (R does it after).
+    if "sr_kj_m2" in vars_to_fill and _dt_col is not None:
+        result = _zero_night_radiation(result, "sr_kj_m2", _dt_col)
+
+    pct = round(quality_threshold * 100)
+
+    # ------------------------------------------------------------------
+    # Evaluation mode
+    # ------------------------------------------------------------------
+    if run_evaluation:
+        eval_results: dict[str, dict] = {}
+        for var in vars_to_fill:
+            if _station_col:
+                miss = result[var].isna().groupby(result[_station_col]).mean()
+                valid = miss.index[miss <= quality_threshold]
+                if len(valid) == 0:
+                    if verbose:
+                        print(_msg("none_pass", lang, var=var, p=pct))
+                    continue
+                sub = result[result[_station_col].isin(valid)]
+            else:
+                sub = result
+            eval_results[var] = _evaluate_var(
+                sub, var, _station_col, _dt_col, gap_percentage, use_xgboost)
+        return eval_results
+
+    # ------------------------------------------------------------------
+    # Fill loop per variable (R order and R quality filter)
+    # ------------------------------------------------------------------
+    for var in vars_to_fill:
+        flag_col = f"is_imputed_{var}"
+        if _station_col:
+            miss = result[var].isna().groupby(result[_station_col], sort=True).mean()
+            bad = miss.index[miss > quality_threshold].tolist()
+            valid = miss.index[miss <= quality_threshold]
+            if len(valid) == 0:
+                if verbose:
+                    print(_msg("none_pass", lang, var=var, p=pct))
+                # R skips without creating the flag; an all-False flag keeps
+                # the output schema stable for code that reads it.
+                result[flag_col] = False
+                continue
+            if bad:
+                if verbose:
+                    print(_msg("skip", lang, n=len(bad), p=pct, var=var,
+                               st=", ".join(map(str, bad))))
+                result = result[result[_station_col].isin(valid)].copy()
+
+        if use_xgboost:
+            values, flags = _fill_var_xgboost(result, var, _station_col, _dt_col, n_jobs)
+            _store(result, var, values)
+            result[flag_col] = flags
+        else:
+            result = _fill_linear(result, var, _station_col, _dt_col or "date")
+
+        if var in _ROUNDED_VARS:
+            result[var] = np.round(result[var])
+
+        if verbose:
+            n_imp, n_tot = int(result[flag_col].sum()), len(result)
+            print(_msg("done", lang, var=var, n=n_imp, t=n_tot,
+                       pc=100 * n_imp / n_tot if n_tot else 0.0))
+
+    return result.reset_index(drop=True)

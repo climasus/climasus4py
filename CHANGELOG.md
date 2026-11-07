@@ -2,6 +2,69 @@
 
 ## [Unreleased]
 
+### Changed — `sus_climate_fill_inmet` passa a seguir o método do climasus4r
+
+O preenchimento por XGBoost do Python tinha três defeitos que, somados, faziam ele devolver **um
+valor constante** numa estação fora do ar (M198): a hora do dia nunca chegava ao modelo (o pandas
+entrega `int32` e o filtro de atributos só aceitava `int64`/`float`); o modelo usava as outras
+variáveis da mesma hora, que no INMET faltam todas juntas quando a estação cai, e eram trocadas pela
+mediana; e, como a radiação é nula à noite, ele nunca treinava entre 21h e 5h de Brasília. No pipeline
+SIM-DO SP 2023, a estação A716 teve 138 dias preenchidos com 21,7 °C, e a chuva dos 138 dias saiu 0 mm.
+
+Agora o método é o do `climasus4r`:
+
+- **Atributos:** os mesmos 53. São o tempo (hora, dia, mês, semana, estação do ano, senos e cossenos)
+  e o histórico da própria variável: atrasos e avanços de 1, 2, 3, 12, 24 e 168 h, a mesma hora
+  ontem e na semana passada, e médias e desvios móveis de 3, 6, 12 e 24 h. Os vazios desses
+  atributos são preenchidos por interpolação linear. Conferido coluna a coluna contra o R numa
+  estação real.
+- **Configuração do XGBoost:** a mesma do R (200 rodadas, profundidade 4, `eta` 0,05, subamostragem
+  0,7, regularização e parada antecipada).
+- **Transformação antes de treinar:** `log1p` na chuva e raiz quadrada no vento e na radiação.
+- **Limites físicos:** umidade de 0 a 100%, temperatura de −90 a 60 °C, pressão de 700 a 1100 mb,
+  chuva e vento nunca negativos. Previsões além de 5 vezes a faixa interquartil são puxadas 30% para
+  a média.
+- **Arredondamento:** umidade e direção do vento saem inteiras.
+- **Mínimo de 30 observações** por estação. Abaixo disso a série fica como está; antes, eram 10
+  observações e caía na interpolação linear.
+- **Filtro de qualidade:** como no R, uma estação com mais de `quality_threshold` faltando em
+  **qualquer** variável pedida **sai do resultado**, com as outras variáveis. Antes, só saía se
+  faltasse em todas. Se nenhuma estação passa numa variável, ela é pulada e ninguém sai.
+
+Medido contra o valor verdadeiro (13 estações de SP, 13.130 horas escondidas em blocos de 1 h a 30
+dias, com a estação inteira fora do ar), o erro do Python fica a até 0,02 °C do erro do R em todos os
+tamanhos de lacuna. Em lacuna de 1 h, o erro caiu de 5,57 °C para 0,80 °C. Os números não batem com
+o R valor a valor, porque o XGBoost sorteia linhas e colunas com outro gerador aleatório em cada
+linguagem; o método é o mesmo.
+
+**Herdado do R, de propósito (anotado como melhoria para os dois pacotes):**
+
+- **Lacunas longas:** o preenchimento é, na prática, uma reta entre as bordas. Não reproduz o ciclo
+  diário (M175).
+- **Chuva:** vira garoa em cerca de metade das horas (M199).
+- **Exclusão:** o filtro exclui a estação inteira. O melhor seria deixar vazia só a variável ruim
+  (M200).
+
+**Onde o Python não copia o R:**
+
+- **Radiação à noite (M208):** a radiação que falta à noite vira 0 pela **hora solar** da estação
+  (UTC + longitude/15). O R usa o relógio UTC: zera lacunas das 15h às 18h de Brasília e deixa as da
+  madrugada para o modelo.
+- **Filtro de qualidade (M209):** isso acontece **antes** do filtro, então a noite não conta como
+  dado faltante. No R, com `target_var="all"`, 25 das 40 estações de SP saem só pela radiação.
+- **Variável pulada:** quando nenhuma estação passa no filtro, a coluna `is_imputed_<var>` é criada
+  toda `False`, em vez de não existir.
+
+**Removido e alterado:**
+
+- **Cache de modelos:** o cache em `~/.climasus4py/models` foi removido (M202). Ele era chaveado por
+  estação e variável, não pelos dados, e reaproveitava um modelo treinado em outro conjunto.
+  `cache_dir` continua aceito, mas é ignorado com `DeprecationWarning`. Os arquivos antigos dessa
+  pasta não são mais lidos e podem ser apagados.
+- **Saída do modo de avaliação:** `run_evaluation=True` devolve, em `data`, a comparação
+  `date, station, true_value, pred_value`, como no R, em vez do quadro inteiro.
+- **`keep_features`:** passa a não fazer nada, como no R.
+
 ### Fixed — três defeitos achados ao rodar os 43 sistemas da página do climasus4r
 
 **Semana epidemiológica na virada do ano (M149).** Era a semana do calendário (`%U`) com o ano do

@@ -7,7 +7,6 @@ aiming to push overall coverage from 76% to ≥ 80%.
 from __future__ import annotations
 
 import importlib.util
-from pathlib import Path
 from unittest.mock import patch
 
 import climasus_data as _cdata
@@ -48,18 +47,16 @@ class TestClimateFillHelpers:
         assert _detect_datetime_col(df) is None
 
     def test_engineer_features_adds_lag_columns(self):
-        """_engineer_features adds temporal and lag columns — covers lines 102-118."""
+        """_engineer_features builds R's time, lag and rolling columns."""
         from climasus4py.enrichment.climate_fill import _engineer_features
-        df = pd.DataFrame({
-            "_datetime": pd.date_range("2023-01-01", periods=20, freq="h"),
-            "temp": list(range(20)),
-        })
-        out = _engineer_features(df, "temp")
-        assert "_hour" in out.columns
-        assert "_dayofweek" in out.columns
-        assert "_month" in out.columns
-        assert "temp_lag1" in out.columns
-        assert "temp_rolling_mean3" in out.columns
+        dt = pd.Series(pd.date_range("2023-01-01", periods=20, freq="h"))
+        y = pd.Series(range(20), dtype="float64")
+        out = _engineer_features(dt, y, "temp")
+        assert "hour" in out.columns
+        assert "weekday" in out.columns
+        assert "month" in out.columns
+        assert "temp_lag_1" in out.columns
+        assert "temp_rolling_mean_3" in out.columns
         assert len(out) == 20
 
     def test_fill_linear_no_station_col(self):
@@ -74,13 +71,6 @@ class TestClimateFillHelpers:
         # Two values were NaN → should be imputed
         assert out["is_imputed_temp"].sum() == 2
 
-    def test_cache_path_returns_path(self, tmp_path):
-        """_cache_path constructs a valid path — covers lines 151-152."""
-        from climasus4py.enrichment.climate_fill import _cache_path
-        result = _cache_path("S001", "tair_dry_bulb_c", tmp_path)
-        assert isinstance(result, Path)
-        assert result.parent == tmp_path
-        assert result.suffix == ".joblib"
 
 
 # ---------------------------------------------------------------------------
