@@ -206,6 +206,11 @@ def _get_hw_palette(color_palette: str) -> dict[str, str]:
     }
 
 
+#: Colour of an event with no intensity class -- ggplot's default
+#: ``na.value``, which is what R's scale_color_manual falls back to.
+_NA_COLOR = "grey50"
+
+
 def _translate_intensity_class(
     series: pd.Series, labels: dict[str, str]
 ) -> pd.Series:
@@ -260,7 +265,14 @@ def _intensity_color_scale(colors: dict[str, str], labels: dict[str, str]) -> An
 
     Mirrors R's ``setNames(c(low, severe, extreme, severe), c(low, severe,
     extreme, unknown))`` — note "unknown" is deliberately mapped to the
-    *severe* color (a preserved R quirk, not a typo fixed here).
+    *severe* color (a preserved R quirk, not a typo fixed here). R only
+    writes "Unknown" when the ``intensity_class`` column is absent.
+
+    An event whose class is *missing* is a different case: only EHF grades
+    intensity, so every WHO and INMET event has ``intensity_class = NA``. R
+    leaves those to ggplot's ``na.value``, grey50. This used to paint them
+    with the severe color, which on SP 2023 marked 110 of 245 events (45%)
+    as "Severe (SHW)" with no grading behind it. Now grey50, as in R.
     """
     import plotnine as p9
 
@@ -270,7 +282,7 @@ def _intensity_color_scale(colors: dict[str, str], labels: dict[str, str]) -> An
         labels["extreme"]: colors["extreme"],
         labels["unknown"]: colors["severe"],
     }
-    return p9.scale_color_manual(values=values, na_value=colors["severe"])
+    return p9.scale_color_manual(values=values, na_value=_NA_COLOR)
 
 
 # ---------------------------------------------------------------------------

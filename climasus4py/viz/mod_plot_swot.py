@@ -344,6 +344,7 @@ def _plot_matrix(
 def _plot_bar(x: dict[str, Any], strings: dict[str, str], base_size: int, entities_sel: list[str] | None) -> Any:
     from plotnine import (
         aes,
+        coord_flip,
         element_blank,
         element_text,
         expand_limits,
@@ -352,7 +353,7 @@ def _plot_bar(x: dict[str, Any], strings: dict[str, str], base_size: int, entiti
         labs,
         position_dodge,
         scale_fill_manual,
-        scale_x_continuous,
+        scale_y_continuous,
         theme,
         theme_bw,
     )
@@ -364,18 +365,25 @@ def _plot_bar(x: dict[str, Any], strings: dict[str, str], base_size: int, entiti
 
     long["quadrant_label"] = pd.Categorical(long["quadrant_label"], categories=quad_labels, ordered=True)
 
+    # R maps aes(x = score, y = entity) and ggplot2 lays the bars down because
+    # y is discrete. plotnine has no orientation detection: the same call drew
+    # vertical bars as tall as the entity's position and dodged them along the
+    # SCORE axis. Entity goes on x and the plot is flipped; labels follow the
+    # aesthetic, theme elements the drawn axis (as in ggplot2).
     p = (
-        ggplot(long, aes(x="score", y="entity", fill="quadrant_label"))
+        ggplot(long, aes(x="entity", y="score", fill="quadrant_label"))
         + geom_col(position=position_dodge(width=0.75), width=0.65, alpha=0.88, na_rm=True)
-        + scale_fill_manual(values=fill_vec, name="")
-        + scale_x_continuous(limits=(0, 100))
-        + expand_limits(x=0)
-        + labs(title=strings["bar_title"], x=strings["x_score"], y=strings["y_entity"])
+        + scale_fill_manual(values=fill_vec)
+        + scale_y_continuous(limits=(0, 100))
+        + expand_limits(y=0)
+        + coord_flip()
+        + labs(title=strings["bar_title"], x=strings["y_entity"], y=strings["x_score"])
         + theme_bw(base_size=base_size)
         + theme(
             plot_title=element_text(face="bold"),
             panel_grid_major_y=element_blank(),
             legend_position="top",
+            legend_title=element_blank(),
         )
     )
     return p

@@ -404,6 +404,21 @@ def _cpa_timeseries(
 
 _SMOOTH_METHOD_MAP = {"loess": "loess", "gam": "loess"}
 
+#: Largest number of points the loess smoother can take with ``se=True`` (M223).
+#:
+#: Both packages call the same netlib loess code (R's stats::loess, and
+#: scikit-misc under plotnine). Its standard errors need a workspace of about
+#: 1.5 * n^2 entries, counted in a 32-bit integer, which overflows from
+#: n = 37,834 on -- measured in R by bisection, the same on two different
+#: samples, since the size depends on n only. R checks it ("workspace required
+#: (2147486263) is too large") and ggplot turns the error into a warning: the
+#: plot comes back with the points and no curve. scikit-misc does not check,
+#: and the overflow is an access violation that kills the Python process (no
+#: exception to catch; in Jupyter, the kernel dies). Measured on SP 2023:
+#: 35,000 points drew on both sides, 40,000 lost the curve in R and crashed here.
+#: Above this size the curve is left out with a warning, as R does.
+_LOESS_SE_MAX_N = 37_833
+
 
 def _resolve_smooth_method(smooth_method: str) -> str:
     if smooth_method not in _SMOOTH_METHOD_MAP:
@@ -434,10 +449,21 @@ def _cpa_scatter_panel(
 ) -> Any:
     import plotnine as p9
 
-    p = (
-        p9.ggplot(df_plot, p9.aes(x="x_val", y="y_val"))
-        + p9.geom_point(color=_CPA_PAL["primary"], alpha=0.35, size=1.6)
-        + p9.geom_smooth(
+    p = p9.ggplot(df_plot, p9.aes(x="x_val", y="y_val")) + p9.geom_point(
+        color=_CPA_PAL["primary"], alpha=0.35, size=1.6
+    )
+    if method == "loess" and len(df_plot) > _LOESS_SE_MAX_N:
+        warnings.warn(
+            f"sus_climate_plot_aggregate: the loess curve was left out of the "
+            f"scatter of '{x_lbl}': {len(df_plot):,} points, and loess with a "
+            f"confidence band handles at most {_LOESS_SE_MAX_N:,} (its workspace "
+            f"overflows). R drops the curve too, with 'workspace required ... "
+            f"is too large'. Filter or aggregate the table to draw it.",
+            UserWarning,
+            stacklevel=4,
+        )
+    else:
+        p = p + p9.geom_smooth(
             method=method,
             se=True,
             color=_CPA_PAL["secondary"],
@@ -445,10 +471,9 @@ def _cpa_scatter_panel(
             size=1.1,
             level=1 - alpha,
         )
-        + p9.labs(title=title_str, subtitle=subtitle, x=x_lbl, y=y_lbl, caption=caption_str)
-        + _cpa_theme()
-    )
-    return p
+    return p + p9.labs(
+        title=title_str, subtitle=subtitle, x=x_lbl, y=y_lbl, caption=caption_str
+    ) + _cpa_theme()
 
 
 def _cpa_scatter(
@@ -793,7 +818,10 @@ def sus_climate_plot_aggregate(
         smooth_method: Smoothing method for the ``"scatter"`` plot:
             ``"loess"`` (default) or ``"gam"``. plotnine has no GAM
             smoother backend (unlike R's ``mgcv::gam``); ``"gam"`` falls
-            back to ``"loess"`` with a warning.
+            back to ``"loess"`` with a warning. Above 37,833 points the
+            loess curve is left out, with a warning, and only the points
+            are drawn -- as in R, where loess refuses that size (its
+            workspace overflows). Filter or aggregate to draw the curve.
         max_lag: Maximum lag (days) shown in the ``"ccf"`` plot. Default 30.
         alpha: Confidence level for CCF significance bounds (default
             ``0.05``; bounds drawn at +-2/sqrt(n)) and for the scatter-plot

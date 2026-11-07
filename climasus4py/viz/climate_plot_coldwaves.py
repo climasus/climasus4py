@@ -148,6 +148,10 @@ _I18N: dict[str, dict[str, str]] = {
 # if the name is unknown) but never actually uses the looked-up colours —
 # it always returns this same hardcoded dict regardless of `color_palette`.
 # See IDEIAS.md.
+#: Colour of an event with no intensity class (WHO/INMET events: only
+#: EHF grades cold-wave intensity) -- ggplot's default na.value, as in R.
+_NA_COLOR = "grey50"
+
 _CW_COLORS = {
     "low": "#4DBBD5FF",
     "severe": "#3C5488FF",
@@ -272,7 +276,7 @@ def _plot_cw_timeline(events: pd.DataFrame, strings: dict[str, str], labels: dic
         )
         + geom_segment(alpha=0.8)
         + scale_color_manual(
-            values=color_values, name=strings["timeline_int"], na_value=_CW_COLORS["neutral"]
+            values=color_values, name=strings["timeline_int"], na_value=_NA_COLOR
         )
         + scale_size_continuous(range=(2, 8), name=strings["timeline_dur"])
         + scale_x_datetime(date_labels="%b %Y", date_breaks="3 months")
@@ -384,7 +388,7 @@ def _plot_cw_intensity(
         )
         + geom_point(alpha=0.7)
         + scale_color_manual(
-            values=color_values, name=strings["intensity_color"], na_value=_CW_COLORS["neutral"]
+            values=color_values, name=strings["intensity_color"], na_value=_NA_COLOR
         )
         # Lower temp_peak = more extreme cold; reverse so visually higher = colder.
         + scale_y_reverse()

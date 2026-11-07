@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Fixed — gráficos conferidos com o climasus4r pelo que desenham
+
+- **`sus_climate_plot_heatwaves` (M226).** Nas ondas de calor de SP em 2023, 110 dos 245 eventos
+  (45%) apareciam como "Severe (SHW)" na linha do tempo e no gráfico de intensidade. Esses eventos
+  não têm classe de intensidade, porque só o método EHF calcula classe; os eventos dos métodos WHO e
+  INMET ficam sem ela. O R desenha esses eventos em cinza (`grey50`); o Python usava a cor de
+  "Severa". Agora ficam cinza, e os quatro gráficos de ondas de calor são idênticos aos do R, cores
+  inclusive. O `sus_climate_plot_coldwaves` passa a usar o mesmo cinza.
+- **Barras horizontais em três gráficos (M228).** `sus_mod_plot_vulnerability(type="pillars")`,
+  `sus_mod_plot_ml(type="importance")` e `sus_mod_plot_swot(type="bar")` apareciam com traços
+  verticais finos no lugar das barras. O código repetia o do R (valor no x, categoria no y); o
+  ggplot2 deita as barras sozinho nesse caso, mas o plotnine não. Agora as barras saem deitadas e,
+  em SP, ficam nas mesmas posições que no R: os pilares de vulnerabilidade dos 645 municípios
+  coincidem barra a barra. A legenda dos pilares e do SWOT deixa de mostrar o nome interno da
+  coluna.
+- **`sus_climate_plot_aggregate(plot_type="scatter")` com tabela grande (M223).** Com mais de
+  37.833 pontos, o gráfico derrubava a sessão do Python (no Jupyter, o kernel), sem mensagem. A
+  causa é a curva `loess` com faixa de confiança: o cálculo estoura um limite interno nesse tamanho.
+  O R usa o mesmo código, detecta o problema e devolve o gráfico só com os pontos. Agora o Python
+  faz o mesmo e avisa; para ter a curva, filtre ou agregue a tabela. Abaixo do limite, nada muda.
+  Uma tabela diária município × dia de um ano em SP tem 72 mil linhas.
+
 ### Fixed — ramo espacial conferido com o climasus4r nos 645 municípios de SP
 
 - **`sus_mod_spatial_moran` (M219).** O R segue o padrão do `spdep` (`adjust.n = TRUE`): uma região

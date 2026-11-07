@@ -120,22 +120,27 @@ def _plot_importance(
         f"{ml['meta']['outcome_col']} | top {len(imp_top)} / {len(imp)} {strings['y_feature']}"
     )
 
+    # R maps aes(y = Feature, x = Gain) and ggplot2 lays the bars down because
+    # y is discrete. plotnine has no orientation detection: that call drew a
+    # vertical bar per feature at x = Gain, as tall as the feature's position.
+    # Feature goes on x and the plot is flipped; labels follow the aesthetic.
     return (
-        p9.ggplot(imp_top, p9.aes(y="Feature", x="Gain"))
+        p9.ggplot(imp_top, p9.aes(x="Feature", y="Gain"))
         + p9.geom_col(fill="#4472C4", alpha=0.85)
         + p9.geom_text(
             p9.aes(label="_gain_label"),
             ha="left",
-            nudge_x=0.005,
+            nudge_y=0.005,
             size=base_size * 0.7,
             color="#333333",
         )
-        + p9.scale_x_continuous(expand=(0, 0, 0.15, 0))
+        + p9.scale_y_continuous(expand=(0, 0, 0.15, 0))
+        + p9.coord_flip()
         + p9.labs(
             title=strings["importance_title"],
             subtitle=subtitle,
-            x=strings["x_gain"],
-            y=strings["y_feature"],
+            x=strings["y_feature"],
+            y=strings["x_gain"],
         )
         + p9.theme_bw(base_size=base_size)
         + p9.theme(
