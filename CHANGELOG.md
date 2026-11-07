@@ -24,8 +24,7 @@
   instalava só pelo `pip` via `sus_spatial_join`, `sus_census`, a junção de clima e os mapas
   pararem com "arquivo não encontrado". Agora, na primeira vez que uma função pede um desses
   arquivos, ele é baixado do GitHub, conferido pela assinatura MD5 do `manifest.json` e guardado
-  num cache do usuário (`%LOCALAPPDATA%\climasus4py` no Windows, `~/.cache/climasus4py` nos outros
-  sistemas). As chamadas seguintes leem do cache. Só é baixado o que a função usa: uma junção
+  num cache do usuário, `~/.climasus4py_cache/climasus-data`, a mesma pasta do cache do INMET. As chamadas seguintes leem do cache. Só é baixado o que a função usa: uma junção
   espacial com censo baixa 31 MB, e não os 150 MB da versão completa dos polígonos.
 - Os arquivos vêm sempre do mesmo commit do climasus-data (`d76f2fc`), então quem instala hoje ou
   daqui a um ano recebe os mesmos dados. Quem tem o climasus-data local completo (editável ou via

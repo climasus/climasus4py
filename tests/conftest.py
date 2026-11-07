@@ -85,3 +85,16 @@ def pytest_configure(config):  # noqa: ARG001
     except ImportError:  # pragma: no cover
         return
     matplotlib.use("Agg", force=True)
+
+
+@pytest.fixture(autouse=True)
+def _cache_de_assets_isolado(tmp_path_factory, monkeypatch):
+    """Point the climasus-data asset download cache at a temp dir (M231).
+
+    Since the parquets are downloaded on demand, a test that reaches the
+    download path with no cache variable set wrote into the user's real
+    cache (~/.climasus4py_cache): it happened on 07/11/2026, two tests
+    left a 30 MB file there. Tests that need their own cache still set
+    CLIMASUS_ASSETS_CACHE themselves, which overrides this.
+    """
+    monkeypatch.setenv("CLIMASUS_ASSETS_CACHE", str(tmp_path_factory.mktemp("assets_cache")))

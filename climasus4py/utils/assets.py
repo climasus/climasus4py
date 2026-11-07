@@ -28,9 +28,8 @@ treated as missing.
 
 Environment variables:
     CLIMASUS_DATA_REF: commit, tag or branch to download from.
-    CLIMASUS_ASSETS_CACHE: cache directory (default: the user cache dir,
-        ``%LOCALAPPDATA%\\climasus4py`` on Windows, ``~/.cache/climasus4py``
-        elsewhere).
+    CLIMASUS_ASSETS_CACHE: cache directory (default ``~/.climasus4py_cache``,
+        next to the INMET download cache).
 """
 
 from __future__ import annotations
@@ -67,13 +66,10 @@ def assets_ref() -> str:
 
 def cache_root() -> Path:
     """Directory holding the downloaded assets of the current ref."""
+    # Same home as the INMET download cache (~/.climasus4py_cache/climate)
+    # and as climasus4r's (~/.climasus4r_cache/...): one folder to look in.
     base = os.environ.get("CLIMASUS_ASSETS_CACHE")
-    if base:
-        root = Path(base)
-    elif sys.platform == "win32" and os.environ.get("LOCALAPPDATA"):
-        root = Path(os.environ["LOCALAPPDATA"]) / "climasus4py"
-    else:
-        root = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "climasus4py"
+    root = Path(base) if base else Path.home() / ".climasus4py_cache"
     return root / "climasus-data" / assets_ref()[:12]
 
 
