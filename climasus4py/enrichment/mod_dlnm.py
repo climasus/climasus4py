@@ -107,6 +107,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "(minimo necessario: {min_need})."
         ),
         "err_unsupported_fun": "Funcao de base '{fun}' nao suportada. Use uma de: {valid}.",
+        "err_basis_arg": "{which}: argumento(s) {bad} nao suportado(s). Aceitos: {ok}.",
+        "err_knots_fun": "{which}: 'knots' e 'boundary_knots' so valem para fun='ns'.",
         "warn_negbin": (
             "Binomial negativa nao e suportada com crossbasis. Usando "
             "'quasipoisson' (alternativa robusta recomendada por Gasparrini, 2014)."
@@ -152,6 +154,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "(minimum needed: {min_need})."
         ),
         "err_unsupported_fun": "Unsupported basis function '{fun}'. Use one of: {valid}.",
+        "err_basis_arg": "{which}: unsupported argument(s) {bad}. Accepted: {ok}.",
+        "err_knots_fun": "{which}: 'knots' and 'boundary_knots' only apply to fun='ns'.",
         "warn_negbin": (
             "Negative binomial is not supported with crossbasis. Using "
             "'quasipoisson' (robust alternative recommended by Gasparrini, 2014)."
@@ -197,6 +201,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "(minimo necesario: {min_need})."
         ),
         "err_unsupported_fun": "Funcion de base '{fun}' no soportada. Use una de: {valid}.",
+        "err_basis_arg": "{which}: argumento(s) {bad} no soportado(s). Aceptados: {ok}.",
+        "err_knots_fun": "{which}: 'knots' y 'boundary_knots' solo valen para fun='ns'.",
         "warn_negbin": (
             "Binomial negativa no es soportada con crossbasis. Usando "
             "'quasipoisson' (alternativa robusta recomendada por Gasparrini, 2014)."
@@ -222,6 +228,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
 }
 
 _VALID_FUNS: tuple[str, ...] = ("ns", "lin", "poly")
+#: Keys an argvar/arglag dict may carry. ``Boundary.knots`` and ``degree``
+#: are R's spellings (splines::ns / dlnm "poly"), accepted so R code ports.
+_BASIS_KEYS: tuple[str, ...] = ("fun", "df", "knots", "boundary_knots", "Boundary.knots", "degree")
 
 
 # ---------------------------------------------------------------------------
@@ -308,9 +317,17 @@ def _onebasis(
         return basis, meta
 
     # fun == "ns"
-    df_eff = int(df or 4)
+    if knots is not None:
+        # splines::ns: given knots win over df, and df = interior knots + 1
+        # (+ 1 with intercept).
+        knots = np.sort(np.asarray(knots, dtype=float))
+        df_eff = len(knots) + 1 + int(intercept)
+    else:
+        df_eff = int(df or 4)
     if boundary_knots is None:
         boundary_knots = (float(np.min(x)), float(np.max(x)))
+    else:
+        boundary_knots = (float(boundary_knots[0]), float(boundary_knots[1]))
     if knots is None:
         knots = _ns_interior_knots(x, df_eff, intercept)
     basis = _ns_basis(x, knots, boundary_knots, intercept)
@@ -327,6 +344,26 @@ def _onebasis(
 # ---------------------------------------------------------------------------
 # Crossbasis — matches dlnm::crossbasis()
 # ---------------------------------------------------------------------------
+
+
+def _basis_spec(spec: dict[str, Any], which: str, lang: str) -> dict[str, Any]:
+    """Validate an argvar/arglag dict and map it to ``_onebasis`` keywords.
+
+    Every key is used or refused: an unknown key used to be dropped in
+    silence (M212), so ``{"knots": [...]}`` quietly fell back to the
+    default quantile knots.
+    """
+    bad = sorted(set(spec) - set(_BASIS_KEYS))
+    if bad:
+        raise ValueError(_MESSAGES[lang]["err_basis_arg"].format(
+            which=which, bad=bad, ok=list(_BASIS_KEYS)))
+    fun = spec.get("fun", "ns")
+    knots = spec.get("knots")
+    boundary = spec.get("boundary_knots", spec.get("Boundary.knots"))
+    if (knots is not None or boundary is not None) and fun != "ns":
+        raise ValueError(_MESSAGES[lang]["err_knots_fun"].format(which=which))
+    df = spec.get("degree", spec.get("df")) if fun == "poly" else spec.get("df")
+    return {"fun": fun, "df": df, "knots": knots, "boundary_knots": boundary}
 
 
 def _crossbasis(
@@ -346,19 +383,11 @@ def _crossbasis(
     x_flat = expo_matrix.flatten(order="F")
 
     basisvar, var_meta = _onebasis(
-        x_flat,
-        fun=argvar.get("fun", "ns"),
-        df=argvar.get("df"),
-        intercept=False,
-        lang=lang,
+        x_flat, intercept=False, lang=lang, **_basis_spec(argvar, "argvar", lang)
     )
     lag_seq = np.arange(0, lag_max + 1, dtype=float)
     basislag, lag_meta = _onebasis(
-        lag_seq,
-        fun=arglag.get("fun", "ns"),
-        df=arglag.get("df"),
-        intercept=True,
-        lang=lang,
+        lag_seq, intercept=True, lang=lang, **_basis_spec(arglag, "arglag", lang)
     )
 
     df_var = basisvar.shape[1]
@@ -623,9 +652,15 @@ def sus_mod_dlnm(
             confounders (averaged by date before fitting).
         argvar: Basis spec for the exposure dimension, e.g.
             ``{"fun": "ns", "df": 4}`` (default). ``fun`` in
-            ``{"ns", "lin", "poly"}``.
+            ``{"ns", "lin", "poly"}``. For ``"ns"``, ``knots`` (interior
+            knots) and ``boundary_knots`` (or R's ``Boundary.knots``) fix
+            the knots instead of taking them from the data quantiles; given
+            knots win over ``df``, as in ``splines::ns``. Fixed knots shared
+            by every city are what makes ``sus_mod_pool`` /
+            ``sus_mod_metaregression`` meaningful. For ``"poly"``,
+            ``degree`` (R's name) or ``df``. Any other key raises.
         arglag: Basis spec for the lag dimension, e.g.
-            ``{"fun": "ns", "df": 3}`` (default).
+            ``{"fun": "ns", "df": 3}`` (default). Same keys as *argvar*.
         family: ``"quasipoisson"`` (default), ``"poisson"``, or
             ``"negbin"`` (redirected to ``"quasipoisson"`` with a warning
             — negative binomial is incompatible with the cross-basis GLM).

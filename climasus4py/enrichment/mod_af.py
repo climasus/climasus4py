@@ -154,6 +154,7 @@ def sus_mod_af(
     alpha: float = 0.05,
     lang: Literal["pt", "en", "es"] = "pt",
     verbose: bool = True,
+    seed: int | None = None,
 ) -> dict[str, Any]:
     """Attributable Fraction and Number from a DLNM fit.
 
@@ -181,6 +182,12 @@ def sus_mod_af(
         alpha: Significance level for the Monte Carlo CI.
         lang: Message language.
         verbose: Print progress messages.
+        seed: Seed for the Monte Carlo draws (``nsim > 0``). The same seed
+            gives the same confidence interval on every call; ``None``
+            (default) draws fresh, so the interval changes slightly from
+            run to run. The point estimate and the delta-method interval
+            (``nsim=0``) never depend on it. R has no such argument: there
+            the draws follow the global generator, set with ``set.seed()``.
 
     Returns:
         A dict (Python analog of R's ``climasus_af`` S3 object):
@@ -233,7 +240,7 @@ def sus_mod_af(
 
     mc_draws = None
     if nsim > 0:
-        rng = np.random.default_rng()
+        rng = np.random.default_rng(seed)
         mc_draws = rng.multivariate_normal(coef, vcov, size=nsim)
 
     if verbose:
@@ -371,6 +378,7 @@ def sus_mod_af(
             "n_obs": len(df_agg),
             "pred_at": pred_at,
             "nsim": nsim,
+            "seed": seed,
             "alpha": alpha,
             "by": by,
             "ci_method": "monte_carlo" if mc_draws is not None else "delta",

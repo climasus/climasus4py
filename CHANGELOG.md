@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Fixed — o `sus_mod_dlnm` descartava os nós pedidos (M212)
+
+O `argvar={"fun": "ns", "knots": [18, 21, 24]}` era aceito e **ignorado em silêncio**. O
+`_crossbasis` só lia `fun` e `df`, e o ajuste usava os nós padrão, tirados dos percentis da própria
+série. Com isso, um usuário do Python não conseguia aplicar o remédio padrão para combinar cidades:
+nós iguais em todas (M65).
+
+Agora `knots` e `boundary_knots` (também na grafia do R, `Boundary.knots`) são usados, no `argvar` e
+no `arglag`. Como no `splines::ns`, nós informados prevalecem sobre `df`. O `poly` aceita `degree`,
+como no R. **Qualquer outra chave agora dá erro**, em vez de sumir sem aviso.
+
+Conferido com o climasus4r: seis cidades de SP com nós comuns (18, 21 e 24 °C, bordas em 10 e
+32 °C) dão o `dlnm` de cada cidade e o `sus_mod_pool` fixo **idênticos** nos dois pacotes. No
+percentil 99, o resultado é 1,620504 [1,406224; 1,867436], com Q = 81,99. Com os nós de cada
+cidade, a mesma combinação dava 1,761 contra 1,684.
+
+### Added — `seed` no `sus_mod_af` (M211)
+
+O intervalo por Monte Carlo (`nsim > 0`) usava um gerador sem semente, então mudava a cada chamada
+e não havia como reproduzi-lo. O novo argumento `seed=`, opcional e no fim da assinatura, fixa os
+sorteios. O ponto estimado e o intervalo pelo método delta (`nsim=0`) não dependem dele.
+
 ### Changed — `sus_climate_fill_inmet` passa a seguir o método do climasus4r
 
 O preenchimento por XGBoost do Python tinha três defeitos que, somados, faziam ele devolver **um
