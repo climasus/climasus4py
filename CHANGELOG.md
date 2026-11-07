@@ -16,6 +16,11 @@
   R faz (M236).
 - `derived` ganha as chaves `sex_label` e `stage_at_least_derive`, como no R. O console passa a
   mostrar as etapas ainda não aplicadas e o histórico de processamento.
+- **Os arquivos markdown e html traziam só metade do relatório (M237).** Eles iam direto da
+  completude para as variáveis derivadas e deixavam de fora as seções 3 a 6: demografia (tabelas
+  de sexo, raça, escolaridade, risco climático e o resumo da idade), datas, CID-10 (códigos mais
+  frequentes e capítulos) e cobertura geográfica (municípios e UFs). Agora as quatro saem como no
+  R, com os mesmos números. No html, o texto das categorias é escapado.
 
 ### Changed — `sus_climate_aggregate` mantém o clima no DuckDB
 

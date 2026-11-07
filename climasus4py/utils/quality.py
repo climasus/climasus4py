@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -674,6 +675,84 @@ def _flag_md(f: str) -> str:
     return {"ok": "✅", "warn": "⚠️", "critical": "🔴", "info": "ℹ️"}.get(f, "ℹ️")
 
 
+def _cell(v: Any) -> str:
+    return "NA" if v is None else str(v)
+
+
+def _md_table(rows: list[dict], cols: list[str]) -> list[str]:
+    if not rows:
+        return []
+    out = ["| " + " | ".join(cols) + " |", "|" + "|".join("---" for _ in cols) + "|"]
+    for r in rows:
+        out.append("| " + " | ".join(_cell(r.get(c)).replace("|", "\\|") for c in cols) + " |")
+    return out + [""]
+
+
+def _md_data_sections(report: dict, lang: str) -> list[str]:
+    """Sections 3-6 (demographics, dates, ICD-10, geography), as R writes them (M237)."""
+    L: list[str] = [f"## {_qrl('sec_demographics', lang)}", ""]
+    demo = report["demographics"]
+    for key in ("sex", "race", "education", "climate_risk"):
+        d = demo.get(key)
+        if not d:
+            continue
+        L += [f"### {_qrl(key, lang)} [{d['col']}]", "",
+              f"{_qrl('missing', lang)}: {d['pct_missing']}%", ""]
+        L += _md_table(d["freq"], ["category", "count", "pct"])
+    age = demo.get("age")
+    if age:
+        L += [f"### {_qrl('age', lang)} [{age['col']}]", "",
+              f"- {_qrl('age_range', lang)}: {age['min']} - {age['max']}",
+              f"- {_qrl('mean', lang)}: {age['mean']}",
+              f"- {_qrl('missing', lang)}: {age['pct_missing']}%"]
+        if age["n_implausible"]:
+            L.append(f"- {_flag_md('warn')} {_qrl('implausible', lang)}: {age['n_implausible']}")
+        L.append("")
+    L += ["---", ""]
+
+    if report["dates"]:
+        L += [f"## {_qrl('sec_dates', lang)}", ""]
+        for col, d in report["dates"].items():
+            flg = "ok" if (d["n_future"] + d["n_pre1900"]) == 0 else "warn"
+            rng = f"{d['date_min']} - {d['date_max']}" if d["date_min"] else "N/A"
+            L += [f"### {col}", "",
+                  f"- {_flag_md(flg)} {_qrl('date_range', lang)}: {rng}",
+                  f"- {_qrl('future', lang)}: {d['n_future']}",
+                  f"- {_qrl('pre1900', lang)}: {d['n_pre1900']}",
+                  f"- {_qrl('missing', lang)}: {d['n_missing']}", ""]
+        L += ["---", ""]
+
+    icd = report["icd"]
+    if icd:
+        vst = "ok" if icd["pct_valid"] >= 95 else ("warn" if icd["pct_valid"] >= 80 else "critical")
+        L += [f"## {_qrl('sec_icd', lang)}", "",
+              f"- **{_qrl('icd_unique', lang)}**: {icd['n_unique']}",
+              f"- {_flag_md(vst)} **{_qrl('icd_valid', lang)}**: {icd['pct_valid']}%",
+              f"- **{_qrl('missing', lang)}**: {icd['pct_missing']}%", "",
+              f"### {_qrl('icd_top', lang)}", ""]
+        L += _md_table([t for t in icd["top_codes"] if t["code"] is not None],
+                       ["code", "count", "pct"])
+        if icd["chapters"]:
+            L += [f"### {_qrl('icd_chapters', lang)}", ""]
+            L += _md_table(icd["chapters"], ["chapter", "count"])
+        L += ["---", ""]
+
+    geo = report["geographic"]
+    if geo:
+        L += [f"## {_qrl('sec_geographic', lang)}", ""]
+        m = geo.get("municipalities")
+        if m:
+            L += [f"### {_qrl('municipalities', lang)}", "",
+                  f"- {_qrl('municipalities', lang)}: {m['n_unique']}", ""]
+            L += _md_table(m["top"], ["code", "count", "pct"])
+        s = geo.get("states")
+        if s:
+            L += [f"### {_qrl('states', lang)}", ""]
+            L += _md_table(s["top"], ["uf", "count", "pct"])
+        L += ["---", ""]
+    return L
+
+
 def _render_markdown(report: dict, lang: str) -> str:
     meta, ov, miss = report["meta"], report["overview"], report["missing"]
     pipe = report["pipeline"]
@@ -716,13 +795,86 @@ def _render_markdown(report: dict, lang: str) -> str:
         L.append("")
     else:
         L += [f"> {_qrl('no_missing', lang)}", ""]
-    L += ["---", "", f"## {_qrl('sec_derived', lang)}", ""]
+    L += ["---", ""]
+    L += _md_data_sections(report, lang)
+    L += [f"## {_qrl('sec_derived', lang)}", ""]
     for key, v in report["derived"]["variables"].items():
         flg = "ok" if v["present"] else "warn"
         lbl = f"{key} [{v['col']}]" if v["present"] else key
         L.append(f"- {_flag_md(flg)} {lbl}")
     L.append("")
     return "\n".join(L) + "\n"
+
+
+def _html_table(rows: list[dict], cols: list[str]) -> str:
+    if not rows:
+        return "<p><em>--</em></p>"
+    head = "".join(f"<th>{escape(c)}</th>" for c in cols)
+    body = "".join(
+        "<tr>" + "".join(f"<td>{escape(_cell(r.get(c)))}</td>" for c in cols) + "</tr>"
+        for r in rows)
+    return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+
+
+def _html_data_sections(report: dict, lang: str, badge: Any) -> str:
+    """Sections 3-6 (demographics, dates, ICD-10, geography), as R writes them (M237)."""
+    H: list[str] = [f"<h2>{_qrl('sec_demographics', lang)}</h2>"]
+    demo = report["demographics"]
+    for key in ("sex", "race", "education", "climate_risk"):
+        d = demo.get(key)
+        if not d:
+            continue
+        H.append(f"<h3>{_qrl(key, lang)} [{escape(d['col'])}]</h3>"
+                 f"<p>{_qrl('missing', lang)}: {d['pct_missing']}%</p>"
+                 + _html_table(d["freq"], ["category", "count", "pct"]))
+    age = demo.get("age")
+    if age:
+        imp = (" | " + badge("warn", f"{_qrl('implausible', lang)}: {age['n_implausible']}")
+               if age["n_implausible"] else "")
+        H.append(f"<h3>{_qrl('age', lang)} [{escape(age['col'])}]</h3>"
+                 f"<p>{_qrl('age_range', lang)}: {age['min']} - {age['max']} | "
+                 f"{_qrl('mean', lang)}: {age['mean']} | "
+                 f"{_qrl('missing', lang)}: {age['pct_missing']}%{imp}</p>")
+
+    if report["dates"]:
+        linhas = ""
+        for col, d in report["dates"].items():
+            bg = "#eafaf1" if (d["n_future"] + d["n_pre1900"]) == 0 else "#fef9e7"
+            rng = f"{d['date_min']} - {d['date_max']}" if d["date_min"] else "N/A"
+            linhas += (f'<tr style="background:{bg}"><td>{escape(col)}</td><td>{rng}</td>'
+                       f"<td>{d['n_future']}</td><td>{d['n_pre1900']}</td>"
+                       f"<td>{d['n_missing']}</td></tr>")
+        cab = "".join(f"<th>{_qrl(k, lang)}</th>"
+                      for k in ("column", "date_range", "future", "pre1900", "missing"))
+        H.append(f"<h2>{_qrl('sec_dates', lang)}</h2><table><thead><tr>{cab}</tr></thead>"
+                 f"<tbody>{linhas}</tbody></table>")
+
+    icd = report["icd"]
+    if icd:
+        vst = "ok" if icd["pct_valid"] >= 95 else ("warn" if icd["pct_valid"] >= 80 else "critical")
+        H.append(f"<h2>{_qrl('sec_icd', lang)}</h2>"
+                 f"<p>{badge(vst, _qrl('icd_valid', lang) + ': ' + str(icd['pct_valid']) + '%')}"
+                 f" | {_qrl('icd_unique', lang)}: {icd['n_unique']}"
+                 f" | {_qrl('missing', lang)}: {icd['pct_missing']}%</p>"
+                 f"<h3>{_qrl('icd_top', lang)}</h3>"
+                 + _html_table([t for t in icd["top_codes"] if t["code"] is not None],
+                               ["code", "count", "pct"]))
+        if icd["chapters"]:
+            H.append(f"<h3>{_qrl('icd_chapters', lang)}</h3>"
+                     + _html_table(icd["chapters"], ["chapter", "count"]))
+
+    geo = report["geographic"]
+    if geo:
+        H.append(f"<h2>{_qrl('sec_geographic', lang)}</h2>")
+        m = geo.get("municipalities")
+        if m:
+            H.append(f"<h3>{_qrl('municipalities', lang)} (n={m['n_unique']})</h3>"
+                     + _html_table(m["top"], ["code", "count", "pct"]))
+        s = geo.get("states")
+        if s:
+            H.append(f"<h3>{_qrl('states', lang)} (n={s['n_unique']})</h3>"
+                     + _html_table(s["top"], ["uf", "count", "pct"]))
+    return "\n".join(H)
 
 
 def _render_html(report: dict, lang: str) -> str:
@@ -753,6 +905,8 @@ def _render_html(report: dict, lang: str) -> str:
         f'<div style="font-size:12px;color:#555;margin:2px 0">{s["message"]}</div>'
         for s in pipe["parsed_steps"]
     )
+
+    data_html = _html_data_sections(report, lang, badge)
 
     drv_rows = ""
     for key, v in report["derived"]["variables"].items():
@@ -804,6 +958,7 @@ footer{margin-top:40px;font-size:12px;color:#aaa;border-top:1px solid #eee;paddi
        str(miss['completeness_score']) + ' / 100')}</p>
 <table><thead><tr><th>{_qrl('column', lang)}</th><th>N missing</th><th>%</th>
 <th>{_qrl('status', lang)}</th></tr></thead><tbody>{miss_rows}</tbody></table>
+{data_html}
 <h2>{_qrl('sec_derived', lang)}</h2>
 <table><thead><tr><th>{_qrl('variable', lang)}</th><th>{_qrl('status', lang)}</th>
 <th>{_qrl('column', lang)}</th></tr></thead><tbody>{drv_rows}</tbody></table>

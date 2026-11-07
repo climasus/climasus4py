@@ -157,5 +157,55 @@ class TestPipelineAudit:
         assert "Created derived variables (EN): age_group" in out
 
 
+_DADO_SIM = pd.DataFrame({
+    "sex": ["Male", "Female", "Male", None],
+    "race": ["White", "Brown", "White", "Black"],
+    "age_years": [70, 1, 45, None],
+    "death_date": pd.to_datetime(["2023-01-02", "2023-02-03", "2023-03-04", "2023-04-05"]),
+    "underlying_cause": ["J189", "I219", "J189", "C349"],
+    "residence_municipality_code": ["355030", "355030", "350950", "351880"],
+})
+
+
+class TestFileFormats:
+    """M237: the markdown and HTML files carry sections 3-6, as R writes them.
+    They went straight from completeness to derived variables before."""
+
+    def test_markdown_has_the_four_data_sections(self, tmp_path):
+        arq = tmp_path / "r.md"
+        sus_data_quality_report(_DADO_SIM, output_format="markdown",
+                                output_file=str(arq), lang="en", verbose=False)
+        md = arq.read_text(encoding="utf-8")
+        for titulo in ("## 3. Demographic Variables", "## 4. Date Validation",
+                       "## 5. ICD-10 Code Quality", "## 6. Geographic Coverage"):
+            assert titulo in md
+        assert md.index("## 2. Completeness") < md.index("## 3.") < md.index("## 7.")
+        assert "| Male | 2 | 50.0 |" in md
+        assert "| NA | 1 | 25.0 |" in md               # missing sex, as R's NA row
+        assert "| J189 | 2 | 50.0 |" in md
+        assert "| 355030 | 2 | 50.0 |" in md
+        assert "- Range: 1.0 - 70.0" in md
+        assert "2023-01-02 - 2023-04-05" in md
+
+    def test_html_has_the_four_data_sections(self, tmp_path):
+        arq = tmp_path / "r.html"
+        sus_data_quality_report(_DADO_SIM, output_format="html",
+                                output_file=str(arq), lang="en", verbose=False)
+        html = arq.read_text(encoding="utf-8")
+        for titulo in ("3. Demographic Variables", "4. Date Validation",
+                       "5. ICD-10 Code Quality", "6. Geographic Coverage"):
+            assert f"<h2>{titulo}</h2>" in html
+        assert "<td>J189</td><td>2</td><td>50.0</td>" in html
+        assert "Municipalities (n=3)" in html
+
+    def test_html_escapes_category_text(self, tmp_path):
+        arq = tmp_path / "r.html"
+        dado = _DADO_SIM.assign(race=["<b>x</b>", "a & b", "White", "Black"])
+        sus_data_quality_report(dado, output_format="html", output_file=str(arq),
+                                lang="en", verbose=False)
+        html = arq.read_text(encoding="utf-8")
+        assert "&lt;b&gt;x&lt;/b&gt;" in html and "a &amp; b" in html
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
