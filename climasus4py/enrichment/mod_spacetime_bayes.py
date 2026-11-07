@@ -181,9 +181,25 @@ def _time_index(serie: pd.Series, unit: str) -> tuple[np.ndarray, np.ndarray]:
     return valores.map(mapa).to_numpy(), rotulos
 
 
-def _weights_matrix(W: Any, n: int) -> np.ndarray:
+def _matrix_from_listw(listw: Any, codes: list[str] | None) -> np.ndarray:
+    """Dense adjacency from a libpysal ``W``, rows/columns in *codes* order."""
+    mat, ids = listw.full()
+    ids = [str(i) for i in ids]
+    if codes is not None and set(ids) == set(codes) and ids != list(codes):
+        pos = {c: k for k, c in enumerate(ids)}
+        ordem = [pos[c] for c in codes]
+        mat = mat[np.ix_(ordem, ordem)]
+    return mat
+
+
+def _weights_matrix(W: Any, n: int, codes: list[str] | None = None) -> np.ndarray:
     """Binary, symmetric adjacency over the AREAS (not the cells)."""
-    if isinstance(W, dict) and "W" in W:
+    if isinstance(W, dict) and W.get("W") is None and W.get("listw") is not None:
+        # sus_mod_spatial_weights() leaves W["W"] empty unless return_matrix=True;
+        # R then builds the matrix from W$nb. Same here, from the libpysal
+        # weights, re-ordered to the area codes the model uses.
+        mat = _matrix_from_listw(W["listw"], codes)
+    elif isinstance(W, dict) and "W" in W:
         mat = W["W"]
     elif hasattr(W, "W") and not isinstance(W, np.ndarray):
         mat = W.W
@@ -389,7 +405,7 @@ def sus_mod_spacetime_bayes(
     ia = pos_area[tabela["code_muni"]].to_numpy()
     it = tabela["__time_idx"].to_numpy().astype(int) - 1
 
-    W_mat = _weights_matrix(W, n_areas)
+    W_mat = _weights_matrix(W, n_areas, codes=[str(a) for a in areas])
     n = len(tabela)
     y = tabela[outcome].to_numpy()
     y = y.astype(int) if family in ("poisson", "nbinomial", "binomial") \

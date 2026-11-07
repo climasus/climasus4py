@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Fixed — ramo espacial conferido com o climasus4r nos 645 municípios de SP
+
+- **`sus_mod_spatial_moran` (M219).** O R segue o padrão do `spdep` (`adjust.n = TRUE`): uma região
+  sem vizinho sai do *n* no I, no E(I) e na Var(I). O Python mantinha essa região. Em SP, por causa
+  de Ilhabela, o I saía multiplicado por 644/645. No Ii local, o `spdep` divide por `Σz²/n` e o
+  `esda` por `Σz²/(n−1)`, então a diferença existia em qualquer mapa. Depois da correção, a Moran
+  global é idêntica à do R em todos os dígitos, e a local difere em 1,8e-15.
+- **`sus_mod_spatial_bayes` (M218).** Com uma covariável na escala natural (renda em reais), o
+  amostrador não saía do ponto inicial: desvio-padrão 0 e DIC de 7e291, sem nenhum aviso. As
+  covariáveis agora são padronizadas para amostrar, e os coeficientes voltam à escala original. Os
+  riscos relativos dos 644 municípios ficam com correlação de 0,9995 com os do R (CARBayes).
+- **`sus_mod_spatial_bayes` e `sus_mod_spacetime_bayes` (M220).** Os dois passam a aceitar o objeto
+  padrão do `sus_mod_spatial_weights`, montando a matriz a partir da lista de vizinhos, como o R e
+  como a própria documentação já dizia.
+
+Conferidos sem mudança, com os 645 municípios: `sus_mod_vulnerability_index` e
+`sus_socio_compute_indicators` são idênticos ao R (M27 e M39 resolvidos); `sus_mod_spatial_reg` tem
+coeficientes idênticos e erro-padrão até 2% diferente (M221); `sus_mod_spatial_scan` tem dados e
+aglomerados iguais.
+
 ### Fixed — grades que pararam (CHIRPS e PDSI) ou nunca funcionaram (SMVI), e `to_parquet()` dos resultados
 
 - **CHIRPS (M213).** O CHC moveu a árvore de `/products/CHIRPS-2.0/` para `/products/CHIRPS/v2.0/`.

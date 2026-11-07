@@ -466,14 +466,28 @@ def sus_mod_spatial_moran(
     n_perm = int(permutations)
     mc_res = Moran(z, listw, permutations=n_perm, two_tailed=False)
 
-    i_stat = float(mc_res.I)
-    e_i = float(mc_res.EI)
-    var_i = float(mc_res.VI_rand)
+    # spdep's default adjust.n = TRUE: with zero.policy, regions with no
+    # neighbour are taken out of n -- in I, E(I), Var(I) and the local Ii.
+    # esda keeps them in, so with an island (SP: Ilhabela) every statistic
+    # came out scaled by (n - islands) / n. The kurtosis K keeps the full n,
+    # as spdep's moran.test does. Without islands these equal esda's values.
+    n_all = len(z)
+    n_isl = int(sum(1 for c in listw.cardinalities.values() if c == 0))
+    n_adj = n_all - n_isl
+    lz = np.asarray(lag_spatial(listw, z), dtype=float)
+    s0, s1, s2 = float(listw.s0), float(listw.s1), float(listw.s2)
+    i_stat = (n_adj / s0) * float(z @ lz) / float(z @ z)
+    e_i = -1.0 / (n_adj - 1)
+    kurt = n_all * float(np.sum(z**4)) / float(np.sum(z**2)) ** 2
+    nn = n_adj * n_adj
+    var_i = ((n_adj * (s1 * (nn - 3 * n_adj + 3) - n_adj * s2 + 3 * s0**2)
+              - kurt * (s1 * (nn - n_adj) - 2 * n_adj * s2 + 6 * s0**2))
+             / ((n_adj - 1) * (n_adj - 2) * (n_adj - 3) * s0**2) - e_i**2)
     z_i = (i_stat - e_i) / np.sqrt(var_i) if var_i > 0 else np.nan
     p_value = float(scipy_stats.norm.sf(z_i)) if not np.isnan(z_i) else np.nan
 
     if n_perm > 0 and hasattr(mc_res, "sim") and mc_res.sim is not None:
-        sims = np.asarray(mc_res.sim)
+        sims = np.asarray(mc_res.sim) * (n_adj / n_all)   # esda draws use n_all
         larger = int(np.sum(sims >= i_stat))
         p_simulated = (larger + 1.0) / (n_perm + 1.0)
     else:
@@ -503,7 +517,11 @@ def sus_mod_spatial_moran(
     # use (see p_raw_vec below, computed by hand from z_sim instead).
     lm_res = Moran_Local(z, listw, permutations=n_perm, seed=1, alternative="two-sided")
 
-    ii = np.asarray(lm_res.Is, dtype=float)
+    # spdep's localmoran: Ii = z_i * lag(z)_i / m2 with m2 = sum(z^2) / n.
+    # esda's Moran_Local uses (n - 1) in that place, so its Is are the R
+    # values times (n - 1) / n -- with or without islands (on SP, one island,
+    # the factor happens to equal 644/645).
+    ii = np.asarray(lm_res.Is, dtype=float) * (n_all / (n_all - 1))
     z_ii = np.asarray(lm_res.z_sim, dtype=float)
     with np.errstate(invalid="ignore"):
         p_raw_vec = 2.0 * scipy_stats.norm.sf(np.abs(z_ii))

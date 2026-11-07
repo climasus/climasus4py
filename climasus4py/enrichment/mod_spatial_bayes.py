@@ -117,7 +117,18 @@ def _msg(key: str, lang: str, **kw: Any) -> str:
     return entry[key].format(**kw)
 
 
-def _weights_matrix(W: Any, n: int) -> np.ndarray:
+def _matrix_from_listw(listw: Any, codes: list[str] | None) -> np.ndarray:
+    """Dense adjacency from a libpysal ``W``, rows/columns in *codes* order."""
+    mat, ids = listw.full()
+    ids = [str(i) for i in ids]
+    if codes is not None and set(ids) == set(codes) and ids != list(codes):
+        pos = {c: k for k, c in enumerate(ids)}
+        ordem = [pos[c] for c in codes]
+        mat = mat[np.ix_(ordem, ordem)]
+    return mat
+
+
+def _weights_matrix(W: Any, n: int, codes: list[str] | None = None) -> np.ndarray:
     """Binary adjacency matrix, the way R derives ``W_mat``.
 
     R accepts the object from ``sus_mod_spatial_weights()``: it takes
@@ -127,7 +138,12 @@ def _weights_matrix(W: Any, n: int) -> np.ndarray:
     or a libpysal ``full()``.
     """
     mat = None
-    if isinstance(W, dict) and "W" in W:
+    if isinstance(W, dict) and W.get("W") is None and W.get("listw") is not None:
+        # sus_mod_spatial_weights() leaves W["W"] empty unless return_matrix=True;
+        # R then builds the matrix from W$nb. Same here, from the libpysal
+        # weights, re-ordered to the area codes the model uses.
+        mat = _matrix_from_listw(W["listw"], codes)
+    elif isinstance(W, dict) and "W" in W:
         mat = W["W"]
     elif hasattr(W, "W") and not isinstance(W, np.ndarray):
         mat = W.W
@@ -354,7 +370,7 @@ def sus_mod_spatial_bayes(
     else:
         manter = np.ones(n_areas, dtype=bool)
 
-    W_mat = _weights_matrix(W, n_areas)
+    W_mat = _weights_matrix(W, n_areas, codes=tabela["code_muni"].astype(str).tolist())
     if not manter.all():
         W_mat = W_mat[np.ix_(manter, manter)]
     n = len(tabela)
@@ -370,6 +386,15 @@ def sus_mod_spatial_bayes(
     y = y.astype(int) if family in ("poisson", "binomial") else y.astype(float)
     X = (tabela[list(covariates)].to_numpy(dtype=float)
          if covariates else np.empty((n, 0)))
+    # Sample on centred and scaled covariates, report on the original scale
+    # (M218). With income in reais (200-2000) next to counts in the tens of
+    # thousands, NUTS never left its starting point: posterior sd 0, DIC
+    # 7e291, no error. CARBayes copes in R; here the reparametrisation is
+    # the standard fix and is undone draw by draw below.
+    x_centro = X.mean(axis=0) if X.shape[1] else np.empty(0)
+    x_escala = X.std(axis=0, ddof=1) if X.shape[1] else np.empty(0)
+    x_escala = np.where((x_escala > 0) & np.isfinite(x_escala), x_escala, 1.0)
+    X = (X - x_centro) / x_escala
     log_E = (np.log(tabela[offset].to_numpy(dtype=float))
              if offset else np.zeros(n))
 
@@ -486,9 +511,12 @@ def sus_mod_spatial_bayes(
     })
 
     termos = ["(Intercept)", *(covariates or [])]
-    empilhado = [post["intercept"].stack(amostra=("chain", "draw")).to_numpy()]
+    b0 = post["intercept"].stack(amostra=("chain", "draw")).to_numpy()
+    empilhado = [b0]
     if covariates:
         b = post["beta"].stack(amostra=("chain", "draw")).to_numpy()
+        b = b / x_escala[:, None]                          # back to original units
+        empilhado[0] = b0 - (x_centro[:, None] * b).sum(axis=0)
         empilhado.extend(b[i] for i in range(b.shape[0]))
     amostras_fixas = np.vstack(empilhado)
 
