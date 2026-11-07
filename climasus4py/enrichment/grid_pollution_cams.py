@@ -26,6 +26,7 @@ from typing import Literal
 import pandas as pd
 from rich.console import Console
 
+from ..core._meta_json import json_safe_meta
 from ..core.climate_inmet import _download_robust
 
 console = Console(stderr=True)
@@ -315,7 +316,7 @@ def sus_grid_pollution_cams(
     # METADATA
     # =========================================================================
     now = datetime.now()
-    result.attrs["sus_meta"] = {
+    result.attrs["sus_meta"] = json_safe_meta({
         "system": None,
         "stage": "climate",
         "type": "pollution_cams",
@@ -338,7 +339,7 @@ def sus_grid_pollution_cams(
             f"{len(pollutants_list)} pollutant(s) x {len(metric_list)} metric(s), {n_rows} obs"
         ],
         "user": {},
-    }
+    })
 
     return result
 

@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Literal
 import pandas as pd
 from rich.console import Console
 
+from ..core._meta_json import json_safe_meta
 from ..core.climate_inmet import _download_robust
 
 if TYPE_CHECKING:
@@ -54,7 +55,9 @@ _VALID_AGG: tuple[str, ...] = ("mean", "sum", "median", "min", "max")
 # twin) when CHC publishes a newer annual file.
 _MAX_YEAR_ANNUAL = 2024
 
-_CHIRPS_BASE = "https://data.chc.ucsb.edu/products/CHIRPS-2.0"
+# CHC moved the tree from /products/CHIRPS-2.0/ to /products/CHIRPS/v2.0/ in
+# 2026 (the old path answers 404); file names are unchanged.
+_CHIRPS_BASE = "https://data.chc.ucsb.edu/products/CHIRPS/v2.0"
 
 # R default: months = 1:12
 _ALL_MONTHS: tuple[int, ...] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
@@ -248,7 +251,7 @@ def sus_grid_chirps(
         precipitation with stations — a new environmental record for
         monitoring extremes. Scientific Data, 2, 150066.
         https://doi.org/10.1038/sdata.2015.66
-        Data: https://data.chc.ucsb.edu/products/CHIRPS-2.0/
+        Data: https://data.chc.ucsb.edu/products/CHIRPS/v2.0/
 
     Examples::
 
@@ -439,7 +442,7 @@ def sus_grid_chirps(
 
     # --- attach metadata ----------------------------------------------------------
     now = datetime.now()
-    result.attrs["sus_meta"] = {
+    result.attrs["sus_meta"] = json_safe_meta({
         "system": None,
         "stage": "climate",
         "type": "chirps",
@@ -463,7 +466,7 @@ def sus_grid_chirps(
             f"sus_grid_chirps(): res={resolution}, {n_rows} obs"
         ],
         "user": {},
-    }
+    })
 
     return result
 
@@ -737,7 +740,7 @@ def _build_from_parquet(
         )
 
     now = datetime.now()
-    result.attrs["sus_meta"] = {
+    result.attrs["sus_meta"] = json_safe_meta({
         "system": None,
         "stage": "climate",
         "type": "chirps",
@@ -756,5 +759,5 @@ def _build_from_parquet(
             f"sus_grid_chirps(): from Parquet cache, {n_rows} obs"
         ],
         "user": {},
-    }
+    })
     return result

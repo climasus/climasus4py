@@ -32,6 +32,8 @@ import duckdb
 import numpy as np
 import pandas as pd
 
+from ..core._meta_json import json_safe_meta
+
 # ---------------------------------------------------------------------------
 # Internal indicators catalog (mirrors R's .sus_indicators_catalog exactly)
 # ---------------------------------------------------------------------------
@@ -762,12 +764,12 @@ def sus_socio_compute_indicators(
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     history_entry = f"[{now_str}] {step}"
     existing_meta: dict = data.attrs.get("sus_meta", {})
-    data.attrs["sus_meta"] = {
+    data.attrs["sus_meta"] = json_safe_meta({
         **existing_meta,
         "stage": "census",
         "type": "indicators",
         "history": [*existing_meta.get("history", []), history_entry],
-    }
+    })
 
     if verbose:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

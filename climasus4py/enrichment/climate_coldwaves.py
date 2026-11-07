@@ -51,6 +51,7 @@ import numpy as np
 import pandas as pd
 from rich.console import Console
 
+from ..core._meta_json import json_safe_meta
 from ..utils.data import period_bound
 
 console = Console(stderr=True)
@@ -342,9 +343,9 @@ def sus_climate_compute_coldwaves(
         f"{baseline_end_ts.date() if baseline_end_ts is not None else 'full'}"
     )
     sus_meta = {"stage": "climate", "type": "coldwaves", "history": [history_entry]}
-    events.attrs["sus_meta"] = sus_meta
-    daily.attrs["sus_meta"] = sus_meta
-    summary.attrs["sus_meta"] = sus_meta
+    events.attrs["sus_meta"] = json_safe_meta(sus_meta)
+    daily.attrs["sus_meta"] = json_safe_meta(sus_meta)
+    summary.attrs["sus_meta"] = json_safe_meta(sus_meta)
 
     return {"events": events, "daily": daily, "summary": summary}
 

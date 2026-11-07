@@ -35,6 +35,7 @@ import numpy as np
 import pandas as pd
 from rich.console import Console
 
+from ..core._meta_json import json_safe_meta
 from ..core.climate_inmet import _download_robust
 
 if TYPE_CHECKING:
@@ -494,7 +495,7 @@ def sus_grid_pollution_ghap(
     # (not just replicated) to the correct per-resolution mapping already
     # used by the sibling sus_grid_chirps.
     unit_map = {"daily": "day", "monthly": "month", "annual": "year"}
-    result.attrs["sus_meta"] = {
+    result.attrs["sus_meta"] = json_safe_meta({
         "system": None,
         "stage": "climate",
         "type": "pollution_ghap",
@@ -518,7 +519,7 @@ def sus_grid_pollution_ghap(
             f"res={resolution}, {n_rows} obs"
         ],
         "user": {},
-    }
+    })
 
     return result
 
@@ -1046,7 +1047,7 @@ def _build_from_parquet(manifest: pd.DataFrame, verbose: bool, msg: dict[str, st
     # slimmer sus_meta than the full-extraction path (no resolution/
     # pollutants/agg_fun/n_municipalities, distinct temporal.source, no
     # temporal.unit) — mirrors .ghap_build_result_from_parquet() exactly.
-    result.attrs["sus_meta"] = {
+    result.attrs["sus_meta"] = json_safe_meta({
         "system": None,
         "stage": "climate",
         "type": "pollution_ghap",
@@ -1063,5 +1064,5 @@ def _build_from_parquet(manifest: pd.DataFrame, verbose: bool, msg: dict[str, st
             f"sus_grid_pollution_ghap(): from Parquet cache, {n_rows} obs"
         ],
         "user": {},
-    }
+    })
     return result

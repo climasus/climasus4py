@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Literal
 import pandas as pd
 from rich.console import Console
 
+from ..core._meta_json import json_safe_meta
 from ..core.climate_inmet import _download_robust
 
 if TYPE_CHECKING:
@@ -491,7 +492,7 @@ def sus_grid_prodes(
         temporal_start = pd.Timestamp(year=int(result["year"].min()), month=1, day=1)
         temporal_end = pd.Timestamp(year=int(result["year"].max()), month=1, day=1)
 
-    result.attrs["sus_meta"] = {
+    result.attrs["sus_meta"] = json_safe_meta({
         "system": None,
         "stage": "climate",
         "type": "prodes",
@@ -515,7 +516,7 @@ def sus_grid_prodes(
             f"years={min(years_list)}-{max(years_list)}, {n_rows} obs"
         ],
         "user": {},
-    }
+    })
     return result
 
 
@@ -800,7 +801,7 @@ def _build_from_parquet(pq_paths: list[str], verbose: bool, msg: dict[str, str])
         console.print("[green]OK[/]  " + msg["done"].format(n_rows=n_rows, n_mun=n_mun))
 
     now = datetime.now()
-    result.attrs["sus_meta"] = {
+    result.attrs["sus_meta"] = json_safe_meta({
         "system": None,
         "stage": "climate",
         "type": "prodes",
@@ -819,5 +820,5 @@ def _build_from_parquet(pq_paths: list[str], verbose: bool, msg: dict[str, str])
             f"sus_grid_prodes(): from Parquet cache, {n_rows} obs"
         ],
         "user": {},
-    }
+    })
     return result

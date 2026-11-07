@@ -45,6 +45,8 @@ import duckdb
 import pandas as pd
 from rich.console import Console
 
+from ..core._meta_json import json_safe_meta
+
 console = Console(stderr=True)
 
 if TYPE_CHECKING:
@@ -309,7 +311,7 @@ def sus_grid_koppen(
         f"sus_grid_koppen: zona_koppen added (mode={mode})"
     )
     base_meta["history"] = history
-    df.attrs["sus_meta"] = base_meta
+    df.attrs["sus_meta"] = json_safe_meta(base_meta)
 
     return df
 

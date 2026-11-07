@@ -39,6 +39,7 @@ import numpy as np
 import pandas as pd
 from rich.console import Console
 
+from ..core._meta_json import json_safe_meta
 from ..core.climate_inmet import _VALID_UFS
 
 console = Console(stderr=True)
@@ -398,10 +399,10 @@ def sus_grid_fires(
         if verbose:
             console.print(f"[green]OK[/]  {msg['done_points'].format(n_rows=len(result))}")
 
-        result.attrs["sus_meta"] = _fires_build_meta(
+        result.attrs["sus_meta"] = json_safe_meta(_fires_build_meta(
             result, years_list, months_list, source, uf_list, biome_list,
             n_points, len(result),
-        )
+        ))
         return result
 
     # --- point-in-polygon spatial join to municipalities --------------------
@@ -442,9 +443,9 @@ def sus_grid_fires(
             "n_fires": pd.Series(dtype="int64"),
             "frp_mean": pd.Series(dtype="float64"),
         })
-        result.attrs["sus_meta"] = _fires_build_meta(
+        result.attrs["sus_meta"] = json_safe_meta(_fires_build_meta(
             result, years_list, months_list, source, uf_list, biome_list, n_points, 0,
-        )
+        ))
         return result
 
     fire_plain = pd.DataFrame(fire_joined.drop(columns=[fire_joined.geometry.name]))
@@ -462,9 +463,9 @@ def sus_grid_fires(
         n_mun = result["code_muni"].nunique()
         console.print(f"[green]OK[/]  {msg['agg_done'].format(n_rows=n_rows, n_mun=n_mun)}")
 
-    result.attrs["sus_meta"] = _fires_build_meta(
+    result.attrs["sus_meta"] = json_safe_meta(_fires_build_meta(
         result, years_list, months_list, source, uf_list, biome_list, n_points, n_rows,
-    )
+    ))
     return result
 
 

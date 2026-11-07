@@ -32,6 +32,7 @@ import numpy as np
 import pandas as pd
 from rich.console import Console
 
+from ..core._meta_json import json_safe_meta
 from ..core.climate_inmet import _download_robust
 from ._netcdf import require_netcdf_stack
 
@@ -71,7 +72,10 @@ _VAR_NAME: dict[str, str] = {
 # Verified from sus_grid_pdsi.R: one NetCDF file per year (TerraClimate,
 # University of Idaho, no authentication), and a single global file for
 # NOAA PSL / Dai (2011) self-calibrated PDSI.
-_TERRACLIMATE_BASE = "https://climate.northwestknowledge.net/TERRACLIMATE-DATA"
+# The project's THREDDS file server. The old base
+# (https://climate.northwestknowledge.net/TERRACLIMATE-DATA) stopped accepting
+# connections in Nov/2026; THREDDS serves the same TerraClimate_<VAR>_<YEAR>.nc.
+_TERRACLIMATE_BASE = "https://thredds.northwestknowledge.net/thredds/fileServer/TERRACLIMATE_ALL/data"
 _NOAA_PSL_URL = "https://downloads.psl.noaa.gov/Datasets/dai_pdsi/pdsi.mon.mean.selfcalibrated.nc"
 
 _MESSAGES: dict[str, dict[str, str]] = {
@@ -256,7 +260,7 @@ def sus_grid_pdsi(
         high-resolution global dataset of monthly climate and climatic
         water balance from 1958-2015. Scientific Data, 5, 170191.
         https://doi.org/10.1038/sdata.2017.191
-        Data: https://climate.northwestknowledge.net/TERRACLIMATE-DATA/
+        Data: https://thredds.northwestknowledge.net/thredds/catalog/TERRACLIMATE_ALL/data/catalog.html
         NOAA PSL: Dai, A. (2011). Characteristics and trends in various
         forms of the PDSI during 1900-2008. J. Geophys. Res., 116,
         D12115. https://doi.org/10.1029/2010JD015541
@@ -462,7 +466,7 @@ def sus_grid_pdsi(
 
     # --- attach metadata ----------------------------------------------------------
     now = datetime.now()
-    result.attrs["sus_meta"] = {
+    result.attrs["sus_meta"] = json_safe_meta({
         "system": None,
         "stage": "climate",
         "type": "pdsi",
@@ -486,7 +490,7 @@ def sus_grid_pdsi(
             f"sus_grid_pdsi(): source={source}, {n_rows} obs"
         ],
         "user": {},
-    }
+    })
 
     return result
 
@@ -768,7 +772,7 @@ def _build_from_parquet(
         )
 
     now = datetime.now()
-    result.attrs["sus_meta"] = {
+    result.attrs["sus_meta"] = json_safe_meta({
         "system": None,
         "stage": "climate",
         "type": "pdsi",
@@ -787,5 +791,5 @@ def _build_from_parquet(
             f"sus_grid_pdsi(): from Parquet cache, {n_rows} obs"
         ],
         "user": {},
-    }
+    })
     return result

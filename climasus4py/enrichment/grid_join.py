@@ -18,6 +18,8 @@ import duckdb
 import pandas as pd
 from rich.console import Console
 
+from ..core._meta_json import json_safe_meta
+
 console = Console(stderr=True)
 
 _GEOM_COLS = ("geometry", "geom")
@@ -213,7 +215,7 @@ def sus_grid_join(
         f"{len(grid_cols)} col(s) added ({', '.join(grid_cols)}), join by: {', '.join(by_list)}"
     )
     base_meta["history"] = history
-    result.attrs["sus_meta"] = base_meta
+    result.attrs["sus_meta"] = json_safe_meta(base_meta)
 
     if verbose:
         n_na = int(result[grid_cols[0]].isna().sum())

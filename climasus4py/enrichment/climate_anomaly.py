@@ -19,6 +19,8 @@ import numpy as np
 import pandas as pd
 from rich.console import Console
 
+from ..core._meta_json import json_safe_meta
+
 console = Console(stderr=True)
 
 # Observed INMET column -> normals var_code. Expand as normal_meta grows.
@@ -310,7 +312,7 @@ def sus_climate_anomaly(
 
     normal_period = normals.attrs.get("sus_meta", {}).get("period")
     now = datetime.now()
-    result.attrs["sus_meta"] = {
+    result.attrs["sus_meta"] = json_safe_meta({
         "stage": "climate",
         "type": "anomaly",
         "method": method,
@@ -326,7 +328,7 @@ def sus_climate_anomaly(
             f"normal period: {normal_period or 'unknown'}; "
             f"vars: {', '.join(resolved_vars)}"
         ],
-    }
+    })
 
     if verbose:
         console.print(

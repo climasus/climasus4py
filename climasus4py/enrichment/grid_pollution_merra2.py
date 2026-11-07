@@ -46,6 +46,7 @@ import numpy as np
 import pandas as pd
 from rich.console import Console
 
+from ..core._meta_json import json_safe_meta
 from ._netcdf import require_netcdf_stack
 
 if TYPE_CHECKING:
@@ -592,7 +593,7 @@ def sus_grid_pollution_merra2(
 
     # --- attach metadata ----------------------------------------------------------
     now = datetime.now()
-    result.attrs["sus_meta"] = {
+    result.attrs["sus_meta"] = json_safe_meta({
         "system": None,
         "stage": "climate",
         "type": "pollution_merra2",
@@ -617,7 +618,7 @@ def sus_grid_pollution_merra2(
             f"res={resolution}, {n_rows} obs"
         ],
         "user": {},
-    }
+    })
 
     return result
 
@@ -1028,7 +1029,7 @@ def _build_from_parquet(
         )
 
     now = datetime.now()
-    result.attrs["sus_meta"] = {
+    result.attrs["sus_meta"] = json_safe_meta({
         "system": None,
         "stage": "climate",
         "type": "pollution_merra2",
@@ -1048,5 +1049,5 @@ def _build_from_parquet(
             f"sus_grid_pollution_merra2(): from Parquet cache, {n_rows} obs"
         ],
         "user": {},
-    }
+    })
     return result

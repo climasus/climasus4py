@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Fixed — grades que pararam (CHIRPS e PDSI) ou nunca funcionaram (SMVI), e `to_parquet()` dos resultados
+
+- **CHIRPS (M213).** O CHC moveu a árvore de `/products/CHIRPS-2.0/` para `/products/CHIRPS/v2.0/`.
+  O caminho antigo responde 404, e o `sus_grid_chirps` parou de funcionar. A base foi atualizada; os
+  nomes de arquivo não mudaram. Com o mesmo endereço, a chuva extraída bate com a do climasus4r
+  com diferença relativa de 5e-8.
+- **TerraClimate / PDSI (M214).** O servidor `climate.northwestknowledge.net` passou a recusar
+  conexões. O `sus_grid_pdsi` agora baixa pelo servidor THREDDS do mesmo projeto, que entrega os
+  mesmos arquivos. Os valores são idênticos aos do climasus4r.
+- **SMVI (M216).** A função nunca tinha funcionado: o arquivo da HydroShare traz os CSVs numa
+  subpasta, com outro nome (`SMVI_GLDAS_Summ_table_SMVI_<ano>_n864000.csv`) e com até seis eventos
+  lado a lado por célula da grade. Agora a busca é recursiva, os dois nomes são aceitos e os eventos
+  são desempilhados em uma linha por evento.
+- **`to_parquet()` (M215).** Os resultados que carregam `sus_meta` em `DataFrame.attrs` (as grades,
+  `sus_climate_normals`, `_anomaly`, `_spi`, `_spei`, `_uniplu`, ondas de calor e de frio e
+  indicadores socioeconômicos) não podiam ser salvos com `.to_parquet()`. O erro era *"Object of type
+  Timestamp is not JSON serializable"*. Datas do metadado agora são texto ISO, a mesma convenção que
+  `created` e `modified` já seguiam.
+
 ### Fixed — o `sus_mod_dlnm` descartava os nós pedidos (M212)
 
 O `argvar={"fun": "ns", "knots": [18, 21, 24]}` era aceito e **ignorado em silêncio**. O

@@ -30,6 +30,7 @@ import pandas as pd
 from rich.console import Console
 
 from ..utils.data import load_json
+from ._meta_json import json_safe_meta
 from .climate_inmet import _download_robust
 
 console = Console(stderr=True)
@@ -195,7 +196,7 @@ def sus_climate_normals(
     n_stations = result["codigo"].nunique(dropna=True)
     n_variables = result["var_code"].nunique()
     now = datetime.now()
-    result.attrs["sus_meta"] = {
+    result.attrs["sus_meta"] = json_safe_meta({
         "system": None,
         "stage": "climate",
         "type": "normals",
@@ -210,7 +211,7 @@ def sus_climate_normals(
             f"INMET climate normals imported — period: {period}"
         ],
         "user": {},
-    }
+    })
 
     if verbose:
         console.print(

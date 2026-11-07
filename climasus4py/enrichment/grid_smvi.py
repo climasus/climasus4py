@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Literal
 import pandas as pd
 from rich.console import Console
 
+from ..core._meta_json import json_safe_meta
 from ..core.climate_inmet import _download_robust
 
 if TYPE_CHECKING:
@@ -60,7 +61,13 @@ _BASE_URL = "http://www.hydroshare.org/resource/642ff72592404a17bb85a8a92b4dbcd6
 
 _BRAZIL_BBOX_LONLAT: tuple[float, float, float, float] = (-75.0, -28.0, -35.0, 6.0)
 
-_EVENTS_CSV_PATTERN = re.compile(r"SMVI_GLDAS_(\d{4})\.csv$")
+# Two layouts. The archive HydroShare serves (checked 07/11/2026) ships
+# FD_Events/SMVI_GLDAS_Summ_table_SMVI_<year>_n864000.csv -- one row per grid
+# cell with up to six events side by side (fstdate1..6, lstdate1..6, SV1..6).
+# The flat SMVI_GLDAS_<year>.csv (one row per event) is what the R source
+# expects; both are accepted.
+_EVENTS_CSV_PATTERN = re.compile(r"SMVI_GLDAS_(?:Summ_table_SMVI_)?(\d{4})(?:_n\d+)?\.csv$")
+_WIDE_EVENT_COL = re.compile(r"^fstdate(\d+)$")
 
 # Candidate date-column names (order matters: first two present, in this
 # order, are treated as onset/recovery — mirrors R's `intersect()`, which
@@ -177,6 +184,28 @@ _MESSAGES: dict[str, dict[str, str]] = {
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+def _events_long(ev: pd.DataFrame) -> pd.DataFrame:
+    """One row per event: unstack the wide fstdate<k>/lstdate<k>/sv<k> layout.
+
+    Frames already in the flat layout (fstdate/lstdate/sv) pass through.
+    Slots with no onset date are dropped -- a cell with two events has
+    four empty slots.
+    """
+    slots = sorted(int(m.group(1)) for c in ev.columns if (m := _WIDE_EVENT_COL.match(c)))
+    if not slots:
+        return ev
+    parts = []
+    for k in slots:
+        part = pd.DataFrame({
+            "cell_id": ev["cell_id"].to_numpy(),
+            "fstdate": ev[f"fstdate{k}"].to_numpy(),
+            "lstdate": ev[f"lstdate{k}"].to_numpy() if f"lstdate{k}" in ev else None,
+            "sv": ev[f"sv{k}"].to_numpy() if f"sv{k}" in ev else float("nan"),
+        })
+        parts.append(part[part["fstdate"].notna()])
+    return pd.concat(parts, ignore_index=True)
+
 
 def sus_grid_smvi(
     years: int | list[int] | None = None,
@@ -362,7 +391,7 @@ def sus_grid_smvi(
     if not events_gz.is_file():
         raise ValueError(msg["events_missing"])
 
-    if not events_dir.is_dir() or not any(events_dir.glob("*.csv")):
+    if not events_dir.is_dir() or not any(events_dir.rglob("*.csv")):
         if verbose:
             console.print(f"[cyan]INFO[/]  {msg['extracting']}")
         events_dir.mkdir(parents=True, exist_ok=True)
@@ -370,7 +399,7 @@ def sus_grid_smvi(
             tf.extractall(events_dir, filter="data")  # noqa: S202 - trusted cache archive
 
     csv_files = [
-        p for p in events_dir.glob("*.csv") if _EVENTS_CSV_PATTERN.search(p.name)
+        p for p in events_dir.rglob("*.csv") if _EVENTS_CSV_PATTERN.search(p.name)
     ]
     if not csv_files:
         raise ValueError(msg["no_csv_after_extract"])
@@ -389,12 +418,12 @@ def sus_grid_smvi(
     events_frames: list[pd.DataFrame] = []
     for f in use_files:
         try:
-            ev = pd.read_csv(f)
+            ev = pd.read_csv(f, low_memory=False)
             ev.columns = [str(c).lower() for c in ev.columns]
             if "cell_id" not in ev.columns:
                 ev = ev.rename(columns={ev.columns[0]: "cell_id"})
             ev = ev[ev["cell_id"].isin(br_cell_ids)]
-            events_frames.append(ev)
+            events_frames.append(_events_long(ev))
         except Exception:
             if verbose:
                 console.print(f"[yellow]WARN[/]  {msg['read_warn'].format(filename=f.name)}")
@@ -436,7 +465,7 @@ def sus_grid_smvi(
     if municipalities is None:
         out_df = events_df.rename(columns={"lon": "Lon", "lat": "Lat"})
         out_df["source"] = "SMVI_GLDAS"
-        out_df.attrs["sus_meta"] = {
+        out_df.attrs["sus_meta"] = json_safe_meta({
             "system": None,
             "stage": "climate",
             "type": "smvi",
@@ -456,7 +485,7 @@ def sus_grid_smvi(
                 f"sus_grid_smvi(): {n_events} events, no aggregation"
             ],
             "user": {},
-        }
+        })
         if verbose:
             console.print(f"[green]OK[/]  {msg['done_raw'].format(n=n_events)}")
         return out_df
@@ -527,7 +556,7 @@ def sus_grid_smvi(
     if verbose:
         console.print(f"[green]OK[/]  {msg['agg_done'].format(n_rows=n_rows, n_mun=n_mun)}")
 
-    result.attrs["sus_meta"] = {
+    result.attrs["sus_meta"] = json_safe_meta({
         "system": None,
         "stage": "climate",
         "type": "smvi",
@@ -549,7 +578,7 @@ def sus_grid_smvi(
             f"{len(events_muni)} events -> {n_rows} obs ({aggregate_by}), {n_mun} municipalities"
         ],
         "user": {},
-    }
+    })
     return result
 
 

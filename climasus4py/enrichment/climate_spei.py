@@ -26,6 +26,8 @@ import numpy as np
 import pandas as pd
 from rich.console import Console
 
+from ..core._meta_json import json_safe_meta
+
 console = Console(stderr=True)
 
 _MESSAGES: dict[str, dict[str, str]] = {
@@ -262,7 +264,7 @@ def sus_climate_compute_spei(
         f"{ref_start_ts.date() if ref_start_ts is not None else 'all'}/"
         f"{ref_end_ts.date() if ref_end_ts is not None else 'all'}"
     )
-    data.attrs["sus_meta"] = {
+    data.attrs["sus_meta"] = json_safe_meta({
         "stage": "climate",
         "type": "spei",
         "history": [
@@ -270,7 +272,7 @@ def sus_climate_compute_spei(
             f"sus_climate_compute_spei(): scales={'+'.join(f'{s}mo' for s in scales_list)}, "
             f"pet={pet_method}, ref={ref_str}"
         ],
-    }
+    })
 
     if verbose:
         n_na = int(data[scale_cols[0]].isna().sum())

@@ -31,6 +31,7 @@ import duckdb
 import pandas as pd
 from rich.console import Console
 
+from ._meta_json import json_safe_meta
 from ._sql import quote_ident, register_relation, sql_string
 from .climate_inmet import _VALID_UFS, _download_robust, _relation_is_empty
 from .engine import get_connection
@@ -314,7 +315,7 @@ def sus_climate_uniplu(
     date_max = climate_data["date"].max() if not climate_data.empty else None
     years_present = sorted(pd.to_datetime(climate_data["date"]).dt.year.unique().tolist())
 
-    climate_data.attrs["sus_meta"] = {
+    climate_data.attrs["sus_meta"] = json_safe_meta({
         "system": None,
         "stage": "climate",
         "type": "uniplu",
@@ -335,7 +336,7 @@ def sus_climate_uniplu(
             f"UNIPLU-BR rainfall data imported (aggregate_to='{aggregate_to}')"
         ],
         "user": {},
-    }
+    })
 
     if verbose:
         console.print(

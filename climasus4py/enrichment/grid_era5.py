@@ -31,6 +31,7 @@ from typing import Any, Literal
 import pandas as pd
 from rich.console import Console
 
+from ..core._meta_json import json_safe_meta
 from ..core.climate_inmet import _download_robust
 from ._netcdf import require_netcdf_stack
 
@@ -526,7 +527,7 @@ def sus_grid_era5(
     # METADATA
     # =====================================================================
     now = datetime.now()
-    result.attrs["sus_meta"] = {
+    result.attrs["sus_meta"] = json_safe_meta({
         "system": None,
         "stage": "climate",
         "type": "era5_land",
@@ -551,7 +552,7 @@ def sus_grid_era5(
             f"{len(vars_list)} var(s), {n_mun} municipalities, {n_rows} obs"
         ],
         "user": {},
-    }
+    })
 
     return result
 
