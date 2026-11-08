@@ -37,15 +37,44 @@ class TestDedup:
         cleaned = sus_data_clean_encoding(rel, fix_enc=False, age_range=(0, 120))
         assert _count(cleaned) == 3
 
-    def test_dedup_keeps_first_row(self):
-        """Dedup should keep one row per key."""
+    def test_same_contador_different_content_are_different_records(self):
+        """CONTADOR is not a key (M242).
+
+        It numbers the rows of each yearly SIM file and restarts at 1, so the
+        same value in two years is two deaths. Deduplicating on it took
+        SIM-DO SP 2014-2019 from 1,764,884 deaths to 745,026.
+        """
         rel = _make_rel({
-            "CONTADOR": [1, 1],
-            "IDADE": ["420", "430"],
-            "CAUSABAS": ["J189", "I219"],
+            "CONTADOR": [1, 1, 254, 254],
+            "DTOBITO": ["01012014", "01012015", "03022014", "07032015"],
+            "IDADE": ["420", "430", "470", "481"],
+            "CAUSABAS": ["J189", "I219", "C509", "I219"],
         })
         cleaned = sus_data_clean_encoding(rel, fix_enc=False, age_range=(0, 120))
-        assert _count(cleaned) == 1
+        assert _count(cleaned) == 4
+
+    def test_sih_aih_in_two_competence_months_is_kept(self):
+        """N_AIH repeats across competence months (-114,505 on SIH-RD SP)."""
+        rel = _make_rel({
+            "N_AIH": ["3514100000001", "3514100000001"],
+            "ANO_CMPT": ["2014", "2014"],
+            "MES_CMPT": ["06", "07"],
+        })
+        assert _count(sus_data_clean_encoding(rel, fix_enc=False)) == 2
+
+    def test_dedup_cols_still_defines_a_key(self):
+        """A caller who knows the key can still pass it."""
+        rel = _make_rel({
+            "N_AIH": ["1", "1", "1"],
+            "ANO_CMPT": ["2014", "2014", "2014"],
+            "MES_CMPT": ["06", "06", "07"],
+            "SEQUENCIA": ["1", "1", "1"],
+            "VAL_TOT": [10.0, 11.0, 12.0],
+        })
+        cleaned = sus_data_clean_encoding(
+            rel, fix_enc=False,
+            dedup_cols=["N_AIH", "ANO_CMPT", "MES_CMPT", "SEQUENCIA"])
+        assert _count(cleaned) == 2
 
     def test_dedup_no_key_uses_distinct(self):
         """When no key column found, fall back to full distinct."""

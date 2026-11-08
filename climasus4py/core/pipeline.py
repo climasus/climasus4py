@@ -105,16 +105,6 @@ def _date_parse_sql(col: str) -> str:
     )
 
 
-#: Key columns the fast path deduplicates on — the same candidates
-#: ``sus_data_clean_encoding`` uses, so the two paths remove the same rows.
-#:
-#: Removes nothing on the data measured (SIM-DO SP 2023 has 334,303
-#: distinct CONTADOR in 334,303 rows). Applied anyway because the staged
-#: path applies it, and a total that depends on which path ran is the
-#: defect being fixed — not because it is known to matter here.
-_DEDUP_KEYS = ("CONTADOR", "NUMERODO", "NUMERODN", "N_AIH", "NU_NOTIFIC",
-               "counter", "record_id")
-
 #: The plausibility range ``sus_data_clean_encoding`` applies by default,
 #: and therefore what the staged path applies whether or not the caller
 #: asked for an age filter.
@@ -264,26 +254,18 @@ def _build_fast_sql(
     paths_sql = ", ".join(
         sql_string(str(p).replace("\\", "/")) for p in parquet_paths
     )
-    source = f"read_parquet([{paths_sql}], union_by_name=True)"
+    # Deduplication as `sus_data_clean_encoding` does it by default, so the
+    # two paths keep giving the same totals: rows identical in every column
+    # (M242). It used to keep one row per CONTADOR/N_AIH/... -- and
+    # CONTADOR restarts in every yearly file, so a multi-year SIM-DO lost
+    # most of its deaths here too.
+    source = (f"(SELECT DISTINCT * FROM "
+              f"read_parquet([{paths_sql}], union_by_name=True))")
 
     time_sql = _time_expr(time)
     if time_sql is None:
         return None
     conta = _agg_smart_name(system, "count", lang)
-
-    # Deduplication, on the same keys `sus_data_clean_encoding` uses. The
-    # staged path deduplicates because it runs that function; this path,
-    # being one CTE over the parquet, did not — 335 rows of difference on
-    # SIM-DO SP 2023. Costs a window function, and a total that depends on
-    # which path happened to run costs more.
-    chaves = [c for c in _DEDUP_KEYS if c in columns]
-    if chaves:
-        particao = ", ".join(f'"{c}"' for c in chaves)
-        select_parts.append(
-            f"ROW_NUMBER() OVER (PARTITION BY {particao} "
-            f"ORDER BY {particao}) AS __rn"
-        )
-        where_parts.append("__rn = 1")
 
     sql = (
         f"WITH base AS ("

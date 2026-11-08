@@ -23,9 +23,10 @@ def sus_data_clean_encoding(
     """Clean SUS data: deduplicate and validate age range.
 
     All operations remain lazy (DuckDB relation) until materialised.
-    Deduplication uses ROW_NUMBER() over known DATASUS key columns for
-    performance. Age validation decodes the SIM-DO 3-digit coded age
-    field before applying numeric range filters.
+    Deduplication removes rows identical in every column, unless
+    *dedup_cols* names the columns that identify a record. Age validation
+    decodes the SIM-DO 3-digit coded age field before applying numeric
+    range filters.
 
     Note on encoding: UTF-8 conversion is performed upstream at the
     Parquet writer level (``_coerce_datasus_types`` in ``importer.py``),
@@ -41,9 +42,13 @@ def sus_data_clean_encoding(
     Args:
         rel: Lazy DuckDB relation to clean.
         dedup: If ``True``, remove duplicate records.
-        dedup_cols: Columns to use for deduplication. If ``None``, uses
-            known DATASUS key columns (faster). Pass ``["*"]`` to force
-            a full-row DISTINCT.
+        dedup_cols: Columns that identify a record, e.g.
+            ``["N_AIH", "ANO_CMPT", "MES_CMPT", "SEQUENCIA"]`` for SIH-RD;
+            one row is kept per combination. If ``None`` (or ``["*"]``),
+            a duplicate is a row identical in every column. The public
+            DATASUS files carry no single-column key: ``CONTADOR`` restarts
+            in every yearly file, and keying on it erased 58% of the deaths
+            of a six-year SIM-DO import (M242).
         age_range: ``(min_age, max_age)`` tuple in years. Records with
             decoded age outside this range are dropped. Handles the
             DATASUS 3-digit coding scheme for SIM-DO IDADE fields.
@@ -87,14 +92,18 @@ def sus_data_clean_encoding(
     # Deduplication
     # ------------------------------------------------------------------
     if dedup:
-        if dedup_cols and dedup_cols != ["*"]:
-            key_cols = [c for c in dedup_cols if c in columns]
-        else:
-            key_candidates = [
-                "CONTADOR", "NUMERODO", "NUMERODN", "N_AIH", "NU_NOTIFIC",
-                "counter", "record_id",
-            ]
-            key_cols = [c for c in key_candidates if c in columns]
+        # Without dedup_cols, a duplicate is a row identical in EVERY column
+        # (M242). This used to partition on "key columns" -- CONTADOR,
+        # NUMERODO, N_AIH, NU_NOTIFIC ... -- and none is a key in the public
+        # files: CONTADOR numbers the rows of each yearly file and restarts,
+        # so SIM-DO SP 2014-2019 went from 1,764,884 deaths to 745,026 with
+        # not one identical row among them; N_AIH repeats across competence
+        # months (-114,505 on SIH-RD SP); NUMERODO and NU_NOTIFIC are not
+        # published at all. Comparing the whole row took 1-5 s on those
+        # 1.6-3.8 million rows and removes only true repeats (the 1,620
+        # identical SINAN-DENGUE SP rows). Per-system keys can come later.
+        key_cols = ([c for c in dedup_cols if c in columns]
+                    if dedup_cols and dedup_cols != ["*"] else [])
 
         if key_cols:
             conn = get_connection()
@@ -156,7 +165,9 @@ def sus_data_clean_encoding(
     # _inherit_from=_original_rel propaga system/type/stages/history do
     # stage anterior (import), mesmo que rel seja um objeto DuckDB novo
     # ------------------------------------------------------------------
-    dedup_msg   = f"dedup={'key-cols' if dedup else 'off'}"
+    dedup_msg   = ("dedup=off" if not dedup
+                   else f"dedup={dedup_cols}" if dedup_cols and dedup_cols != ["*"]
+                   else "dedup=identical-rows")
     age_msg     = f"age_range={age_range}"
     enc_msg     = "encoding=UTF-8 (applied at import/parquet level)"
     history_msg = (

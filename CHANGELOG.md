@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Fixed — `sus_data_clean_encoding` apagava mais da metade dos óbitos com vários anos
+
+- **O padrão `dedup=True` tratava o `CONTADOR` como identificador único (M242).** O `CONTADOR`
+  do SIM é só a numeração das linhas de cada arquivo anual e recomeça a cada ano. Ao juntar
+  vários anos, óbitos diferentes com o mesmo número eram tidos como duplicatas: o SIM-DO de SP
+  2014–2019 caía de 1.764.884 para 745.026 registros, sem aviso, embora nenhuma linha fosse
+  repetida. No SIH, o nº da AIH (`N_AIH`) se repete entre meses de competência, e 114.505
+  internações sumiam. Com um único ano o problema não aparecia.
+- Agora, por padrão, só saem as **linhas idênticas em todas as colunas**. Nos mesmos dados: 0 no
+  SIM, 0 no SIH e as 1.620 linhas repetidas do SINAN-DENGUE. Quem conhece a chave do seu sistema
+  pode informá-la em `dedup_cols`, por exemplo `["N_AIH", "ANO_CMPT", "MES_CMPT", "SEQUENCIA"]`
+  no SIH-RD. O caminho rápido do `sus_pipeline` passou a deduplicar do mesmo jeito: SIM-DO SP
+  2014–2019, doenças respiratórias, dá 240.486 óbitos nos dois caminhos.
+
 ### Fixed — filtros por município, UF e região que devolviam zero linhas sem aviso
 
 - **Município com o código IBGE completo (M241).** `sus_filter(municipality="3550308")`, o código
