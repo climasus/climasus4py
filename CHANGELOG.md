@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added — tutoriais no site, com os exemplos do climasus4r em Python
+
+- Nova aba **Tutoriais**, com as cinco trilhas do climasus4r. Os três primeiros tutoriais da
+  Trilha do Pipeline estão prontos: **1. Importação**, **2. Limpeza e Padronização** e
+  **3. Filtragem**, com o caso condutor do R (óbitos, internações e dengue em SP, 2014–2019). Os
+  demais aparecem como "em preparação".
+- Os exemplos de cada página foram rodados com dados reais, e as figuras saem desses dados.
+  Os scripts que as geram ficam em `tools/tutoriais/`, como os `scripts/` do climasus4r.
+
 ### Fixed — o filtro de grupos sensíveis ao clima deixava de fora os principais
 
 - **`list_disease_groups(climate_sensitive_only=True)` devolvia 13 grupos (M243).** A função lia
