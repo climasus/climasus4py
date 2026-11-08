@@ -141,6 +141,7 @@ nav:
       - "1. Importação": tutoriais/01-importacao.md
       - "2. Limpeza e Padronização": tutoriais/02-limpeza-padronizacao.md
       - "3. Filtragem": tutoriais/03-filtragem.md
+      - "4. Variáveis e Agregação": tutoriais/04-variaveis-agregacao.md
   - "Como consultar": querying.md
   - "Ordem do pipeline": pipeline-order.md
   - "Materialize": materialize.md

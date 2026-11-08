@@ -36,9 +36,11 @@ import climasus4py as cs  # noqa: E402
 from climasus4py.utils.data import decode_age_sql  # noqa: E402
 
 ANOS = list(range(2014, 2020))
-# Oito municípios da RMSP, como no tutorial do climasus4r (códigos IBGE de 7 dígitos).
-RMSP = ["3550308", "3548708", "3509502", "3548500",
-        "3547809", "3530607", "3534401", "3505708"]
+# Oito municípios da RMSP, pelo nome -- a lista RMSP_CIDADES que o script do climasus4r
+# (scripts/tutorial_03_filtragem.R) de fato usa. A página do R mostra outra lista, de
+# códigos IBGE, com Campinas e Santos, que não são da RMSP (M244).
+RMSP = ["São Paulo", "Guarulhos", "São Bernardo do Campo", "Santo André",
+        "Osasco", "Mauá", "Carapicuíba", "Diadema"]
 
 
 def conta(rel) -> int:
@@ -78,12 +80,12 @@ n_resp, n_cardio = conta(resp), conta(cardio)
 assert n_cardio == conta(cs.sus_filter(obitos_padr, groups="cardiovascular"))
 
 # --- Filtros demográficos -------------------------------------------------------------
-resp_idosos = cs.sus_filter(resp, age_min=60, municipality=RMSP)
-cardio_idosos = cs.sus_filter(cardio, age_min=60, municipality=RMSP)
+resp_idosos = cs.sus_filter(resp, age_min=60, city=RMSP)
+cardio_idosos = cs.sus_filter(cardio, age_min=60, city=RMSP)
 n_resp_id, n_cardio_id = conta(resp_idosos), conta(cardio_idosos)
 # Os dois recortes numa chamada só dão o mesmo resultado.
 assert n_resp_id == conta(cs.sus_filter(obitos_padr, groups="respiratory", age_min=60,
-                                        municipality=RMSP))
+                                        city=RMSP))
 mulheres_sp = conta(cs.sus_filter(resp, sex="Feminino", city="São Paulo"))
 sudeste = conta(cs.sus_filter(resp, region="sudeste"))
 print(f"\nmulheres na cidade de SP (respiratório): {mulheres_sp:,} | sudeste: {sudeste:,}")

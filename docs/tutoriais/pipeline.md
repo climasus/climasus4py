@@ -47,7 +47,7 @@ climática, janela temporal e modelo estatístico.
     Crie variáveis derivadas e agregue os registros no tempo e no espaço para formar séries
     analíticas.
 
-    *Em preparação*
+    [Ver tutorial →](04-variaveis-agregacao.md)
 
 -   **Etapa 5 · Junção Espacial**
 

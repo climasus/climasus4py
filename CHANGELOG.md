@@ -24,10 +24,12 @@
 
 ### Added — tutoriais no site, com os exemplos do climasus4r em Python
 
-- Nova aba **Tutoriais**, com as cinco trilhas do climasus4r. Os três primeiros tutoriais da
-  Trilha do Pipeline estão prontos: **1. Importação**, **2. Limpeza e Padronização** e
-  **3. Filtragem**, com o caso condutor do R (óbitos, internações e dengue em SP, 2014–2019). Os
-  demais aparecem como "em preparação".
+- Nova aba **Tutoriais**, com as cinco trilhas do climasus4r. Os quatro primeiros tutoriais da
+  Trilha do Pipeline estão prontos: **1. Importação**, **2. Limpeza e Padronização**,
+  **3. Filtragem** e **4. Variáveis e Agregação**, com o caso condutor do R (óbitos, internações
+  e dengue em SP, 2014–2019). Os demais aparecem como "em preparação".
+- O recorte da RMSP usa os oito municípios que o script do climasus4r de fato roda, pelo nome
+  (`city=`). A página do R mostra outra lista, com Campinas e Santos, que não são da RMSP.
 - Os exemplos de cada página foram rodados com dados reais, e as figuras saem desses dados.
   Os scripts que as geram ficam em `tools/tutoriais/`, como os `scripts/` do climasus4r.
 

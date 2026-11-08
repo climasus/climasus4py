@@ -52,7 +52,7 @@ Entrada: a base SIM-DO **padronizada** em português produzida pelo Tutorial 2 (
 | Causas respiratórias | CID-10 J00–J99 | `groups="respiratory"` |
 | Causas cardiovasculares | CID-10 I00–I99 | `codes="I00-I99"` |
 | Idosos | 60 anos ou mais | `age_min=60` |
-| RMSP | códigos IBGE de 8 municípios | `municipality=[...]` |
+| RMSP | nomes de 8 municípios | `city=[...]` |
 
 ## Pipeline completo
 
@@ -116,31 +116,32 @@ registros que `cardio`.
 ### Filtrar por demografia (idosos 60+ na RMSP)
 
 O recorte demográfico é aplicado sobre o subconjunto respiratório. A idade é calculada a partir
-do código de idade do DATASUS, sem precisar de nenhuma etapa anterior; o recorte espacial usa os
-**códigos IBGE** de oito municípios da Região Metropolitana de São Paulo:
+do código de idade do DATASUS, sem precisar de nenhuma etapa anterior; o recorte espacial usa o
+**nome** de oito municípios da Região Metropolitana de São Paulo, com o argumento `city`:
 
 ```python
-# Oito municípios da RMSP (códigos IBGE de 7 dígitos):
-RMSP = ["3550308", "3548708", "3509502", "3548500",
-        "3547809", "3530607", "3534401", "3505708"]
+# Oito municípios da RMSP:
+RMSP = ["São Paulo", "Guarulhos", "São Bernardo do Campo", "Santo André",
+        "Osasco", "Mauá", "Carapicuíba", "Diadema"]
 
-resp_idosos = cs.sus_filter(resp, age_min=60, municipality=RMSP)
-cardio_idosos = cs.sus_filter(cardio, age_min=60, municipality=RMSP)
+resp_idosos = cs.sus_filter(resp, age_min=60, city=RMSP)
+cardio_idosos = cs.sus_filter(cardio, age_min=60, city=RMSP)
 ```
 
 Os critérios de doença e de demografia também podem ir **na mesma chamada** — o resultado é o
 mesmo:
 
 ```python
-resp_idosos = cs.sus_filter(obitos_padr, groups="respiratory", age_min=60, municipality=RMSP)
+resp_idosos = cs.sus_filter(obitos_padr, groups="respiratory", age_min=60, city=RMSP)
 ```
 
-Você também pode filtrar por **nome de cidade**, por **sexo, raça ou escolaridade** ou por
-**região** predefinida:
+Em vez do nome, você pode usar o **código IBGE** do município, com 6 ou 7 dígitos, no argumento
+`municipality`; e também filtrar por **sexo, raça ou escolaridade** ou por **região**
+predefinida:
 
 ```python
-# Por nome de cidade (em vez de código) e por sexo:
-mulheres_sp = cs.sus_filter(resp, sex="Feminino", city="São Paulo")
+# Pelo código IBGE (São Paulo = 3550308) e por sexo:
+mulheres_sp = cs.sus_filter(resp, sex="Feminino", municipality="3550308")
 
 # Por macrorregião (atalho que resolve para um conjunto de UFs):
 sudeste = cs.sus_filter(resp, region="sudeste")
@@ -229,8 +230,8 @@ parâmetro `match_type` define como cada código é comparado à coluna de causa
 | Base padronizada (Tutorial 2) | 1.764.881 | 100,0 |
 | CID-10: respiratório (J00–J99) | 240.486 | 13,6 |
 | CID-10: cardiovascular (I00–I99) | 521.349 | 29,5 |
-| + demografia: respiratório, 60+, 8 municípios da RMSP | 72.937 | 4,1 |
-| + demografia: cardiovascular, 60+, 8 municípios da RMSP | 160.459 | 9,1 |
+| + demografia: respiratório, 60+, 8 municípios da RMSP | 70.742 | 4,0 |
+| + demografia: cardiovascular, 60+, 8 municípios da RMSP | 156.794 | 8,9 |
 
 ![Funil de filtragem](figuras/filt_funil_cid.png)
 
@@ -270,4 +271,4 @@ aparece no recorte e será confrontada com a temperatura nas etapas de clima e m
 
 - [Voltar para a Trilha do Pipeline](pipeline.md)
 - **Anterior:** [Tutorial 2 — Limpeza e Padronização](02-limpeza-padronizacao.md)
-- **Próximo:** Tutorial 4 — Variáveis e Agregação *(em preparação)*
+- **Próximo:** [Tutorial 4 — Variáveis e Agregação](04-variaveis-agregacao.md)
