@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed — `sus_spatial_join(geo_level="state")` passa a ligar ao estado
+
+- **O `geo_level` era ignorado (M251).** `geo_level="state"`, que a documentação oferecia,
+  devolvia o polígono do município, sem aviso. Agora cada linha recebe o polígono e o nome do
+  estado do seu município. Os municípios do mesmo estado compartilham o polígono, e as linhas
+  não são somadas. Qualquer outro valor dá erro. Os outros níveis do climasus4r (biomas, região
+  metropolitana, região de saúde, CEP...) ainda não existem no Python (M252).
+
 ### Fixed — rótulos sem acento ou no idioma errado
 
 - O grupo de risco climático saía como "Risco Padrao (5-64)" em português e "Riesgo Estandar

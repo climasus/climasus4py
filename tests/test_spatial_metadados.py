@@ -307,3 +307,34 @@ def test_continua_lazy(rel) -> None:
 
     out = cs.sus_spatial_join(rel)
     assert isinstance(out, duckdb.DuckDBPyRelation)
+
+
+# --- geo_level="state" (M251) --------------------------------------------
+
+
+def test_nivel_estado_da_o_poligono_do_estado_e_nao_o_do_municipio() -> None:
+    """geo_level era ignorado: "state" devolvia o polígono do município (M251).
+
+    Dois municípios do mesmo estado recebem o MESMO polígono e o nome do
+    estado; as linhas não são somadas.
+    """
+    conn = get_connection()
+    conn.register("_m251_rel", pd.DataFrame({
+        "CODMUNRES": ["355030", "350950", "330455"],      # SP, SP (Campinas), RJ
+        "n": [1, 2, 3],
+    }))
+    rel = conn.table("_m251_rel")
+    mun = cs.sus_spatial_join(rel).df()
+    est = cs.sus_spatial_join(rel, geo_level="state").df().set_index("CODMUNRES")
+    assert mun["geometry_wkt"].nunique() == 3
+    assert est["geometry_wkt"].nunique() == 2
+    assert est.loc["355030", "geometry_wkt"] == est.loc["350950", "geometry_wkt"]
+    assert est.loc["355030", "spatial_name"] == "São Paulo"
+    assert est.loc["330455", "abbrev_state"] == "RJ"
+    assert len(est) == 3 and est["n"].sum() == 6                 # linhas intactas
+    assert est.loc["350950", "code_muni_7"] == "3509502"          # o código continua
+
+
+def test_nivel_desconhecido_da_erro_em_vez_de_ser_ignorado(rel) -> None:
+    with pytest.raises(ValueError, match="M252"):
+        cs.sus_spatial_join(rel, geo_level="biomes")

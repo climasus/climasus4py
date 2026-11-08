@@ -214,7 +214,11 @@ def sus_spatial_join(
             the bundled municipalities parquet when ``None``, at the
             resolution *simplified* selects.
         geo_level: Geographic level — ``"municipality"`` (default) or
-            ``"state"``.
+            ``"state"``. At ``"state"`` each row gets the polygon and name
+            of the state its municipality belongs to: municipalities of the
+            same state share one polygon, and rows are not merged (sum them
+            by ``code_state`` for one value per state). Any other value
+            raises.
         simplified: ``True`` (default) joins the simplified geometry,
             which is what ``climasus4r`` gets from
             ``geobr::read_municipality(simplified = TRUE)``. The polygon
@@ -293,7 +297,15 @@ def sus_spatial_join(
         >>> out.df()["geometry_wkt"].iloc[0]
         'POINT (-46.63 -23.55)'
     """
-    _ = geo_level  # reserved for future state-level joins; preserved for parity
+    # geo_level used to be ignored ("reserved for future state-level joins"):
+    # "state" returned the municipality polygons, with no warning (M251).
+    if geo_level not in ("municipality", "state"):
+        raise ValueError(
+            f"geo_level={geo_level!r} is not available. Use 'municipality' or "
+            f"'state'. The other levels of climasus4r's sus_spatial_join "
+            f"(biomes, metro_area, health_region, cep, ...) are not in "
+            f"climasus4py yet (M252)."
+        )
     _original_rel = rel
     rel = _unwrap_sus_relation(rel, "sus_spatial_join")
 
@@ -357,9 +369,15 @@ def sus_spatial_join(
     # `sus_census_join`, so these two go slightly beyond parity — and
     # they cost nothing, since the IBGE code already encodes them.
     codigo7 = 'CAST(s.code_muni AS VARCHAR)'
+    # At geo_level="state" the name and polygon are the state's, from the
+    # states layer joined on the first two digits of the municipality code;
+    # every municipality of a state carries the same polygon, and rows are
+    # not merged (M251). The municipality join stays: it supplies the code
+    # and the state and region fields.
+    estado = geo_level == "state"
     candidatas: list[tuple[str, str]] = [
-        ("spatial_name", "s.name"),
-        ("geometry_wkt", "s.geometry_wkt"),
+        ("spatial_name", "e.name" if estado else "s.name"),
+        ("geometry_wkt", "e.geometry_wkt" if estado else "s.geometry_wkt"),
         ("code_muni_7", codigo7),
         # First two digits are the IBGE state code, the first is the
         # region code — one-to-one across all 27 states, checked.
@@ -410,6 +428,12 @@ def sus_spatial_join(
         f"  ON LEFT(CAST(h.{h_geo} AS VARCHAR), 6) "
         f"   = LEFT(CAST(s.code_muni AS VARCHAR), 6)"
     )
+    if estado:
+        estados_sql = _sql_path(spatial_asset_path("states", simplified=simplified))
+        sql += (
+            f" LEFT JOIN read_parquet({estados_sql}) e "
+            f"  ON CAST(e.code_state AS VARCHAR) = LEFT({codigo7}, 2)"
+        )
 
     result = rel.query(vista, sql)
     result = result.set_alias("enrichment")
