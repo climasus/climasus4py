@@ -73,8 +73,21 @@ def _map_palette(name: str = "lancet", n: int = 256):
         "sus":        ["#E8F1F8", "#1B6CA8"],
         "colorblind": ["#E5F0F8", "#0072B2"],
     }
-    colors = seq_maps.get(name, seq_maps["lancet"])
-    return LinearSegmentedColormap.from_list("map_cmap", colors, N=n)
+    if name in seq_maps:
+        return LinearSegmentedColormap.from_list("map_cmap", seq_maps[name], N=n)
+    # climasus4r also takes the RColorBrewer palettes ("YlOrRd", its own
+    # default, "Blues", ...) and viridis/magma/inferno/cividis/plasma.
+    # matplotlib ships all of them under the same names; an unknown name
+    # used to fall back to "lancet" without a word (M247).
+    import matplotlib
+    try:
+        return matplotlib.colormaps[name].resampled(n)
+    except KeyError:
+        warnings.warn(
+            f"palette={name!r} is not a known palette; using 'lancet'. Use one of "
+            f"{sorted(seq_maps)} or a matplotlib/RColorBrewer name such as 'YlOrRd'.",
+            UserWarning, stacklevel=3)
+        return LinearSegmentedColormap.from_list("map_cmap", seq_maps["lancet"], N=n)
 
 
 def _map_detect_outcome_col(columns: list, value_col: str | None) -> str:
@@ -437,9 +450,12 @@ def sus_data_plot_aggregate_map(
         ax.set_ylim(valid["lat"].min() - pad_y, valid["lat"].max() + pad_y)
 
     # labels
-    ax.set_title(map_title, fontsize=base_size + 1, fontweight="bold", loc="left")
-    ax.text(0, 1.02, map_sub, transform=ax.transAxes,
-            fontsize=base_size * 0.88, color="grey", ha="left")
+    # The title is lifted above the subtitle line; drawn at the default pad
+    # it sat on top of the subtitle (M247).
+    ax.set_title(map_title, fontsize=base_size + 1, fontweight="bold", loc="left",
+                 pad=base_size * 2.2)
+    ax.text(0, 1.01, map_sub, transform=ax.transAxes,
+            fontsize=base_size * 0.88, color="grey", ha="left", va="bottom")
     ax.text(0, -0.05, cap_lbl, transform=ax.transAxes,
             fontsize=base_size - 2, color="#888888", ha="left")
     ax.axis("off")

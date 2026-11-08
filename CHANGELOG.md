@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Fixed — gráfico de tendência e paletas do mapa iguais aos do climasus4r
+
+- **`sus_data_plot_aggregate_ts(plot_type="trend")` desenhava outro gráfico (M245).** Mostrava a
+  série original com uma reta de tendência. Agora é o gráfico do climasus4r: uma barra com o
+  total de cada ano, rotulada com a variação percentual em relação ao ano anterior, em vermelho
+  quando sobe e em azul quando cai, também com `facet_col`. Conferido contra o R na série de
+  óbitos respiratórios de idosos da RMSP, 2014–2019: mesmos totais e mesmos rótulos.
+- **`sus_data_plot_aggregate_map(palette=...)` ignorava as paletas do R (M247).** Nomes como
+  `"YlOrRd"` (o padrão do climasus4r), `"Blues"` ou `"viridis"` caíam na `"lancet"` sem aviso.
+  Agora qualquer paleta do matplotlib, que inclui as do RColorBrewer, funciona, e um nome
+  desconhecido gera aviso. O título do mapa deixou de ser desenhado por cima do subtítulo.
+- **A curva epidêmica trocava o loess por uma reta (M248).** `smooth_method="loess"` (e `"gam"`)
+  virava uma reta sem faixa de confiança. Agora é o loess com a faixa, como no R, com o novo
+  argumento `smooth_span` (padrão `0.25`, o do R). Na série do tutorial 4, a curva coincide com
+  a do `stats::loess` do R. Como o plotnine não tem GAM, `"gam"` usa o loess e avisa. A área sob
+  a linha também passou a ser desenhada, como no R.
+- **O gráfico sazonal desenhava barras de média (M249).** Sem `group_col`, `plot_type="seasonal"`
+  mostrava uma barra por mês com a média. Agora é o boxplot do R: uma caixa por mês com os totais
+  daquele mês em cada ano, e a linha das medianas. Com `facet_col`, o gráfico deixou de dar erro.
+
 ### Added — tutoriais no site, com os exemplos do climasus4r em Python
 
 - Nova aba **Tutoriais**, com as cinco trilhas do climasus4r. Os três primeiros tutoriais da

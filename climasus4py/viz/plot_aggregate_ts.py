@@ -130,8 +130,7 @@ def _ts_prepare(df: pd.DataFrame, value_col: str, date_col: str) -> pd.DataFrame
 
 
 def _ts_theme(base_size: int = 11):
-    from plotnine import (theme_classic, theme, element_text,
-                          element_line, element_blank)
+    from plotnine import element_blank, element_line, element_text, theme, theme_classic
     return (
         theme_classic(base_size=base_size)
         + theme(
@@ -151,10 +150,23 @@ def _ts_theme(base_size: int = 11):
 
 def _ts_epidemic(df, value_col, group_col, facet_col, facet_ncol,
                  smooth_method, log_transform, free_scales,
-                 pal, title, subtitle, caption, base_size, lang):
-    from plotnine import (ggplot, aes, geom_line, geom_point, geom_smooth,
-                          facet_wrap, scale_color_manual, scale_x_datetime,
-                          labs, theme, element_text)
+                 pal, title, subtitle, caption, base_size, lang, smooth_span=0.25):
+    from plotnine import (
+        aes,
+        element_text,
+        facet_wrap,
+        geom_area,
+        geom_line,
+        geom_smooth,
+        ggplot,
+        labs,
+        scale_color_manual,
+        scale_fill_manual,
+        scale_x_datetime,
+        theme,
+    )
+
+    from .climate_plot_aggregate import _LOESS_SE_MAX_N
     keys = ["_date"]
     if group_col and group_col in df.columns:
         keys.append(group_col)
@@ -163,35 +175,53 @@ def _ts_epidemic(df, value_col, group_col, facet_col, facet_ncol,
     if log_transform:
         agg[value_col] = np.log1p(agg[value_col])
 
+    # Area under the line, as climasus4r's .ts_epidemic draws it (M248).
     if group_col and group_col in df.columns:
         agg[group_col] = agg[group_col].astype(str)
         n_grp  = agg[group_col].nunique()
         colors = (pal * ((n_grp // len(pal)) + 1))[:n_grp]
-        col_map = dict(zip(agg[group_col].unique(), colors))
+        col_map = dict(zip(agg[group_col].unique(), colors, strict=True))
         p = (
             ggplot(agg, aes(x="_date", y=value_col,
-                            color=group_col, group=group_col))
+                            color=group_col, fill=group_col, group=group_col))
+            + geom_area(alpha=0.18)
             + geom_line(size=0.7)
-            + geom_point(size=1.3)
             + scale_color_manual(values=col_map, name=None)
+            + scale_fill_manual(values=col_map, name=None)
         )
     else:
         p = (
             ggplot(agg, aes(x="_date", y=value_col))
+            + geom_area(alpha=0.18, fill=pal[0])
             + geom_line(size=0.7, color=pal[0])
-            + geom_point(size=1.3, color=pal[0])
         )
 
-    n_pts = len(agg["_date"].unique())
-    if smooth_method and smooth_method != "none" and n_pts >= 6:
-        try:
-            use_method = "lm" if smooth_method in ("loess", "gam") else smooth_method
-            p = p + geom_smooth(
-                method=use_method, se=False,
-                color="#333333", linetype="dashed", size=0.6
-            )
-        except Exception:
-            pass
+    # The smoother the caller asked for, with its confidence band, as R does
+    # (M248). "loess" and "gam" used to be swapped for a straight line ("lm")
+    # with no band. plotnine has no GAM backend, so "gam" falls back to loess
+    # with a warning, as sus_climate_plot_aggregate already does.
+    n_pts = len(agg)
+    if smooth_method and smooth_method != "none" and agg["_date"].nunique() >= 6:
+        metodo = smooth_method
+        if metodo == "gam":
+            warnings.warn(
+                "sus_data_plot_aggregate_ts: plotnine has no GAM smoother (R uses "
+                "mgcv::gam); using 'loess', which approximates it.",
+                UserWarning, stacklevel=4)
+            metodo = "loess"
+        if metodo == "loess" and n_pts > _LOESS_SE_MAX_N:
+            # The loess confidence band overflows its workspace above this
+            # size and crashes the process (M223); R drops the curve too.
+            warnings.warn(
+                f"sus_data_plot_aggregate_ts: the loess curve was left out: "
+                f"{n_pts:,} points, and loess with a confidence band handles at "
+                f"most {_LOESS_SE_MAX_N:,}. R drops the curve too.",
+                UserWarning, stacklevel=4)
+        else:
+            cor = pal[5] if len(pal) > 5 else pal[-1]
+            extra = {"span": smooth_span} if metodo == "loess" else {}
+            p = p + geom_smooth(method=metodo, se=True, color=cor, fill=cor,
+                                alpha=0.15, size=0.9, **extra)
 
     if facet_col and facet_col in df.columns:
         scales = "free_y" if free_scales else "fixed"
@@ -215,13 +245,32 @@ def _ts_epidemic(df, value_col, group_col, facet_col, facet_ncol,
 def _ts_seasonal(df, value_col, group_col, facet_col, facet_ncol,
                  log_transform, free_scales, pal, title, subtitle,
                  caption, base_size, lang):
-    from plotnine import (ggplot, aes, geom_col, geom_boxplot,
-                          facet_wrap, scale_fill_manual, labs)
+    """Boxplot of the monthly totals of each calendar month, with the medians joined.
+
+    climasus4r's .ts_seasonal draws a boxplot per month and a line through
+    the medians. Without group_col this drew one bar per month with the mean
+    instead (M249). The boxes are the year-by-year totals of each month -- the
+    series summed first, as everywhere in this module; R boxes the rows of the
+    table, municipality by period (M224).
+    """
+    from matplotlib.colors import LinearSegmentedColormap, to_hex
+    from plotnine import (
+        aes,
+        facet_wrap,
+        geom_boxplot,
+        geom_line,
+        geom_point,
+        ggplot,
+        labs,
+        scale_fill_manual,
+    )
     month_labels = _ts_month_labels(lang)
 
     keys = ["_year", "_month"]
     if group_col and group_col in df.columns:
         keys.append(group_col)
+    if facet_col and facet_col in df.columns and facet_col not in keys:
+        keys.append(facet_col)
 
     monthly = df.groupby(keys)[value_col].sum().reset_index()
     monthly["month_lbl"] = monthly["_month"].map(
@@ -234,23 +283,38 @@ def _ts_seasonal(df, value_col, group_col, facet_col, facet_ncol,
     if log_transform:
         monthly[value_col] = np.log1p(monthly[value_col])
 
+    caixa = {"alpha": 0.6, "width": 0.65, "color": "#4D4D4D", "outlier_size": 1,
+             "outlier_alpha": 0.5, "size": 0.35}
     if group_col and group_col in df.columns:
         monthly[group_col] = monthly[group_col].astype(str)
         n_grp  = monthly[group_col].nunique()
         colors = (pal * ((n_grp // len(pal)) + 1))[:n_grp]
-        col_map = dict(zip(monthly[group_col].unique(), colors))
+        col_map = dict(zip(monthly[group_col].unique(), colors, strict=True))
         p = (
             ggplot(monthly, aes(x="month_lbl", y=value_col, fill=group_col))
-            + geom_boxplot(alpha=0.7)
+            + geom_boxplot(**caixa)
             + scale_fill_manual(values=col_map, name=None)
         )
     else:
-        mean_month = (monthly.groupby("month_lbl", observed=True)[value_col]
-                      .mean().reset_index())
+        # One fill per month along the palette, as R's colorRampPalette(pal)(12).
+        rampa = LinearSegmentedColormap.from_list("meses", pal)
+        cores = {m: to_hex(rampa(i / 11)) for i, m in enumerate(month_labels)}
         p = (
-            ggplot(mean_month, aes(x="month_lbl", y=value_col))
-            + geom_col(fill=pal[0], width=0.7)
+            ggplot(monthly, aes(x="month_lbl", y=value_col, fill="month_lbl"))
+            + geom_boxplot(**caixa, show_legend=False)
+            + scale_fill_manual(values=cores, guide=None)
         )
+
+    # The medians joined across the months, as R's stat_summary(fun = median).
+    chaves_med = ["month_lbl"] + ([facet_col] if facet_col and facet_col in df.columns else [])
+    medianas = (monthly.groupby(chaves_med, observed=True)[value_col]
+                .median().reset_index())
+    cor = pal[5] if len(pal) > 5 else pal[-1]
+    p = (p
+         + geom_line(medianas, aes(x="month_lbl", y=value_col, group=1),
+                     color=cor, size=0.9, alpha=0.85, inherit_aes=False)
+         + geom_point(medianas, aes(x="month_lbl", y=value_col), color=cor,
+                      fill="white", size=1.8, stroke=1.2, shape="o", inherit_aes=False))
 
     if facet_col and facet_col in df.columns:
         scales = "free_y" if free_scales else "fixed"
@@ -271,9 +335,17 @@ def _ts_seasonal(df, value_col, group_col, facet_col, facet_ncol,
 
 def _ts_heatmap(df, value_col, facet_col, facet_ncol, log_transform,
                 free_scales, pal, title, subtitle, caption, base_size, lang):
-    from plotnine import (ggplot, aes, geom_tile, scale_fill_gradientn,
-                          labs, theme_classic, theme, element_text,
-                          element_blank)
+    from plotnine import (
+        aes,
+        element_blank,
+        element_text,
+        geom_tile,
+        ggplot,
+        labs,
+        scale_fill_gradientn,
+        theme,
+        theme_classic,
+    )
     month_labels = _ts_month_labels(lang)
 
     heat = df.groupby(["_year", "_month"])[value_col].sum().reset_index()
@@ -312,40 +384,80 @@ def _ts_heatmap(df, value_col, facet_col, facet_ncol, log_transform,
     )
 
 
+# Texts of climasus4r's .ts_trend (.tsm("title_trend"/"y_label"/"x_year")),
+# kept here until climasus-data's viz_labels.json carries them.
+_TREND_TEXT = {
+    "title": {"pt": "Tendência anual de eventos de saúde notificados",
+              "en": "Annual trend in reported health events",
+              "es": "Tendencia anual de eventos de salud notificados"},
+    "y": {"pt": "Eventos notificados", "en": "Reported events", "es": "Eventos notificados"},
+    "x": {"pt": "Ano", "en": "Year", "es": "Año"},
+}
+
+
 def _ts_trend(df, value_col, facet_col, facet_ncol, free_scales,
               pal, title, subtitle, caption, base_size, lang):
-    from plotnine import (ggplot, aes, geom_line, geom_point, geom_smooth,
-                          facet_wrap, scale_x_datetime, labs, theme,
-                          element_text)
-    agg = df.groupby("_date")[value_col].sum().reset_index()
+    """Annual totals as bars, labelled with the change on the year before.
 
-    p = (
-        ggplot(agg, aes(x="_date", y=value_col))
-        + geom_line(size=0.5, color="#AAAAAA")
-        + geom_point(size=1.0, color="#AAAAAA", alpha=0.5)
+    Ported from climasus4r's ``.ts_trend`` (M245): the series is summed
+    by year, and each bar carries ``(total / previous total - 1) * 100``,
+    red when it rises and blue when it falls. This used to draw the raw
+    series with a fitted straight line -- another chart under the same
+    name.
+    """
+    from plotnine import (
+        aes,
+        element_blank,
+        element_text,
+        facet_wrap,
+        geom_col,
+        geom_text,
+        ggplot,
+        labs,
+        scale_color_manual,
+        scale_y_continuous,
+        theme,
     )
 
-    if len(agg) >= 3:
-        try:
-            p = p + geom_smooth(
-                method="lm", se=True,
-                color=pal[1], fill=pal[1], alpha=0.15, size=0.9
-            )
-        except Exception:
-            pass
+    facetado = bool(facet_col and facet_col in df.columns)
+    chaves = ["_year"] + ([facet_col] if facetado else [])
+    anual = (df.groupby(chaves, as_index=False)[value_col].sum()
+               .rename(columns={value_col: "_total"})
+               .sort_values(chaves[::-1]))
+    anterior = (anual.groupby(facet_col)["_total"].shift() if facetado
+                else anual["_total"].shift())
+    anual["_pct"] = (anual["_total"] / anterior - 1) * 100
+    # "%g" drops a trailing ".0" as R's paste0(round(x, 1)) does: "+6%", not "+6.0%".
+    anual["_label"] = anual["_pct"].map(
+        lambda v: "" if pd.isna(v) else ("+" if v > 0 else "") + f"{round(v, 1):g}%")
+    anual["_sobe"] = np.where(anual["_pct"] > 0, "up", "down")
+    anual["_year"] = pd.Categorical(anual["_year"].astype(int).astype(str),
+                                    categories=sorted({str(int(a)) for a in anual["_year"]}))
 
-    if facet_col and facet_col in df.columns:
+    def milhar(valores):
+        return [f"{v:,.0f}" for v in valores]
+
+    p = (
+        ggplot(anual, aes(x="_year", y="_total"))
+        + geom_col(width=0.72, alpha=0.88, fill=pal[0], show_legend=False)
+        + geom_text(aes(label="_label", color="_sobe"), va="bottom",
+                    size=base_size * 0.63, fontweight="bold", show_legend=False)
+        + scale_color_manual(values={"up": "#C0392B", "down": "#2196F3"}, guide=None)
+        + scale_y_continuous(name=_TREND_TEXT["y"].get(lang, _TREND_TEXT["y"]["pt"]),
+                             labels=milhar, expand=(0, 0, 0.18, 0))
+    )
+    if facetado:
         scales = "free_y" if free_scales else "fixed"
         p = p + facet_wrap(f"~{facet_col}", ncol=facet_ncol, scales=scales)
 
     return (
         p
-        + scale_x_datetime(date_labels="%Y-%m")
-        + labs(title=title or _tsm("ts_trend_title", lang),
-               subtitle=subtitle, x=_tsm("ts_axis_date", lang),
-               y=_tsm("ts_axis_count", lang), caption=caption)
+        + labs(title=title or _TREND_TEXT["title"].get(lang, _TREND_TEXT["title"]["pt"]),
+               subtitle=subtitle, caption=caption,
+               x=_TREND_TEXT["x"].get(lang, _TREND_TEXT["x"]["pt"]))
         + _ts_theme(base_size)
-        + theme(axis_text_x=element_text(angle=45, ha="right"))
+        + theme(panel_grid_major_x=element_blank(),
+                axis_text_x=element_text(angle=45, ha="right"))
     )
 
 # ---------------------------------------------------------------------------
@@ -361,6 +473,7 @@ def sus_data_plot_aggregate_ts(
     facet_ncol: int = 2,
     plot_type: str | list = "epidemic",
     smooth_method: str = "loess",
+    smooth_span: float = 0.25,
     log_transform: bool = False,
     free_scales: bool = False,
     palette: str = "lancet",
@@ -388,6 +501,8 @@ def sus_data_plot_aggregate_ts(
         plot_type: ``"epidemic"``, ``"seasonal"``, ``"heatmap"``,
             ``"trend"`` — or a list for multiple combined plots.
         smooth_method: ``"loess"``, ``"lm"``, ``"gam"``, ``"none"``.
+        smooth_span: Fraction of the series each loess fit uses; smaller
+            follows the series more closely. Default ``0.25``, as in R.
         log_transform: Apply log1p to Y axis.
         free_scales: Free Y scales in facets.
         palette: Colour palette — ``"lancet"``, ``"nature"``, ``"nejm"``,
@@ -444,7 +559,8 @@ def sus_data_plot_aggregate_ts(
         if tp == "epidemic":
             p = _ts_epidemic(work, value_col, group_col, facet_col, facet_ncol,
                              smooth_method, log_transform, free_scales,
-                             pal, title, plot_sub, plot_cap, base_size, lang)
+                             pal, title, plot_sub, plot_cap, base_size, lang,
+                             smooth_span=smooth_span)
         elif tp == "seasonal":
             p = _ts_seasonal(work, value_col, group_col, facet_col, facet_ncol,
                              log_transform, free_scales, pal, title, plot_sub,

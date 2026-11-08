@@ -139,3 +139,114 @@ def test_scatter_drops_the_curve_above_the_limit_as_r_does():
     with pytest.warns(UserWarning, match="loess curve was left out"):
         camadas = _scatter_layers(_LOESS_SE_MAX_N + 1)
     assert camadas == ["geom_point"]
+
+
+# --- 08/11/2026: trend (M245) and map palette (M247) ----------------------------
+
+
+def _serie_diaria():
+    datas = pd.date_range("2014-01-01", "2016-12-31", freq="D")
+    n = np.where(datas.year == 2014, 1, np.where(datas.year == 2015, 2, 1))
+    return pd.DataFrame({"date": datas, "codigo_municipio_ocorrencia": "355030",
+                         "n_obitos": n})
+
+
+def test_trend_is_annual_bars_labelled_with_the_change_on_the_year_before():
+    """climasus4r's .ts_trend: one bar per year, (Y / Y_prev - 1) * 100 on top.
+
+    This package drew the raw series with a fitted straight line instead.
+    """
+    import climasus4py as cs
+
+    g = cs.sus_data_plot_aggregate_ts(_serie_diaria(), plot_type="trend", lang="pt",
+                                      verbose=False)
+    g._build()
+    barras, textos = g.layers[0].data, g.layers[1].data
+    assert len(barras) == 3                                   # 2014, 2015, 2016
+    assert list(barras["y"]) == [365, 730, 366]               # 2016 is a leap year
+    assert list(textos["label"]) == ["", "+100%", "-49.9%"]          # R prints "+100%"
+    # red when it rises, blue when it falls, as in R
+    assert list(textos["color"])[1:] == ["#C0392B", "#2196F3"]
+    assert g.labels.title == "Tendência anual de eventos de saúde notificados"
+
+
+def test_trend_change_is_computed_within_each_facet():
+    import climasus4py as cs
+
+    a = _serie_diaria().assign(faixa="60-69")
+    b = _serie_diaria().assign(faixa="80+", n_obitos=lambda d: d["n_obitos"] * 10)
+    g = cs.sus_data_plot_aggregate_ts(pd.concat([a, b]), plot_type="trend",
+                                      facet_col="faixa", lang="pt", verbose=False)
+    g._build()
+    rotulos = g.layers[1].data.sort_values(["PANEL", "x"])["label"].tolist()
+    assert rotulos == ["", "+100%", "-49.9%"] * 2
+
+
+def test_map_accepts_r_palette_names():
+    """'YlOrRd', climasus4r's default palette, was replaced by 'lancet' silently."""
+    from matplotlib import colormaps
+
+    from climasus4py.viz.plot_aggregate_map import _map_palette
+
+    cmap = _map_palette("YlOrRd")
+    assert np.allclose(cmap(0.0), colormaps["YlOrRd"](0.0))
+    assert np.allclose(cmap(1.0), colormaps["YlOrRd"](1.0))
+    with pytest.warns(UserWarning, match="not a known palette"):
+        _map_palette("nao_existe")
+
+
+# --- 08/11/2026: epidemic smoothing (M248) and seasonal boxplot (M249) -------------
+
+
+def test_epidemic_loess_is_a_curve_with_a_band_not_a_straight_line():
+    """loess/gam were swapped for lm with se=False. Now loess with R's default
+    span (0.25) and a confidence band; the curve matched stats::loess to 1e-13
+    on the tutorial-4 series."""
+    import climasus4py as cs
+
+    d = _serie_diaria()
+    d["n_obitos"] = (10 + 5 * np.sin(np.arange(len(d)) * 2 * np.pi / 365)).round()
+    g = cs.sus_data_plot_aggregate_ts(d, plot_type="epidemic", smooth_method="loess",
+                                      lang="pt", verbose=False)
+    g._build()
+    assert [type(c.geom).__name__ for c in g.layers] == ["geom_area", "geom_line",
+                                                         "geom_smooth"]
+    curva = g.layers[2].data
+    assert {"ymin", "ymax"} <= set(curva.columns)            # the band
+    assert curva["y"].max() - curva["y"].min() > 5           # follows the seasons
+    assert g.layers[2].stat.params["span"] == 0.25
+
+
+def test_epidemic_gam_falls_back_to_loess_with_a_warning():
+    import climasus4py as cs
+
+    with pytest.warns(UserWarning, match="no GAM smoother"):
+        g = cs.sus_data_plot_aggregate_ts(_serie_diaria(), plot_type="epidemic",
+                                          smooth_method="gam", lang="pt", verbose=False)
+    assert g.layers[2].stat.params["method"] == "loess"
+
+
+def test_seasonal_is_a_boxplot_per_month_with_the_medians_joined():
+    """It drew one bar per month with the mean when there was no group_col."""
+    import climasus4py as cs
+
+    g = cs.sus_data_plot_aggregate_ts(_serie_diaria(), plot_type="seasonal", lang="pt",
+                                      verbose=False)
+    g._build()
+    assert [type(c.geom).__name__ for c in g.layers] == ["geom_boxplot", "geom_line",
+                                                         "geom_point"]
+    assert len(g.layers[0].data) == 12                        # one box per month
+    # each box holds that month's total in each of the three years
+    assert g.layers[0].data["ymax"].max() == 2 * 31         # 2015, two deaths a day
+
+
+def test_seasonal_facets_by_the_facet_column():
+    """facet_col was not kept in the monthly sums, so facet_wrap failed."""
+    import climasus4py as cs
+
+    a = _serie_diaria().assign(faixa="60-69")
+    b = _serie_diaria().assign(faixa="80+")
+    g = cs.sus_data_plot_aggregate_ts(pd.concat([a, b]), plot_type="seasonal",
+                                      facet_col="faixa", lang="pt", verbose=False)
+    g._build()
+    assert g.layers[0].data["PANEL"].nunique() == 2
