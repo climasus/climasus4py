@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed — legenda dos mapas em escala logarítmica
+
+- **`sus_data_plot_aggregate_map(log_scale=True)` tinha a legenda ilegível (M254).** No mapa
+  coroplético, a barra de cores mostrava os números em notação científica (2×10³, 3×10³, ...),
+  uns por cima dos outros; no mapa de bolhas, mostrava o valor já transformado (7,0 a 10,5, o
+  log1p das contagens), e não as contagens. Agora as duas barras mostram números comuns na
+  sequência 1-2-5 (2.000, 5.000, 10.000, ...), com o separador de milhar do idioma. As cores não
+  mudaram. A fonte ("Fonte: DATASUS ...") passou a ficar abaixo da barra; antes era desenhada
+  por cima dela.
+
 ### Fixed — `sus_spatial_join(geo_level="state")` passa a ligar ao estado
 
 - **O `geo_level` era ignorado (M251).** `geo_level="state"`, que a documentação oferecia,

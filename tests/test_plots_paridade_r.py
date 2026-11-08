@@ -195,6 +195,58 @@ def test_map_accepts_r_palette_names():
         _map_palette("nao_existe")
 
 
+def _mapa_log(map_type: str, lang: str = "pt"):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    from climasus4py.viz.plot_aggregate_map import sus_data_plot_aggregate_map
+
+    df = pd.DataFrame({
+        "date": pd.to_datetime(["2014-01-01"] * 3),
+        "codigo_municipio_residencia": ["355030", "351880", "350950"],
+        "n_obitos": [52118, 4878, 1060],
+    })
+    return sus_data_plot_aggregate_map(df, map_type=map_type, log_scale=True,
+                                       palette="YlOrRd", lang=lang, verbose=False)
+
+
+@pytest.mark.parametrize("map_type", ["choropleth", "bubble"])
+def test_log_colour_bar_is_labelled_in_plain_counts(map_type):
+    """The log bar read 2x10^3, 3x10^3, ... on top of each other (choropleth)
+    and 7.0 ... 10.5, the log1p of the counts (bubble)."""
+    import matplotlib.pyplot as plt
+
+    fig = _mapa_log(map_type)
+    fig.canvas.draw()
+    rotulos = [t.get_text() for t in fig.axes[-1].get_xticklabels() if t.get_text()]
+    plt.close(fig)
+    assert rotulos == ["2.000", "5.000", "10.000", "20.000", "50.000"]
+
+
+def test_log_colour_bar_uses_the_english_separator():
+    import matplotlib.pyplot as plt
+
+    fig = _mapa_log("choropleth", lang="en")
+    fig.canvas.draw()
+    rotulos = [t.get_text() for t in fig.axes[-1].get_xticklabels() if t.get_text()]
+    plt.close(fig)
+    assert rotulos[0] == "2,000"
+
+
+def test_map_caption_is_drawn_below_the_colour_bar():
+    """The caption sat at a fixed spot under the map, on top of the bar."""
+    import matplotlib.pyplot as plt
+
+    fig = _mapa_log("choropleth")
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    legenda = [t for t in fig.texts if "climasus4py" in t.get_text()][0]
+    barra = fig.axes[-1].get_tightbbox(renderer)
+    caixa_legenda = legenda.get_window_extent(renderer)
+    plt.close(fig)
+    assert caixa_legenda.y1 <= barra.y0
+
+
 # --- 08/11/2026: epidemic smoothing (M248) and seasonal boxplot (M249) -------------
 
 

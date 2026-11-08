@@ -90,6 +90,38 @@ def _map_palette(name: str = "lancet", n: int = 256):
         return LinearSegmentedColormap.from_list("map_cmap", seq_maps["lancet"], N=n)
 
 
+def _map_number(value: float, lang: str) -> str:
+    """Format a legend number with the thousands separator of *lang*."""
+    text = f"{value:,.0f}" if abs(value) >= 1 else f"{value:g}"
+    return text.replace(",", ".") if lang in ("pt", "es") else text
+
+
+def _map_log_colorbar(cax, vmin: float, vmax: float, lang: str) -> None:
+    """Plain-number ticks on a log colour bar.
+
+    Left to matplotlib, a log bar labels every minor tick in scientific
+    notation (2x10^3, 3x10^3, ...) and the labels run into each other.
+    The ticks become the 1-2-5 sequence inside the data range, written as
+    ordinary numbers.
+    """
+    from matplotlib.ticker import FixedLocator, FuncFormatter, NullFormatter
+
+    if not (np.isfinite(vmin) and np.isfinite(vmax)) or vmin <= 0 or vmax <= vmin:
+        return
+    ticks = [
+        m * 10.0 ** e
+        for e in range(int(np.floor(np.log10(vmin))), int(np.ceil(np.log10(vmax))) + 1)
+        for m in (1, 2, 5)
+        if vmin <= m * 10.0 ** e <= vmax
+    ]
+    if len(ticks) < 2:
+        return
+    axis = cax.xaxis if cax.get_position().width > cax.get_position().height else cax.yaxis
+    axis.set_major_locator(FixedLocator(ticks))
+    axis.set_major_formatter(FuncFormatter(lambda v, _: _map_number(v, lang)))
+    axis.set_minor_formatter(NullFormatter())
+
+
 def _map_detect_outcome_col(columns: list, value_col: str | None) -> str:
     if value_col is not None:
         if value_col not in columns:
@@ -351,6 +383,7 @@ def sus_data_plot_aggregate_map(
     cap_lbl   = caption or f"{_mapm('source', lang)} | climasus4py"
 
     fig, ax = plt.subplots(figsize=(width, height))
+    cax = None  # colour-bar axes, when the map has one
 
     # state borders
     state_gdf = _map_load_states() if state_borders else None
@@ -367,17 +400,28 @@ def sus_data_plot_aggregate_map(
             state_gdf.plot(ax=ax, color="#F8F8F8",
                            edgecolor="#AAAAAA", linewidth=0.3)
 
-        fill_vals = np.log1p(plot_data["fill_var"]) if log_scale else plot_data["fill_var"]
+        fill_vals = plot_data["fill_var"]
         sizes     = np.log1p(plot_data["total_cases"]) * 30 + 5
+        # log1p colouring through the norm, not by transforming the values:
+        # the colours are the same, but the bar is labelled in counts. With
+        # the values transformed, it read 7.0 ... 10.5 -- log1p of the counts.
+        bubble_norm = None
+        if log_scale and fill_vals.notna().any():
+            from matplotlib.colors import FuncNorm
+            bubble_norm = FuncNorm((np.log1p, np.expm1),
+                                   vmin=float(fill_vals.min()), vmax=float(fill_vals.max()))
 
         scatter = ax.scatter(
             plot_data["lon"], plot_data["lat"],
-            s=sizes, c=fill_vals, cmap=cmap,
+            s=sizes, c=fill_vals, cmap=cmap, norm=bubble_norm,
             edgecolors="white", linewidths=0.3, alpha=0.8, zorder=3
         )
         cbar = fig.colorbar(scatter, ax=ax, orientation="horizontal",
                             fraction=0.04, pad=0.02, aspect=40)
         cbar.set_label(fill_lbl, size=base_size - 1)
+        cax = cbar.ax
+        if bubble_norm is not None:
+            _map_log_colorbar(cax, max(bubble_norm.vmin, 1.0), bubble_norm.vmax, lang)
 
         # labels
         label_data = None
@@ -424,6 +468,9 @@ def sus_data_plot_aggregate_map(
                     "fraction": 0.04, "pad": 0.02, "aspect": 40,
                 }
             )
+            cax = fig.axes[-1] if len(fig.axes) > 1 else None
+            if log_scale and cax is not None:
+                _map_log_colorbar(cax, norm.vmin, norm.vmax, lang)
         else:  # quantile_choropleth
             merged.plot(
                 ax=ax, column="fill_var", cmap=cmap,
@@ -456,11 +503,18 @@ def sus_data_plot_aggregate_map(
                  pad=base_size * 2.2)
     ax.text(0, 1.01, map_sub, transform=ax.transAxes,
             fontsize=base_size * 0.88, color="grey", ha="left", va="bottom")
-    ax.text(0, -0.05, cap_lbl, transform=ax.transAxes,
-            fontsize=base_size - 2, color="#888888", ha="left")
     ax.axis("off")
     ax.set_aspect("equal")
     fig.tight_layout()
+    # The caption goes below the colour bar and its label. At a fixed spot
+    # under the map it was drawn on top of the horizontal bar.
+    renderer = fig.canvas.get_renderer()
+    y_cap = ax.get_position().y0 - 0.01
+    if cax is not None:
+        caixa = cax.get_tightbbox(renderer).transformed(fig.transFigure.inverted())
+        y_cap = min(y_cap, caixa.y0 - 0.01)
+    fig.text(ax.get_position().x0, y_cap, cap_lbl, fontsize=base_size - 2,
+             color="#888888", ha="left", va="top")
 
     if save_path:
         fig.savefig(save_path, dpi=dpi, bbox_inches="tight", facecolor="white")
