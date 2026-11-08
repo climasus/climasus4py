@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Fixed — dados do INMET de 2019 sem nome da estação
+
+- **`sus_climate_inmet` lia 2019 sem nome, região e data de fundação da estação (M260).** Em
+  2019 o INMET grava os rótulos acentuados do cabeçalho com `?` no lugar da letra (`REGI?O:`,
+  `ESTAC?O:`, `DATA DE FUNDAC?O:`), e o leitor não os reconhecia: as 8.760 horas de 2019 da
+  estação A701 vinham com essas três colunas vazias, enquanto 2014–2018 vinham completos. Agora o
+  `?` vale por qualquer letra. Os anos já guardados no cache pelo leitor antigo são refeitos a
+  partir do ZIP baixado na primeira leitura, sem novo download.
+- **`sus_climate_plot_fill` perdia o ano sem nome de estação.** O gráfico escolhia a estação pela
+  primeira coluna com "station" no nome, que era `station_name`; com 2019 sem nome, uma série de
+  2014–2019 era desenhada só até 2018. A estação agora é escolhida pelo código (`station_code`),
+  que é o mesmo em todos os anos.
+
 ### Fixed — legenda dos mapas em escala logarítmica
 
 - **`sus_data_plot_aggregate_map(log_scale=True)` tinha a legenda ilegível (M254).** No mapa

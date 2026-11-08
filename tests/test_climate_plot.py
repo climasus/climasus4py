@@ -179,3 +179,26 @@ def test_detect_station_col_returns_none_when_missing():
 
     df = pd.DataFrame({"date": pd.date_range("2023-01", periods=2), "val": [1, 2]})
     assert _detect_station_col(df) is None
+
+
+def test_detect_station_col_prefers_the_code_over_the_name():
+    """station_name comes first in the INMET frame; taking it made a year
+    with a different or missing name fall out of the plot (2019, M260)."""
+    from climasus4py.viz.climate_plot import _detect_station_col
+
+    df = pd.DataFrame({"station_name": ["A", None], "station_code": ["A701", "A701"]})
+    assert _detect_station_col(df) == "station_code"
+
+
+def test_plot_fill_keeps_years_whose_station_name_is_missing():
+    pytest.importorskip("plotnine", reason="plotnine not installed")
+    datas = pd.date_range("2018-12-31 22:00", periods=4, freq="h")
+    df = pd.DataFrame({
+        "date": datas,
+        "station_name": ["SAO PAULO - MIRANTE", "SAO PAULO - MIRANTE", None, None],
+        "station_code": ["A701"] * 4,
+        "tair_dry_bulb_c": [20.0, 19.5, 19.0, 18.5],
+        "is_imputed_tair_dry_bulb_c": [False, True, False, False],
+    })
+    out = sus_climate_plot_fill(df, target_var="tair_dry_bulb_c", output_type="all")
+    assert len(out["data"]) == 4

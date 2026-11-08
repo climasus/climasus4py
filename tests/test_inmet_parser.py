@@ -486,3 +486,45 @@ class TestDewPointQC:
         df = _parse_df(path)
         assert "dew_tmean_c" in df.columns
         assert not pd.isna(df["dew_tmean_c"].iloc[0])
+
+
+# ---------------------------------------------------------------------------
+# 2019 header: INMET writes the accented labels with a literal "?"
+# ---------------------------------------------------------------------------
+
+# Header lines copied from 2019/INMET_SE_SP_A701_SAO PAULO - MIRANTE_01-01-2019_A_31-12-2019.CSV
+_CSV_2019 = """\
+REGI?O:;SE
+UF:;SP
+ESTAC?O:;SAO PAULO - MIRANTE
+CODIGO (WMO):;A701
+LATITUDE:;-23,496294
+LONGITUDE:;-46,620088
+ALTITUDE:;785,64
+DATA DE FUNDAC?O:;25/07/06
+Data;Hora UTC;Umidade Relativa do Ar (%)
+2019/01/01;0000 UTC;70
+"""
+
+
+def test_2019_header_with_question_marks_is_read(tmp_path):
+    """Every 2019 row came back without station name, region and founding
+    date, so grouping or filtering by station name dropped the year."""
+    path = _write_csv(tmp_path, _CSV_2019)
+    meta = _read_inmet_metadata(path)
+    assert meta["region"] == "SE"
+    assert meta["station_name"] == "SAO PAULO - MIRANTE"
+    assert meta["founded_date"] == "25/07/06"
+    df = _parse_df(path)
+    assert df["station_name"].iloc[0] == "SAO PAULO - MIRANTE"
+    assert df["region"].iloc[0] == "SE"
+    assert str(pd.Timestamp(df["founded_date"].iloc[0]).date()) == "2006-07-25"
+
+
+def test_question_mark_does_not_match_unrelated_labels():
+    from climasus4py.utils.inmet_parser import _metadata_key
+
+    assert _metadata_key("regi?o") == "region"
+    assert _metadata_key("estac?o") == "station_name"
+    assert _metadata_key("data de fundac?o") == "founded_date"
+    assert _metadata_key("x?y") is None

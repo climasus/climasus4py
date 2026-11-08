@@ -633,6 +633,19 @@ def _relation_is_empty(rel: duckdb.DuckDBPyRelation) -> bool:
     return rel.limit(1).fetchone() is None
 
 
+def _cache_lacks_station_metadata(rel: duckdb.DuckDBPyRelation) -> bool:
+    """True when a cached year has rows with a station code but no name.
+
+    The parser used to miss the 2019 header labels, which INMET writes with
+    a literal ``?`` for the accented letter (``ESTAC?O:``), and the year
+    was cached without station name, region and founding date.
+    """
+    if "station_name" not in rel.columns or "station_code" not in rel.columns:
+        return False
+    sem_nome = rel.filter("station_name IS NULL AND station_code IS NOT NULL")
+    return sem_nome.limit(1).fetchone() is not None
+
+
 def _copy_relation_to_parquet(
     rel: duckdb.DuckDBPyRelation,
     dest: Path,
@@ -766,7 +779,17 @@ def _process_year_budgeted(
     if cache_hit:
         try:
             cached = _read_year_cache_filtered(year_cache_path, uf=uf)
-            if not _relation_is_empty(cached):
+            if _cache_lacks_station_metadata(cached):
+                # Written before the parser read the 2019 header labels
+                # (``ESTAC?O:``): every row lacks the station name. Rebuild
+                # from the ZIP instead of serving it forever.
+                if verbose:
+                    console.print(
+                        f"[yellow]WARN[/]  Year {year}: cache has no station names "
+                        "(older parser). Rebuilding from the ZIP."
+                    )
+                shutil.rmtree(year_cache_path, ignore_errors=True)
+            elif not _relation_is_empty(cached):
                 if verbose:
                     console.print(
                         f"[cyan]INFO[/]  Year {year}: Loading from Parquet cache"

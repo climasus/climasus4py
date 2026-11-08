@@ -232,7 +232,7 @@ def _read_inmet_metadata(path: str | Path) -> dict[str, str]:
             if len(parts) != 2:
                 continue
             key = _normalise_key(parts[0].strip().rstrip(":"))
-            canonical = _METADATA_KEYS.get(key)
+            canonical = _metadata_key(key)
             if canonical:
                 meta[canonical] = parts[1].strip().strip('"')
 
@@ -413,6 +413,27 @@ def _nullable_date_sql(value: str | None) -> str:
 def _is_data_header_line(line: str) -> bool:
     upper = line.lstrip("\ufeff").strip().upper()
     return (";HORA" in upper) or upper.startswith("DATA MEDICAO")
+
+
+def _metadata_key(key: str) -> str | None:
+    """Canonical name of a normalised header label, or ``None``.
+
+    From 2019 on, INMET writes the accented header labels with a literal
+    ``?`` in place of the accented letter -- ``REGI?O:``, ``ESTAC?O:``,
+    ``DATA DE FUNDAC?O:`` -- so the exact lookup missed them and every 2019
+    row came back without station name, region and founding date. Anything
+    that filters or groups by station name then dropped the whole year
+    (``sus_climate_plot_fill`` drew 2014-2018 of a 2014-2019 series). A
+    ``?`` now stands for any one letter.
+    """
+    canonical = _METADATA_KEYS.get(key)
+    if canonical is not None or "?" not in key:
+        return canonical
+    padrao = re.compile(re.escape(key).replace(r"\?", "."))
+    for rotulo, nome in _METADATA_KEYS.items():
+        if padrao.fullmatch(rotulo):
+            return nome
+    return None
 
 
 def _normalise_key(s: str) -> str:

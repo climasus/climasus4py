@@ -290,3 +290,19 @@ class TestDownloadRobust:
                 sys.modules.pop("requests", None)
             else:
                 sys.modules["requests"] = original
+
+
+def test_cache_without_station_names_is_flagged_for_rebuild():
+    """A year cached by the parser that missed the 2019 header labels has
+    a station code but no name on every row; it is rebuilt from the ZIP
+    instead of being served forever."""
+    import duckdb
+
+    from climasus4py.core.climate_inmet import _cache_lacks_station_metadata
+
+    con = duckdb.connect()
+    antigo = con.sql("SELECT 'A701' AS station_code, NULL::VARCHAR AS station_name")
+    bom = con.sql("SELECT 'A701' AS station_code, 'SAO PAULO - MIRANTE' AS station_name")
+    assert _cache_lacks_station_metadata(antigo) is True
+    assert _cache_lacks_station_metadata(bom) is False
+    assert _cache_lacks_station_metadata(con.sql("SELECT 1 AS x")) is False

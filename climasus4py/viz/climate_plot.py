@@ -79,6 +79,13 @@ def _detect_datetime_col(df: pd.DataFrame) -> str:
 
 
 def _detect_station_col(df: pd.DataFrame) -> str | None:
+    # The code first: it is the same in every year, while the name is
+    # header metadata that INMET has written differently across years.
+    # Taking the first column with "station" in it picked station_name,
+    # so a year with a different (or missing) name fell out of the plot.
+    for col in ("station_code", "codigo_estacao", "station"):
+        if col in df.columns:
+            return col
     for col in df.columns:
         if "station" in col.lower() or "estacao" in col.lower():
             return col
