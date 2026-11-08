@@ -54,7 +54,7 @@ climática, janela temporal e modelo estatístico.
     Vincule os dados a malhas geográficas (municípios, estados) para análises e mapeamentos
     espaciais.
 
-    *Em preparação*
+    [Ver tutorial →](05-juncao-espacial.md)
 
 -   **Etapa 6 · Vínculo Socioeconômico**
 

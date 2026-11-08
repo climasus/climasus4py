@@ -347,4 +347,4 @@ por município (e, na mensal, por faixa etária).
 
 - [Voltar para a Trilha do Pipeline](pipeline.md)
 - **Anterior:** [Tutorial 3 — Filtragem](03-filtragem.md)
-- **Próximo:** Tutorial 5 — Junção Espacial *(em preparação)*
+- **Próximo:** [Tutorial 5 — Junção Espacial](05-juncao-espacial.md)
