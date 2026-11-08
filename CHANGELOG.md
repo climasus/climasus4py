@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Fixed — filtros por município, UF e região que devolviam zero linhas sem aviso
+
+- **Município com o código IBGE completo (M241).** `sus_filter(municipality="3550308")`, o código
+  de 7 dígitos da cidade de São Paulo, devolvia 0 linhas sem aviso. O DATASUS grava 6 dígitos
+  (`"355030"`). Agora os dois formatos funcionam. Um nome no lugar do código dá um erro que
+  aponta para `city=`.
+- **Dados padronizados em português ou espanhol.** Depois de `sus_data_standardize(lang="pt")`,
+  o filtro por município (e `city=`) falhava com "No municipality column found", porque só
+  conhecia os nomes de coluna brutos e em inglês. Agora reconhece os três idiomas.
+- **UF com código numérico.** No SINAN, a UF de notificação vem com o código IBGE (`"51"`) mesmo
+  depois da padronização, e `uf="MT"` devolvia 0 linhas sem aviso. Agora `uf=` e `region=`
+  aceitam a sigla ou o código e funcionam com os dois formatos de coluna. Sem coluna de UF,
+  `region=` deduz o estado pelo município, como `uf=` já fazia, em vez de não filtrar.
+
+### Fixed — o pacote não manda mais rodar `update_climasus_data()`
+
+- **O aviso aparecia para todo usuário (M233).** No primeiro `sus_data_standardize`, um aviso
+  dizia que o climasus-data estava desatualizado e mandava rodar `update_climasus_data()`. Essa
+  função apaga o climasus-data instalado, e não havia versão mais nova para buscar: as correções
+  que o aviso citava existem só dentro do climasus4py, que já as aplica. Agora o aviso só
+  aparece quando o climasus-data instalado é mais antigo que o publicado, e orienta a
+  reinstalação pelo comando da documentação.
+- A recomendação também saiu da mensagem de erro do recorte por cidade, da lista do
+  `sus_welcome()` e do README. O README passa a ensinar a instalação a partir do GitHub, como a
+  documentação. A função continua existindo até a decisão sobre ela.
+
 ### Changed — o climasus4py passa a exigir Python 3.12 ou mais recente
 
 - **O pacote não abria no Python 3.10 nem no 3.11 (M239).** Cinco mensagens em

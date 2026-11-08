@@ -18,6 +18,7 @@ from ..utils.data import (
     detect_education_column,
     detect_sex_column,
     expand_city_to_codes,
+    load_datasus_columns_spec,
     load_json,
     load_uf_codes,
 )
@@ -119,17 +120,26 @@ def expand_region_to_states(region: str | list[str]) -> list[str]:
 # UF column detection helper
 # ---------------------------------------------------------------------------
 
+# Each English standardized name is followed by its Portuguese and Spanish
+# forms, so the same frame standardized in any language resolves to the same
+# column (M241). Before, only the raw and English names were listed, and
+# after sus_data_standardize(lang="pt") the municipality filter raised "No
+# municipality column found" -- the path the documentation teaches.
 _UF_COLUMN_CANDIDATES = (
     "abbrev_state", "state", "UF", "SG_UF",
-    "notification_uf", "UF_ZI", "uf_gestor",
+    "notification_uf", "uf_notificacao", "uf_notificacion",
+    "UF_ZI", "uf_gestor",
 )
 
 # Shared with the municipality filter below so both it and the UF derivation
 # resolve to the same column. Order matters: residence first, which is the
-# usual epidemiological denominator.
+# usual epidemiological denominator. Names climasus-data's role_priority
+# lists beyond these are tried after them (_detect_muni_column).
 _MUNI_COLUMN_CANDIDATES = (
     "CODMUNRES", "municipality_code", "ID_MUNICIP",
-    "residence_municipality_code", "occurrence_municipality_code",
+    "residence_municipality_code", "codigo_municipio_residencia",
+    "occurrence_municipality_code", "codigo_municipio_ocorrencia",
+    "codigo_municipio_ocurrencia",
 )
 
 
@@ -139,8 +149,81 @@ def _detect_uf_column(columns: list[str]) -> str | None:
 
 
 def _detect_muni_column(columns: list[str]) -> str | None:
-    """Auto-detect municipality-code column from schema."""
-    return next((c for c in _MUNI_COLUMN_CANDIDATES if c in columns), None)
+    """Auto-detect municipality-code column from schema.
+
+    The fixed list first, so the choice never changes for a frame it already
+    covered; then any other municipality column climasus-data's
+    ``role_priority`` names (notification municipality and the like).
+    """
+    try:
+        papel = load_datasus_columns_spec().get("role_priority", {}).get("municipality") or []
+    except Exception:
+        papel = []
+    candidatos = list(_MUNI_COLUMN_CANDIDATES) + [
+        c for c in papel if c not in _MUNI_COLUMN_CANDIDATES]
+    return next((c for c in candidatos if c in columns), None)
+
+
+def _uf_match_values(uf_list: list[str]) -> list[str]:
+    """Each requested state as both its abbreviation and its IBGE code.
+
+    UF columns come both ways: SIH's UF_ZI and a joined ``state`` hold "SP",
+    while SINAN's notification UF holds the IBGE code "35" even after
+    standardization. Comparing only the abbreviation made
+    ``uf="MT"`` return 0 rows from a SINAN frame, silently (M241).
+
+    Raises:
+        ValueError: For a state that is neither a known abbreviation nor a
+            known IBGE code.
+    """
+    states = load_uf_codes()
+    por_codigo = {str(v["code"]): k for k, v in states.items()}
+    valores: list[str] = []
+    desconhecidas = []
+    for u in uf_list:
+        s = str(u).strip().upper()
+        if s in states:
+            valores += [s, str(states[s]["code"])]
+        elif s in por_codigo:
+            valores += [s, por_codigo[s]]
+        else:
+            desconhecidas.append(u)
+    if desconhecidas:
+        raise ValueError(
+            f"Unknown UF(s): {desconhecidas}. Expected two-letter "
+            "abbreviations such as 'SP' or IBGE state codes such as '35'."
+        )
+    return sorted(set(valores))
+
+
+def _municipality_codes(values: list[str]) -> list[str]:
+    """IBGE municipality codes cut to the 6 digits DATASUS records.
+
+    DATASUS stores municipalities without the check digit ("355030"), while
+    the full IBGE code has 7 ("3550308"). The 7-digit form matched nothing
+    and the filter returned 0 rows without a warning (M241).
+
+    Raises:
+        ValueError: For a value that is not a 6- or 7-digit code, pointing
+            to ``city=`` for names.
+    """
+    codigos = []
+    for v in values:
+        s = str(v).strip()
+        if not (s.isdigit() and len(s) in (6, 7)):
+            raise ValueError(
+                f"municipality={v!r} is not an IBGE municipality code. Use the "
+                "6- or 7-digit code (e.g. '355030' or '3550308'), or city= "
+                "for a municipality name."
+            )
+        codigos.append(s[:6])
+    return codigos
+
+
+def _muni_match_sql(muni_col: str, codigos: list[str]) -> str:
+    """Rows whose municipality, cut to 6 digits, is one of *codigos*."""
+    vals = ", ".join(sql_string(c) for c in codigos)
+    return f'SUBSTR(CAST("{muni_col}" AS VARCHAR), 1, 6) IN ({vals})'
 
 
 def _uf_prefix_sql(muni_col: str, uf_list: list[str]) -> str:
@@ -158,14 +241,9 @@ def _uf_prefix_sql(muni_col: str, uf_list: list[str]) -> str:
             filtering by the ones it recognised and silently dropping
             the rest.
     """
-    states = load_uf_codes()
-    desconhecidas = [u for u in uf_list if u.upper() not in states]
-    if desconhecidas:
-        raise ValueError(
-            f"Unknown UF(s): {desconhecidas}. "
-            f"Expected two-letter abbreviations such as 'SP' or 'RJ'."
-        )
-    codigos = sorted({str(states[u.upper()]["code"]) for u in uf_list})
+    # The IBGE codes among the matching values: abbreviations and codes are
+    # both accepted, and unknown states raise there.
+    codigos = [v for v in _uf_match_values(uf_list) if v.isdigit()]
     vals = ", ".join(sql_string(c) for c in codigos)
     return f'SUBSTR(CAST("{muni_col}" AS VARCHAR), 1, 2) IN ({vals})'
 
@@ -434,7 +512,7 @@ def sus_filter(
         uf_list = [uf] if isinstance(uf, str) else uf
         uf_col  = _detect_uf_column(columns)
         if uf_col is not None:
-            vals = ", ".join(sql_string(u.upper()) for u in uf_list)
+            vals = ", ".join(sql_string(u) for u in _uf_match_values(uf_list))
             rel  = rel.filter(f'"{uf_col}" IN ({vals})')
             if verbose:
                 print(f"  UF — coluna: {uf_col} | estados: {uf_list}")
@@ -469,36 +547,42 @@ def sus_filter(
     if region is not None:
         states = expand_region_to_states(region)
         uf_col  = _detect_uf_column(columns)
-        if uf_col is None:
-            warnings.warn(
-                "No UF/state column found — region filter skipped. "
-                "Run sus_spatial_join() first, or use SINAN/SIH data "
-                "which already contain a UF column.",
-                UserWarning,
-                stacklevel=2,
-            )
-        else:
-            vals = ", ".join(sql_string(u) for u in states)
+        muni_col = _detect_muni_column(columns) if uf_col is None else None
+        if uf_col is not None:
+            vals = ", ".join(sql_string(u) for u in _uf_match_values(states))
             rel  = rel.filter(f'"{uf_col}" IN ({vals})')
             if verbose:
                 print(f"  Região — {region!r} → {len(states)} estados")
+        elif muni_col is not None:
+            # As uf= does: the state from the first two digits of the
+            # municipality code, instead of skipping the filter (M241).
+            rel = rel.filter(_uf_prefix_sql(muni_col, states))
+            if verbose:
+                print(f"  Região — {region!r} → {len(states)} estados "
+                      f"(derivados de {muni_col})")
+        else:
+            warnings.warn(
+                "No UF/state column and no municipality column found — "
+                "region filter skipped. Run sus_spatial_join() first.",
+                UserWarning,
+                stacklevel=2,
+            )
 
     # ------------------------------------------------------------------
     # Municipality filtering
     # ------------------------------------------------------------------
     if municipality is not None:
         muni_list = [municipality] if isinstance(municipality, str) else municipality
+        codigos  = _municipality_codes(muni_list)
         muni_col = _detect_muni_column(columns)
         if not muni_col:
             raise ValueError(
                 "No municipality column found in the relation. "
-                "Expected one of: CODMUNRES, municipality_code, ID_MUNICIP, "
-                "residence_municipality_code, occurrence_municipality_code."
+                "Expected one of: " + ", ".join(_MUNI_COLUMN_CANDIDATES) + "."
             )
-        vals = ", ".join(sql_string(m) for m in muni_list)
-        rel  = rel.filter(f'"{muni_col}" IN ({vals})')
+        rel = rel.filter(_muni_match_sql(muni_col, codigos))
         if verbose:
-            print(f"  Município — coluna: {muni_col} | códigos: {muni_list}")
+            print(f"  Município — coluna: {muni_col} | códigos: {codigos}")
 
     # ------------------------------------------------------------------
     # Date range filtering
@@ -549,20 +633,15 @@ def sus_filter(
     # ------------------------------------------------------------------
     if city is not None:
         city_codes = expand_city_to_codes(city)
-        muni_col   = next(
-            (c for c in (
-                "CODMUNRES", "municipality_code", "ID_MUNICIP",
-                "residence_municipality_code", "occurrence_municipality_code",
-            ) if c in columns),
-            None,
-        )
+        # Same column as municipality= and the UF derivation; this was a copy
+        # of the old list, without the Portuguese and Spanish names (M241).
+        muni_col   = _detect_muni_column(columns)
         if not muni_col:
             raise ValueError(
                 "No municipality column found in the relation. "
-                "Expected one of: CODMUNRES, municipality_code, ID_MUNICIP."
+                "Expected one of: " + ", ".join(_MUNI_COLUMN_CANDIDATES) + "."
             )
-        vals = ", ".join(sql_string(c) for c in city_codes)
-        rel  = rel.filter(f'"{muni_col}" IN ({vals})')
+        rel = rel.filter(_muni_match_sql(muni_col, _municipality_codes(city_codes)))
         if verbose:
             print(f"  Cidade — {city!r} → códigos: {city_codes}")
 

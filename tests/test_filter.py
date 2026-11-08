@@ -340,19 +340,24 @@ class TestSQLInjection:
         result = sus_filter(sim_do_rel, race=['1" OR "1"="1'])
         assert _count(result) == 0
 
-    def test_municipality_payload_returns_zero(self, sim_do_rel):
-        """SQL injection via municipality= is neutralised by sql_string()."""
-        result = sus_filter(sim_do_rel, municipality="355030' OR '1'='1")
-        assert _count(result) == 0
+    def test_municipality_payload_is_rejected(self, sim_do_rel):
+        """SQL injection via municipality= never reaches the SQL.
 
-    def test_uf_payload_returns_zero(self):
-        """SQL injection via uf= is neutralised by sql_string()."""
+        It used to be neutralised by sql_string() and match nothing; since
+        M241 the value is validated as a 6- or 7-digit IBGE code first, so
+        the payload is refused outright (and sql_string() still quotes).
+        """
+        with pytest.raises(ValueError, match="not an IBGE municipality code"):
+            sus_filter(sim_do_rel, municipality="355030' OR '1'='1")
+
+    def test_uf_payload_is_rejected(self):
+        """SQL injection via uf= never reaches the SQL: unknown UF (M241)."""
         rel = _make_rel({
             "UF": ["SP", "RJ", "MG"],
             "DTOBITO": ["01012023"] * 3,
         })
-        result = sus_filter(rel, uf="SP' OR '1'='1")
-        assert _count(result) == 0
+        with pytest.raises(ValueError, match="Unknown UF"):
+            sus_filter(rel, uf="SP' OR '1'='1")
 
 
 # ---------------------------------------------------------------------------
