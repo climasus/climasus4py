@@ -42,17 +42,18 @@ and then the installation command above.
 
 ## Quick Example
 
+Deaths from respiratory diseases in São Paulo, 2023, as a monthly series:
+
 ```python
 import climasus4py as cs
 
 result = cs.sus_pipeline(
     system="SIM-DO",
     uf="SP",
-    year=[2021, 2022, 2023],
-    lang="en",
-    groups=["dengue"],
+    year=2023,
+    groups="respiratory",
     time="month",
-    geo="state",
+    lang="en",
 )
 
 print(result.df().head())
@@ -60,30 +61,35 @@ print(result.df().head())
 
 ## Step-by-step Example
 
+The same case, one step at a time:
+
 ```python
 import climasus4py as cs
 
-# 1. Import and cache
-x = cs.sus_data_import("SIM-DO", "SP", [2021, 2022])
+# 1. Import (downloaded once, then read from the local cache)
+x = cs.sus_data_import(system="SIM-DO", uf="SP", year=2023)
 
-# 2. Clean
+# 2. Clean the text encoding
 x = cs.sus_data_clean_encoding(x)
 
-# 3. Standardize
+# 3. Standardize column names and categories
 x = cs.sus_data_standardize(x, lang="en")
 
-# 4. Filter
-x = cs.sus_filter(x, groups=["dengue"], age_min=0, age_max=80)
+# 4. Filter: respiratory diseases (ICD-10 J00-J99), aged 60 or older
+x = cs.sus_filter(x, groups="respiratory", age_min=60)
 
-# 5. Create variables
-x = cs.sus_data_create_variables(x, age_group="who", epi_week=True)
+# 5. Create age groups and calendar variables
+x = cs.sus_data_create_variables(x, lang="en")
 
-# 6. Aggregate
-x = cs.sus_data_aggregate(x, time="month", geo="state")
+# 6. Aggregate into a monthly count per municipality
+x = cs.sus_data_aggregate(x, time_unit="month", lang="en")
 
 # 7. Export
-cs.sus_export(x, "output/dengue_sp.parquet")
+cs.sus_export(x, "output/respiratory_sp.parquet")
 ```
+
+Nothing is loaded into memory until the end: each step adds to a lazy DuckDB
+query, which runs once when the data is exported or materialised with `.df()`.
 
 To preserve the original DATASUS `.dbc` files for audit or reuse, enable the raw
 cache explicitly:
@@ -100,16 +106,19 @@ x = cs.sus_data_import(
 
 ## Shared Metadata
 
-climasus4py consumes metadata from `climasus-data` (disease groups, dictionaries,
-UFs, regions, DATASUS FTP sources and SINAN disease codes). It is installed by the
-command in [Installation](#installation). To get newer metadata, reinstall it:
+climasus4py reads its metadata from `climasus-data`: ICD-10 disease groups,
+translation dictionaries (Portuguese, English and Spanish), the DATASUS systems and
+their columns, state (UF) codes, regions, SINAN disease codes, age-group templates
+and INMET climate normals. It is installed by the command in
+[Installation](#installation). To get newer metadata, reinstall it:
 
 ```bash
 pip install --force-reinstall --no-deps "climasus-data @ https://github.com/climasus/climasus-data/archive/refs/heads/main.zip"
 ```
 
-The larger files (municipality and state polygons, census tables) are
-downloaded on first use and kept in `~/.climasus4py_cache`.
+The larger files (municipality, state and region polygons, the 2010 and 2022
+Census tables, and the INMET station tables) are downloaded on first use and kept
+in `~/.climasus4py_cache`.
 
 ## Contributing
 
