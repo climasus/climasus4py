@@ -22,16 +22,19 @@ _VALID_LANGS: frozenset[str] = frozenset({"pt", "en", "es"})
 def _load_groups(climate_sensitive_only: bool) -> dict:
     """Return merged groups from core + climate_sensitive JSONs.
 
-    When *climate_sensitive_only* is True, loads only climate_sensitive.json.
-    Otherwise merges core + climate_sensitive (core wins on conflict).
-    Meta keys starting with ``_`` are stripped.
+    Merges core + climate_sensitive (climate_sensitive wins on conflict).
+    When *climate_sensitive_only* is True, keeps the groups whose
+    ``climate_sensitive`` flag is set -- as climasus4r's
+    ``sus_data_cid_select(filter_climate = TRUE)`` does (M243). It used to
+    load only climate_sensitive.json, a file of 13 thematic groups, which
+    left out 47 of the 60 flagged groups, respiratory and cardiovascular
+    among them. Meta keys starting with ``_`` are stripped.
     """
+    raw = {**load_json(_CORE_PATH), **load_json(_CLIMATE_PATH)}
+    grupos = {k: v for k, v in raw.items() if not k.startswith("_")}
     if climate_sensitive_only:
-        raw = load_json(_CLIMATE_PATH)
-    else:
-        raw = {**load_json(_CORE_PATH), **load_json(_CLIMATE_PATH)}
-
-    return {k: v for k, v in raw.items() if not k.startswith("_")}
+        grupos = {k: v for k, v in grupos.items() if v.get("climate_sensitive")}
+    return grupos
 
 
 def list_disease_groups(

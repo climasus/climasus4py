@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed — o filtro de grupos sensíveis ao clima deixava de fora os principais
+
+- **`list_disease_groups(climate_sensitive_only=True)` devolvia 13 grupos (M243).** A função lia
+  só um arquivo com 13 grupos temáticos, em vez de filtrar pela marcação `climate_sensitive`, que
+  60 dos 64 grupos têm. Ficavam de fora, entre outros, "respiratory", "cardiovascular" e
+  "dengue". Agora o filtro usa a marcação, como o climasus4r, e devolve os 60. Vale também para
+  `sus_data_cid_select(climate_sensitive_only=True)`.
+
 ### Fixed — `sus_data_clean_encoding` apagava mais da metade dos óbitos com vários anos
 
 - **O padrão `dedup=True` tratava o `CONTADOR` como identificador único (M242).** O `CONTADOR`

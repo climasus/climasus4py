@@ -31,6 +31,18 @@ class TestListDiseaseGroups:
         assert len(cs_only) <= len(all_groups)
         assert all(g["climate_sensitive"] for g in cs_only)
 
+    def test_climate_filter_keeps_every_flagged_group(self):
+        """The filter is the flag, as in climasus4r (M243).
+
+        It loaded only climate_sensitive.json (13 thematic groups) and left
+        out 47 of the 60 flagged groups -- respiratory and cardiovascular
+        among them, the two groups of the tutorials' guiding case.
+        """
+        marcados = {g["group"] for g in list_disease_groups() if g["climate_sensitive"]}
+        filtrados = {g["group"] for g in list_disease_groups(climate_sensitive_only=True)}
+        assert filtrados == marcados
+        assert {"respiratory", "cardiovascular", "dengue"} <= filtrados
+
     def test_dengue_is_present(self):
         groups = list_disease_groups()
         keys = [g["group"] for g in groups]
