@@ -1,0 +1,2032 @@
+
+<!doctype html>
+<html lang="pt" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Fast SUS and climate data workflows for Brazil — Python edition">
+      
+      
+      
+        <link rel="canonical" href="https://climasus.github.io/climasus4py/tutoriais/01-importacao/">
+      
+      
+        <link rel="prev" href="../pipeline/">
+      
+      
+        <link rel="next" href="../02-limpeza-padronizacao/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+      
+        <title>1. Importação - climasus4py</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="https://climasus.github.io/design-system/assets/css/theme.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/climasus-extras.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#tutorial-1-importacao-de-dados-do-datasus" class="md-skip">
+          Ir para o conteúdo
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Cabeçalho">
+    <a href="../.." title="climasus4py" class="md-header__button md-logo" aria-label="climasus4py" data-md-component="logo">
+      
+  <img src="../../assets/logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            climasus4py
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              1. Importação
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Modo escuro"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Modo escuro" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Modo claro"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Modo claro" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Buscar" placeholder="Buscar" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Pesquisar">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Limpar" aria-label="Limpar" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Inicializando a pesquisa
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/climasus/climasus4py" title="Ir ao repositório" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    climasus/climasus4py
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Abas" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="../" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Tutoriais
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../querying/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Como consultar
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../pipeline-order/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Ordem do pipeline
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../materialize/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Materialize
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../enrichments/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Enriquecimentos
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../migration-from-r-legacy/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Migração do R
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../reference/SUMMARY/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Referência API
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../pt/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Português
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../en/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  English
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../es/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Español
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navegação" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="climasus4py" class="md-nav__button md-logo" aria-label="climasus4py" data-md-component="logo">
+      
+  <img src="../../assets/logo.png" alt="logo">
+
+    </a>
+    climasus4py
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/climasus/climasus4py" title="Ir ao repositório" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    climasus/climasus4py
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutoriais
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutoriais
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trilha do Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1. Importação
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1. Importação
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+  
+
+<nav class="md-nav md-nav--secondary" aria-label="Nesta página">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Nesta página
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#objetivo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Objetivo
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contexto-cientifico" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contexto científico
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dados-utilizados" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dados utilizados
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline-completo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline completo
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pipeline completo">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#importar-um-sistema-anual-sim-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Importar um sistema anual (SIM-DO)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#importar-um-sistema-mensal-sih-rd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Importar um sistema mensal (SIH-RD)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#importar-notificacoes-sinan-dengue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Importar notificações (SINAN-DENGUE)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recorte-espacial-por-regiao-ou-por-municipio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recorte espacial: por região ou por município
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#opcional-reler-dados-ja-exportados" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (Opcional) Reler dados já exportados
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#caracteristicas-das-funcoes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Características das funções
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Características das funções">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sus_data_import" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sus_data_import()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sus_data_read" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sus_data_read()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sistemas-e-subsistemas-suportados" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sistemas e subsistemas suportados
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resultados-ilustrados" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resultados ilustrados
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#referencias" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Referências
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#navegacao" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Navegação
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-limpeza-padronizacao/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2. Limpeza e Padronização
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-filtragem/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3. Filtragem
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../querying/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Como consultar
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../pipeline-order/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ordem do pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../materialize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Materialize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enrichments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Enriquecimentos
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../migration-from-r-legacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migração do R
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/SUMMARY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Referência API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../pt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Português
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    English
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../es/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Español
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+  
+
+<nav class="md-nav md-nav--secondary" aria-label="Nesta página">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Nesta página
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#objetivo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Objetivo
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contexto-cientifico" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contexto científico
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dados-utilizados" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dados utilizados
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline-completo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline completo
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pipeline completo">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#importar-um-sistema-anual-sim-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Importar um sistema anual (SIM-DO)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#importar-um-sistema-mensal-sih-rd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Importar um sistema mensal (SIH-RD)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#importar-notificacoes-sinan-dengue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Importar notificações (SINAN-DENGUE)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recorte-espacial-por-regiao-ou-por-municipio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recorte espacial: por região ou por município
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#opcional-reler-dados-ja-exportados" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (Opcional) Reler dados já exportados
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#caracteristicas-das-funcoes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Características das funções
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Características das funções">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sus_data_import" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sus_data_import()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sus_data_read" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sus_data_read()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sistemas-e-subsistemas-suportados" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sistemas e subsistemas suportados
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resultados-ilustrados" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resultados ilustrados
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#referencias" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Referências
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#navegacao" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Navegação
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="tutorial-1-importacao-de-dados-do-datasus">Tutorial 1: Importação de Dados do DATASUS<a class="headerlink" href="#tutorial-1-importacao-de-dados-do-datasus" title="Permanent link">&para;</a></h1>
+<p><a href="../pipeline/">← Voltar para a Trilha do Pipeline</a></p>
+<h2 id="objetivo">Objetivo<a class="headerlink" href="#objetivo" title="Permanent link">&para;</a></h2>
+<p>Ao final deste tutorial você será capaz de importar microdados dos Sistemas de Informação em
+Saúde do DATASUS com uma única função — <code>sus_data_import()</code> — e de controlar seus principais
+recursos: a escolha do sistema (SIM, SIH, SINAN, SINASC, CNES, SIA) e seus subsistemas, o
+recorte espacial (por UF, por região predefinida ou por município), a diferença entre sistemas
+anuais e mensais e — fundamental para trabalhos reprodutíveis e de grande volume — o
+<strong>cache</strong>, que evita baixar os mesmos dados duas vezes.</p>
+<p>A importação é a primeira etapa do pipeline do climasus4py. Tudo o que vem depois
+(padronização, filtragem, criação de variáveis, agregação, junção espacial, vínculo
+socioeconômico, integração climática e modelagem) parte da base bruta construída aqui.</p>
+<h2 id="contexto-cientifico">Contexto científico<a class="headerlink" href="#contexto-cientifico" title="Permanent link">&para;</a></h2>
+<p>A pesquisa em clima e saúde no Brasil apoia-se nos <strong>Sistemas de Informação em Saúde (SIS)</strong>
+mantidos pelo Ministério da Saúde e disponibilizados pelo DATASUS. Cada sistema registra um tipo
+de evento, com cobertura nacional e granularidade municipal:</p>
+<ul>
+<li><strong>SIM</strong> — Sistema de Informações sobre Mortalidade (declarações de óbito);</li>
+<li><strong>SIH</strong> — Sistema de Informações Hospitalares (internações/AIH);</li>
+<li><strong>SINAN</strong> — Sistema de Informação de Agravos de Notificação (doenças notificáveis, como
+  dengue, zika e chikungunya);</li>
+<li><strong>SINASC</strong> — Sistema de Informações sobre Nascidos Vivos;</li>
+<li><strong>CNES</strong> — Cadastro Nacional de Estabelecimentos de Saúde;</li>
+<li><strong>SIA</strong> — Sistema de Informações Ambulatoriais.</li>
+</ul>
+<p>O DATASUS publica esses dados em arquivos <code>.dbc</code>. O climasus4py baixa os arquivos diretamente
+do servidor do DATASUS, lê cada um com o
+<a href="https://github.com/climasus/climasus_readdbc_py">climasus_readdbc_py</a> e o guarda em <strong>cache</strong>
+no formato Parquet, para não baixar os mesmos dados a cada execução. O resultado é uma consulta
+do <a href="https://duckdb.org/">DuckDB</a>: os dados ficam em disco e só são carregados na memória quando
+você pede. Importar de forma reprodutível — registrando sistema, ano e recorte espacial — é o
+que torna um estudo auditável e replicável.</p>
+<p><strong>Caso condutor.</strong> Ao longo de toda a série de tutoriais investigamos a <strong>temperatura e os
+desfechos de saúde em idosos (60+) na Região Metropolitana de São Paulo, 2014–2019</strong>. Neste
+primeiro tutorial montamos a base bruta multissistema: óbitos (SIM-DO), internações (SIH-RD) e,
+como caso secundário de clima × arboviroses, dengue (SINAN-DENGUE). Os objetos importados aqui
+servirão de entrada para o Tutorial 2 (Limpeza e Padronização).</p>
+<h2 id="dados-utilizados">Dados utilizados<a class="headerlink" href="#dados-utilizados" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Sistema</th>
+<th><code>system=</code></th>
+<th>Periodicidade</th>
+<th>Papel no caso</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SIM-DO (óbitos)</td>
+<td><code>"SIM-DO"</code></td>
+<td>Anual</td>
+<td>Desfecho principal (mortalidade)</td>
+</tr>
+<tr>
+<td>SIH-RD (internações)</td>
+<td><code>"SIH-RD"</code></td>
+<td>Mensal (aceita <code>month</code>)</td>
+<td>Morbidade hospitalar</td>
+</tr>
+<tr>
+<td>SINAN-DENGUE</td>
+<td><code>"SINAN-DENGUE"</code></td>
+<td>Anual</td>
+<td>Caso secundário (clima × dengue)</td>
+</tr>
+</tbody>
+</table>
+<p>Recorte espacial: estado de São Paulo (<code>uf="SP"</code>), 2014–2019. Todos os dados são públicos e
+reais, obtidos do DATASUS.</p>
+<h2 id="pipeline-completo">Pipeline completo<a class="headerlink" href="#pipeline-completo" title="Permanent link">&para;</a></h2>
+<p>Os blocos abaixo reproduzem o que o script
+<a href="https://github.com/climasus/climasus4py/blob/main/tools/tutoriais/tutorial_01_importacao.py"><code>tools/tutoriais/tutorial_01_importacao.py</code></a>
+executa. Comece carregando o pacote:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">climasus4py</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">cs</span>
+</span></code></pre></div>
+<h3 id="importar-um-sistema-anual-sim-do">Importar um sistema anual (SIM-DO)<a class="headerlink" href="#importar-um-sistema-anual-sim-do" title="Permanent link">&para;</a></h3>
+<p>O SIM é <strong>anual</strong>: cada ano é um arquivo, e o argumento <code>month</code> não se aplica. Pedimos os seis
+anos de uma vez; o cache vem ligado por padrão.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">obitos</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_data_import</span><span class="p">(</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="n">system</span><span class="o">=</span><span class="s2">"SIM-DO"</span><span class="p">,</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">uf</span><span class="o">=</span><span class="s2">"SP"</span><span class="p">,</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">year</span><span class="o">=</span><span class="p">[</span><span class="mi">2014</span><span class="p">,</span> <span class="mi">2015</span><span class="p">,</span> <span class="mi">2016</span><span class="p">,</span> <span class="mi">2017</span><span class="p">,</span> <span class="mi">2018</span><span class="p">,</span> <span class="mi">2019</span><span class="p">],</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="p">)</span>
+</span></code></pre></div>
+<p><strong>Visualizar dados</strong></p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">obitos</span><span class="o">.</span><span class="n">columns</span>            <span class="c1"># nomes das colunas</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">obitos</span><span class="o">.</span><span class="n">limit</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span><span class="o">.</span><span class="n">df</span><span class="p">()</span>      <span class="c1"># as cinco primeiras linhas, como tabela do pandas</span>
+</span></code></pre></div>
+<h3 id="importar-um-sistema-mensal-sih-rd">Importar um sistema mensal (SIH-RD)<a class="headerlink" href="#importar-um-sistema-mensal-sih-rd" title="Permanent link">&para;</a></h3>
+<p>O SIH é <strong>mensal</strong>: cada mês é um arquivo. Com <code>month</code>, você escolhe quais meses baixar; sem
+ele, vêm os doze. Aqui pedimos apenas os meses de inverno (junho a agosto), quando a mortalidade
+respiratória de idosos tende a ser mais alta.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">internacoes</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_data_import</span><span class="p">(</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="n">system</span><span class="o">=</span><span class="s2">"SIH-RD"</span><span class="p">,</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">uf</span><span class="o">=</span><span class="s2">"SP"</span><span class="p">,</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">year</span><span class="o">=</span><span class="p">[</span><span class="mi">2014</span><span class="p">,</span> <span class="mi">2015</span><span class="p">,</span> <span class="mi">2016</span><span class="p">,</span> <span class="mi">2017</span><span class="p">,</span> <span class="mi">2018</span><span class="p">,</span> <span class="mi">2019</span><span class="p">],</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="n">month</span><span class="o">=</span><span class="p">[</span><span class="mi">6</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">8</span><span class="p">],</span>                <span class="c1"># junho, julho e agosto</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="p">)</span>
+</span></code></pre></div>
+<p><strong>Visualizar dados</strong></p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">internacoes</span><span class="o">.</span><span class="n">limit</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span><span class="o">.</span><span class="n">df</span><span class="p">()</span>
+</span></code></pre></div>
+<h3 id="importar-notificacoes-sinan-dengue">Importar notificações (SINAN-DENGUE)<a class="headerlink" href="#importar-notificacoes-sinan-dengue" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">dengue</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_data_import</span><span class="p">(</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    <span class="n">system</span><span class="o">=</span><span class="s2">"SINAN-DENGUE"</span><span class="p">,</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    <span class="n">uf</span><span class="o">=</span><span class="s2">"SP"</span><span class="p">,</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">year</span><span class="o">=</span><span class="p">[</span><span class="mi">2014</span><span class="p">,</span> <span class="mi">2015</span><span class="p">,</span> <span class="mi">2016</span><span class="p">,</span> <span class="mi">2017</span><span class="p">,</span> <span class="mi">2018</span><span class="p">,</span> <span class="mi">2019</span><span class="p">],</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="p">)</span>
+</span></code></pre></div>
+<p><strong>Visualizar dados</strong></p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">dengue</span><span class="o">.</span><span class="n">limit</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span><span class="o">.</span><span class="n">df</span><span class="p">()</span>
+</span></code></pre></div>
+<h3 id="recorte-espacial-por-regiao-ou-por-municipio">Recorte espacial: por região ou por município<a class="headerlink" href="#recorte-espacial-por-regiao-ou-por-municipio" title="Permanent link">&para;</a></h3>
+<p>Em vez de listar UFs, você pode usar um <strong>grupo predefinido</strong> em <code>region</code> (macrorregiões, biomas
+ou bacias) — útil para estudos regionais:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Toda a macrorregião Sudeste (ES, MG, RJ, SP) de uma vez:</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">obitos_sudeste</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_data_import</span><span class="p">(</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    <span class="n">system</span><span class="o">=</span><span class="s2">"SIM-DO"</span><span class="p">,</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="n">region</span><span class="o">=</span><span class="s2">"sudeste"</span><span class="p">,</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    <span class="n">year</span><span class="o">=</span><span class="mi">2019</span><span class="p">,</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Para ficar com um único <strong>município</strong>, use <code>sus_filter()</code> sobre os dados importados. O código
+IBGE pode ter 7 dígitos (<code>"3550308"</code>) ou 6 (<code>"355030"</code>, a forma gravada pelo DATASUS); para
+filtrar pelo nome, use <code>city=</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Apenas o município de São Paulo (código IBGE 3550308):</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">obitos_muni_sp</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_filter</span><span class="p">(</span><span class="n">obitos</span><span class="p">,</span> <span class="n">municipality</span><span class="o">=</span><span class="s2">"3550308"</span><span class="p">)</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># O mesmo recorte, pelo nome:</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="n">obitos_muni_sp</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_filter</span><span class="p">(</span><span class="n">obitos</span><span class="p">,</span> <span class="n">city</span><span class="o">=</span><span class="s2">"São Paulo"</span><span class="p">)</span>
+</span></code></pre></div>
+<p>O DATASUS publica um arquivo por estado, então o recorte por município é feito depois do
+download — o arquivo de São Paulo é baixado uma vez e fica no cache.</p>
+<h3 id="opcional-reler-dados-ja-exportados">(Opcional) Reler dados já exportados<a class="headerlink" href="#opcional-reler-dados-ja-exportados" title="Permanent link">&para;</a></h3>
+<p>Depois de exportar a base com <code>sus_data_export()</code>, você pode relê-la em sessões futuras sem
+baixar de novo, com <code>sus_data_read()</code>, que detecta o formato pela extensão:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">cs</span><span class="o">.</span><span class="n">sus_data_export</span><span class="p">(</span><span class="n">obitos</span><span class="p">,</span> <span class="s2">"output/sim_sp_2014_2019.parquet"</span><span class="p">)</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">obitos</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_data_read</span><span class="p">(</span><span class="s2">"output/sim_sp_2014_2019.parquet"</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Ao final desta etapa temos <code>obitos</code>, <code>internacoes</code> e <code>dengue</code> — a <strong>base bruta multissistema</strong>
+que alimentará os próximos tutoriais.</p>
+<h2 id="caracteristicas-das-funcoes">Características das funções<a class="headerlink" href="#caracteristicas-das-funcoes" title="Permanent link">&para;</a></h2>
+<h3 id="sus_data_import"><code>sus_data_import()</code><a class="headerlink" href="#sus_data_import" title="Permanent link">&para;</a></h3>
+<p>A porta de entrada da etapa de importação.</p>
+<table>
+<thead>
+<tr>
+<th>Argumento</th>
+<th>Essencial?</th>
+<th>Descrição</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>system</code></td>
+<td>sim</td>
+<td>Sistema/subsistema (ver tabela de sistemas abaixo)</td>
+</tr>
+<tr>
+<td><code>uf</code> / <code>region</code></td>
+<td>sim (um deles)</td>
+<td>UF(s) (<code>"SP"</code>, <code>["SP", "RJ"]</code>, <code>"all"</code>) ou grupo predefinido (<code>"sudeste"</code>, <code>"amazonia_legal"</code>, …)</td>
+</tr>
+<tr>
+<td><code>year</code></td>
+<td>sim</td>
+<td>Ano(s) com 4 dígitos (ex.: <code>2019</code> ou <code>[2014, 2015, 2016, 2017, 2018, 2019]</code>)</td>
+</tr>
+<tr>
+<td><code>month</code></td>
+<td>só mensais</td>
+<td>Mês(es) de 1 a 12, para SIH, CNES e SIA; sem ele, vêm os doze meses</td>
+</tr>
+<tr>
+<td><code>cache</code></td>
+<td>recomendado</td>
+<td><code>True</code> (padrão) reaproveita downloads anteriores</td>
+</tr>
+<tr>
+<td><code>cache_dir</code></td>
+<td>opcional</td>
+<td>Pasta do cache (padrão: <code>dados/cache</code>, na pasta onde você está trabalhando)</td>
+</tr>
+<tr>
+<td><code>timeout</code></td>
+<td>opcional</td>
+<td>Tempo máximo de cada download, em segundos (padrão: 600)</td>
+</tr>
+<tr>
+<td><code>path</code> / <code>data</code></td>
+<td>opcional</td>
+<td>Lê um arquivo local (<code>.parquet</code> ou <code>.csv</code>) ou um <code>pandas.DataFrame</code>, em vez de baixar</td>
+</tr>
+<tr>
+<td><code>verbose</code></td>
+<td>opcional</td>
+<td>Mostra o progresso (padrão: <code>True</code>)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Retorno:</strong> uma consulta do DuckDB (<code>DuckDBPyRelation</code>) com as variáveis originais do sistema.
+Nada é carregado na memória até você pedir — por exemplo, com <code>.df()</code>, que devolve uma tabela do
+pandas.</p>
+<p><strong>Cache.</strong> Cada combinação de sistema, UF, ano e mês vira um arquivo Parquet em <code>cache_dir</code>,
+reaproveitado automaticamente nas chamadas seguintes. Para baixar de novo, apague o arquivo
+correspondente ou use <code>cache=False</code>.</p>
+<h3 id="sus_data_read"><code>sus_data_read()</code><a class="headerlink" href="#sus_data_read" title="Permanent link">&para;</a></h3>
+<p>Relê arquivos já exportados, sem voltar à fonte. Detecta o formato pela extensão.</p>
+<table>
+<thead>
+<tr>
+<th>Argumento</th>
+<th>Descrição</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>Caminho de um arquivo, uma lista de arquivos, uma pasta ou um padrão como <code>"cache/*.parquet"</code></td>
+</tr>
+<tr>
+<td><code>format</code></td>
+<td><code>None</code> (detecta) ou <code>"parquet"</code>, <code>"csv"</code></td>
+</tr>
+<tr>
+<td><code>read_metadata</code></td>
+<td>Recupera os metadados do pipeline gravados junto com o arquivo</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Retorno:</strong> uma consulta do DuckDB sobre os arquivos lidos. Vários arquivos são combinados pelo
+nome das colunas.</p>
+<h2 id="sistemas-e-subsistemas-suportados">Sistemas e subsistemas suportados<a class="headerlink" href="#sistemas-e-subsistemas-suportados" title="Permanent link">&para;</a></h2>
+<p><strong>Tabela 1.</strong> Sistemas do DATASUS acessíveis por <code>sus_data_import()</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Sistema</th>
+<th>Descrição</th>
+<th>Exemplos de <code>system</code></th>
+<th>Periodicidade</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SIM</td>
+<td>Mortalidade (declarações de óbito)</td>
+<td>SIM-DO, SIM-DOFET, SIM-DOINF, SIM-DOMAT, SIM-DOEXT</td>
+<td>Anual</td>
+</tr>
+<tr>
+<td>SIH</td>
+<td>Internações hospitalares (AIH)</td>
+<td>SIH-RD, SIH-RJ, SIH-SP, SIH-ER</td>
+<td>Mensal</td>
+</tr>
+<tr>
+<td>SINASC</td>
+<td>Nascidos vivos</td>
+<td>SINASC</td>
+<td>Anual</td>
+</tr>
+<tr>
+<td>SINAN</td>
+<td>Agravos de notificação (doenças notificáveis)</td>
+<td>SINAN-DENGUE, SINAN-ZIKA, SINAN-CHIKUNGUNYA, SINAN-MALARIA, …</td>
+<td>Anual</td>
+</tr>
+<tr>
+<td>CNES</td>
+<td>Estabelecimentos de saúde</td>
+<td>CNES-LT, CNES-ST, CNES-EQ, CNES-PF, …</td>
+<td>Mensal</td>
+</tr>
+<tr>
+<td>SIA</td>
+<td>Atendimentos ambulatoriais</td>
+<td>SIA-PA, SIA-AB, SIA-AD, …</td>
+<td>Mensal</td>
+</tr>
+</tbody>
+</table>
+<p>Atalhos de <code>region</code> (baixam várias UFs de uma vez):</p>
+<p><strong>Tabela 2.</strong> Exemplos de grupos predefinidos aceitos em <code>region</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Grupo</th>
+<th>Tipo</th>
+<th>UFs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sudeste</code></td>
+<td>Macrorregião IBGE</td>
+<td>ES, MG, RJ, SP</td>
+</tr>
+<tr>
+<td><code>sul</code></td>
+<td>Macrorregião IBGE</td>
+<td>PR, RS, SC</td>
+</tr>
+<tr>
+<td><code>nordeste</code></td>
+<td>Macrorregião IBGE</td>
+<td>AL, BA, CE, MA, PB, PE, PI, RN, SE</td>
+</tr>
+<tr>
+<td><code>norte</code></td>
+<td>Macrorregião IBGE</td>
+<td>AC, AP, AM, PA, RO, RR, TO</td>
+</tr>
+<tr>
+<td><code>centro_oeste</code></td>
+<td>Macrorregião IBGE</td>
+<td>DF, GO, MT, MS</td>
+</tr>
+<tr>
+<td><code>amazonia_legal</code></td>
+<td>Bioma/fronteira ecológica</td>
+<td>AC, AP, AM, PA, RO, RR, MT, MA, TO</td>
+</tr>
+<tr>
+<td><code>mata_atlantica</code></td>
+<td>Bioma</td>
+<td>AL, BA, CE, ES, GO, MA, MG, MS, PB, PE, PI, PR, RJ, RN, RS, SC, SE, SP</td>
+</tr>
+<tr>
+<td><code>cerrado</code></td>
+<td>Bioma</td>
+<td>BA, DF, GO, MA, MG, MS, MT, PA, PI, PR, RO, SP, TO</td>
+</tr>
+<tr>
+<td><code>bacia_sao_francisco</code></td>
+<td>Bacia hidrográfica</td>
+<td>AL, BA, DF, GO, MG, PE, SE</td>
+</tr>
+<tr>
+<td><code>semi_arido</code></td>
+<td>Recorte climático</td>
+<td>AL, BA, CE, MA, PB, PE, PI, RN, SE, MG</td>
+</tr>
+</tbody>
+</table>
+<p>Estrutura típica do SIM-DO logo após a importação (causa básica em <code>CAUSABAS</code>, idade codificada
+em <code>IDADE</code>, município de residência em <code>CODMUNRES</code>):</p>
+<p><strong>Tabela 3.</strong> Amostra das colunas-chave do SIM-DO importado.</p>
+<table>
+<thead>
+<tr>
+<th>DTOBITO</th>
+<th>DTNASC</th>
+<th>SEXO</th>
+<th>IDADE</th>
+<th>RACACOR</th>
+<th>CAUSABAS</th>
+<th>CODMUNRES</th>
+<th>CODMUNOCOR</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2014-01-28</td>
+<td>2001-02-04</td>
+<td>2</td>
+<td>412</td>
+<td>1</td>
+<td>X959</td>
+<td>355030</td>
+<td>355030</td>
+</tr>
+<tr>
+<td>2014-01-28</td>
+<td>1968-03-01</td>
+<td>2</td>
+<td>445</td>
+<td>1</td>
+<td>C509</td>
+<td>355030</td>
+<td>355030</td>
+</tr>
+<tr>
+<td>2014-01-28</td>
+<td>1954-11-04</td>
+<td>2</td>
+<td>459</td>
+<td>1</td>
+<td>C509</td>
+<td>355030</td>
+<td>351300</td>
+</tr>
+<tr>
+<td>2014-01-28</td>
+<td>1967-04-29</td>
+<td>1</td>
+<td>446</td>
+<td>4</td>
+<td>I219</td>
+<td>355030</td>
+<td>355030</td>
+</tr>
+<tr>
+<td>2014-01-28</td>
+<td>1930-10-15</td>
+<td>2</td>
+<td>483</td>
+<td>1</td>
+<td>I330</td>
+<td>350410</td>
+<td>350410</td>
+</tr>
+<tr>
+<td>2014-01-01</td>
+<td>1960-07-10</td>
+<td>1</td>
+<td>453</td>
+<td>1</td>
+<td>K746</td>
+<td>352940</td>
+<td>352940</td>
+</tr>
+<tr>
+<td>2014-01-01</td>
+<td>1928-02-15</td>
+<td>2</td>
+<td>485</td>
+<td>1</td>
+<td>I259</td>
+<td>352940</td>
+<td>352940</td>
+</tr>
+<tr>
+<td>2014-01-01</td>
+<td>1935-12-31</td>
+<td>2</td>
+<td>478</td>
+<td>1</td>
+<td>C260</td>
+<td>352940</td>
+<td>352940</td>
+</tr>
+<tr>
+<td>2014-01-01</td>
+<td>1937-09-14</td>
+<td>1</td>
+<td>476</td>
+<td>1</td>
+<td>G709</td>
+<td>351380</td>
+<td>351380</td>
+</tr>
+<tr>
+<td>2014-01-01</td>
+<td>1955-05-03</td>
+<td>1</td>
+<td>458</td>
+<td>2</td>
+<td>C159</td>
+<td>352470</td>
+<td>352470</td>
+</tr>
+</tbody>
+</table>
+<p>As datas (<code>DTOBITO</code>, <code>DTNASC</code>) já chegam convertidas em datas na importação. Os demais campos
+mantêm os códigos do DATASUS: <code>SEXO</code> 1 = masculino e 2 = feminino; <code>IDADE</code> com três dígitos, em
+que o primeiro é a unidade (4 = anos) e os outros dois, a quantidade (<code>445</code> = 45 anos). A
+tradução desses códigos é feita no Tutorial 2, pelo <code>sus_data_standardize()</code>.</p>
+<h2 id="resultados-ilustrados">Resultados ilustrados<a class="headerlink" href="#resultados-ilustrados" title="Permanent link">&para;</a></h2>
+<p><img alt="Registros importados por sistema" src="../figuras/import_registros_por_sistema.png" /></p>
+<p><strong>Figura 1.</strong> Número de registros importados por sistema para São Paulo, 2014–2019 (o SIH-RD
+foi restrito ao inverno, junho–agosto, para manter o exemplo leve). A ordem de grandeza muito
+diferente entre sistemas ajuda a dimensionar memória e tempo de download.</p>
+<p><img alt="Série mensal de óbitos" src="../figuras/import_serie_obitos_sp.png" /></p>
+<p><strong>Figura 2.</strong> Série mensal de óbitos (todas as causas) do SIM-DO em São Paulo, 2014–2019. A
+sazonalidade de inverno já é visível na base bruta e será o ponto de partida para os recortes
+(idosos, causas respiratórias) dos próximos tutoriais.</p>
+<h2 id="referencias">Referências<a class="headerlink" href="#referencias" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Ministério da Saúde (Brasil). DATASUS — Departamento de Informática do SUS. Disponível em:
+  <a href="https://datasus.saude.gov.br">https://datasus.saude.gov.br</a>.</li>
+</ul>
+<h2 id="navegacao">Navegação<a class="headerlink" href="#navegacao" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../pipeline/">Voltar para a Trilha do Pipeline</a></li>
+<li><strong>Próximo:</strong> <a href="../02-limpeza-padronizacao/">Tutorial 2 — Limpeza e Padronização</a></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Voltar ao topo
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Rodapé" >
+        
+          
+          <a href="../pipeline/" class="md-footer__link md-footer__link--prev" aria-label="Anterior: Trilha do Pipeline">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Anterior
+              </span>
+              <div class="md-ellipsis">
+                Trilha do Pipeline
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../02-limpeza-padronizacao/" class="md-footer__link md-footer__link--next" aria-label="Próximo: 2. Limpeza e Padronização">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Próximo
+              </span>
+              <div class="md-ellipsis">
+                2. Limpeza e Padronização
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      © 2024 CLIMA-SUS — MIT License
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/climasus" target="_blank" rel="noopener" title="climasus no GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://pypi.org/project/climasus4py/" target="_blank" rel="noopener" title="climasus4py no PyPI" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.8 200.5c-7.7-30.9-22.3-54.2-53.4-54.2h-40.1v47.4c0 36.8-31.2 67.8-66.8 67.8H172.7c-29.2 0-53.4 25-53.4 54.3v101.8c0 29 25.2 46 53.4 54.3 33.8 9.9 66.3 11.7 106.8 0 26.9-7.8 53.4-23.5 53.4-54.3v-40.7H226.2v-13.6h160.2c31.1 0 42.6-21.7 53.4-54.2 11.2-33.5 10.7-65.7 0-108.6M286.2 444.7a20.4 20.4 0 1 1 0-40.7 20.4 20.4 0 1 1 0 40.7M167.8 248.1h106.8c29.7 0 53.4-24.5 53.4-54.3V91.9c0-29-24.4-50.7-53.4-55.6-35.8-5.9-74.7-5.6-106.8.1-45.2 8-53.4 24.7-53.4 55.6v40.7h106.9v13.6h-147c-31.1 0-58.3 18.7-66.8 54.2-9.8 40.7-10.2 66.1 0 108.6 7.6 31.6 25.7 54.2 56.8 54.2H101v-48.8c0-35.3 30.5-66.4 66.8-66.4m-6.6-183.4a20.4 20.4 0 1 1 0 40.8 20.4 20.4 0 1 1 0-40.8"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.top", "navigation.footer", "search.highlight", "search.suggest", "content.code.copy", "content.code.annotate", "toc.follow"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copiado para \u00e1rea de transfer\u00eancia", "clipboard.copy": "Copiar para \u00e1rea de transfer\u00eancia", "search.result.more.one": "Mais 1 nesta p\u00e1gina", "search.result.more.other": "Mais # nesta p\u00e1gina", "search.result.none": "Nenhum resultado encontrado", "search.result.one": "1 resultado encontrado", "search.result.other": "# resultados encontrados", "search.result.placeholder": "Digite para iniciar a busca", "search.result.term.missing": "Ausente", "select.version": "Selecione a vers\u00e3o"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+        <script src="../../assets/climasus.js"></script>
+      
+    
+  </body>
+</html>
