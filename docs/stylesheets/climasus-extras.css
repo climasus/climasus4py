@@ -18,3 +18,17 @@
 [data-md-color-scheme="slate"] .md-typeset table:not([class]) {
   box-shadow: 4px 4px 0 rgba(0, 255, 136, 0.08);
 }
+
+/* Page title kept for screen readers and the browser tab, but not drawn:
+   the home page opens with the logo, as climasus4r's does. */
+.md-typeset h1.titulo-oculto {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
