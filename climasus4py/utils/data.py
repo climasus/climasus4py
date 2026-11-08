@@ -382,6 +382,12 @@ _FALLBACK_DATASUS_COLUMNS: dict[str, Any] = {
 #: record outlives that.
 _AVISOU_SCHEMA: set[str] = set()
 
+#: Newest datasus_columns.json schema climasus-data has published (main,
+#: 07/11/2026). Below it the user's climasus-data is outdated and is told
+#: so; at it, the corrections for later schemas are applied silently (M233).
+#: Raise it when climasus-data publishes a newer catalogue.
+_PUBLISHED_DATASUS_SCHEMA = 5
+
 
 @lru_cache(maxsize=1)
 def load_datasus_columns_spec() -> dict[str, Any]:
@@ -484,15 +490,25 @@ def load_datasus_columns_spec() -> dict[str, Any]:
     # buried the message in its own repetition, and turned any caller
     # running under `simplefilter("error")` into a failure that had
     # nothing to do with what that caller was testing.
+    #
+    # Only an installed climasus-data OLDER than the newest published one is
+    # the user's to fix (M233). At _PUBLISHED_DATASUS_SCHEMA the corrections
+    # above are still needed, but no published catalogue has them yet: the
+    # gap is climasus-data's, not the user's, and the bundled lists already
+    # close it. Warning there reached every user on their first
+    # sus_data_standardize and told them to run update_climasus_data(),
+    # which could not help -- there was nothing newer to fetch -- and
+    # deleted the installed package.
     chave = str(data.get("schema_version"))
-    if chave not in _AVISOU_SCHEMA:
+    if versao < _PUBLISHED_DATASUS_SCHEMA and chave not in _AVISOU_SCHEMA:
         _AVISOU_SCHEMA.add(chave)
         warnings.warn(
-            "climasus-data publishes metadata/datasus_columns.json at "
+            "the installed climasus-data has metadata/datasus_columns.json at "
             f"schema_version {data.get('schema_version')!r}, which has "
             + "; and ".join(faltando)
-            + ". Using the corrected lists bundled with climasus4py instead; "
-            "run update_climasus_data() to get the published ones.",
+            + ". Using the corrected lists bundled with climasus4py instead. "
+            "To get the current metadata, reinstall climasus-data with the "
+            "command in the installation instructions.",
             UserWarning,
             stacklevel=2,
         )
@@ -1098,10 +1114,14 @@ def _municipio_meta() -> Any:
 
     caminho = data_path("assets/spatial/municipio_meta.parquet")
     if not caminho.is_file():
+        # Not "run update_climasus_data()": that call deleted the installed
+        # package (M233). The asset is downloaded on demand, so its absence
+        # means a local climasus-data clone that lacks it.
         raise FileNotFoundError(
             f"municipio_meta.parquet not found in climasus-data "
-            f"(looked in {caminho.parent}). "
-            "Run cs.update_climasus_data() to refresh."
+            f"(looked in {caminho.parent}). It is downloaded on first use; "
+            "if CLIMASUS_DATA_DIR points at a local clone, that clone lacks "
+            "it -- unset CLIMASUS_DATA_DIR or update the clone."
         )
     # `uf_code` is the abbreviation ("PA") and `uf` the numeric state
     # code ("15") — the names read backwards, and R uses `uf_code` for

@@ -199,7 +199,14 @@ def test_catalogo_na_versao_5_recebe_as_datas_do_sia(monkeypatch) -> None:
     ``detect_date_column`` devolvia None num quadro do SIA e o bloco de
     calendário inteiro era pulado — 15 variáveis a menos, com aviso e
     sem erro.
+
+    E SEM AVISO (M233): a 5 é a mais nova que o climasus-data publicou, então
+    não há o que o usuário atualizar. O aviso chegava a todo usuário no
+    primeiro sus_data_standardize e mandava rodar update_climasus_data(),
+    que apagava o pacote instalado.
     """
+    import warnings
+
     from climasus4py.utils import data as _data
 
     antigo = json.loads(
@@ -210,7 +217,8 @@ def test_catalogo_na_versao_5_recebe_as_datas_do_sia(monkeypatch) -> None:
     _data._AVISOU_SCHEMA.discard("5")
     monkeypatch.setattr(_data, "load_json", lambda rel: antigo)
     try:
-        with pytest.warns(UserWarning, match="M163"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
             spec = _data.load_datasus_columns_spec()
         d = spec["role_priority"]["date"]
         assert "competence_date" in d
@@ -237,14 +245,47 @@ def test_catalogo_na_versao_4_recebe_a_lista_corrigida(monkeypatch) -> None:
                                        "notification_date"]
 
     _data.load_datasus_columns_spec.cache_clear()
+    _data._AVISOU_SCHEMA.discard("4")
     monkeypatch.setattr(_data, "load_json", lambda rel: antigo)
     try:
-        with pytest.warns(UserWarning, match="M127"):
+        with pytest.warns(UserWarning, match="M127") as avisos:
             spec = _data.load_datasus_columns_spec()
         d = spec["role_priority"]["date"]
         assert d.index("notification_date") < d.index("birth_date")
+        # Abaixo da versão publicada o usuário é avisado, mas para reinstalar
+        # pelo comando da documentação -- nunca para rodar update_climasus_data(),
+        # que apagava o pacote instalado (M233).
+        texto = " ".join(str(a.message) for a in avisos)
+        assert "update_climasus_data" not in texto
+        assert "reinstall climasus-data" in texto
     finally:
         _data.load_datasus_columns_spec.cache_clear()
+        _data._AVISOU_SCHEMA.discard("4")
+
+
+def test_nenhuma_mensagem_do_pacote_recomenda_update_climasus_data() -> None:
+    """A função apaga o climasus-data instalado e clona o repositório (M233).
+
+    Ela era recomendada no aviso do sus_data_standardize, num erro do recorte
+    por cidade e na lista do sus_welcome. A função continua existindo até a
+    decisão sobre ela; o que não pode é o pacote mandar o usuário rodá-la.
+    """
+    import ast
+    import inspect
+
+    from climasus4py.utils import data as _data
+    from climasus4py.utils import welcome
+
+    # Só os textos que chegam ao usuário (strings), não os comentários.
+    def textos(fonte: str) -> str:
+        arvore = ast.parse(fonte)
+        return " ".join(n.value for n in ast.walk(arvore)
+                        if isinstance(n, ast.Constant) and isinstance(n.value, str))
+
+    for funcao in (_data.load_datasus_columns_spec, _data._municipio_meta):
+        corpo = textos(inspect.getsource(funcao).replace(inspect.getdoc(funcao) or "", ""))
+        assert "update_climasus_data" not in corpo, funcao.__name__
+    assert "update_climasus_data" not in textos(inspect.getsource(welcome))
 
 
 # --- de ponta a ponta ---------------------------------------------------

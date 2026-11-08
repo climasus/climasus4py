@@ -229,7 +229,7 @@ _STAGES: list[Stage] = [
         "name": {"pt": "UTILITÁRIOS", "en": "UTILITIES", "es": "UTILIDADES"},
         "fns": [
             "sus_meta()", "sus_explore()", "sus_data_cid_select()", "sus_cache_info()",
-            "sus_cache_clear()", "update_climasus_data()", "sus_chat()",
+            "sus_cache_clear()", "sus_chat()",
         ],
         "desc": {
             "pt": "sus_meta() lê/escreve metadados do pipeline · sus_explore() "

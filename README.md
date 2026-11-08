@@ -10,27 +10,16 @@ Documentation: https://climasus.github.io/climasus4py
 
 ## Installation
 
-> **Nota:** a versão atual (`0.2.0a1`) é uma pré-release (alfa). Use a flag `--pre`
-> para instalá-la. Quando a `0.2.0` estável for publicada, o comando padrão
-> funcionará sem flags adicionais.
-
-Install from PyPI (current pre-release):
+Requires **Python 3.12 or newer**. Install the latest version from GitHub with one
+command, which also installs **climasus-data** (the dictionaries and metadata the
+package reads):
 
 ```bash
-pip install --pre climasus4py
+pip install "climasus-data @ https://github.com/climasus/climasus-data/archive/refs/heads/main.zip" "climasus4py[all] @ https://github.com/climasus/climasus4py/archive/refs/heads/main.zip"
 ```
 
-Install a specific extra (current pre-release):
-
-```bash
-pip install --pre "climasus4py[all]"
-```
-
-Install latest from GitHub:
-
-```bash
-pip install git+https://github.com/climasus/climasus4py.git
-```
+Git is not required. The releases on PyPI are older than this code (climasus-data
+0.2.0 predates the metadata it reads), so install from GitHub as above.
 
 ### Notebooks (Colab / Jupyter)
 
@@ -46,8 +35,10 @@ No Colab: `Runtime → Restart runtime` (atalho `Ctrl+M .`). No JupyterLab:
 antes da instalação resolve:
 
 ```bash
-pip install "numpy<3" "pandas<3" climasus4py
+pip install "numpy<3" "pandas<3"
 ```
+
+and then the installation command above.
 
 ## Quick Example
 
@@ -110,15 +101,15 @@ x = cs.sus_data_import(
 ## Shared Metadata
 
 climasus4py consumes metadata from `climasus-data` (disease groups, dictionaries,
-UFs, regions, DATASUS FTP sources and SINAN disease codes). This dependency is
-installed automatically.
+UFs, regions, DATASUS FTP sources and SINAN disease codes). It is installed by the
+command in [Installation](#installation). To get newer metadata, reinstall it:
 
-You can force update local metadata when needed:
-
-```python
-from climasus4py import update_climasus_data
-update_climasus_data()
+```bash
+pip install --force-reinstall --no-deps "climasus-data @ https://github.com/climasus/climasus-data/archive/refs/heads/main.zip"
 ```
+
+The larger files (municipality and state polygons, census tables) are
+downloaded on first use and kept in `~/.climasus4py_cache`.
 
 ## Contributing
 
