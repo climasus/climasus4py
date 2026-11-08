@@ -912,8 +912,10 @@ def _match_spatial(climate_data: pa.Table, health_data: duckdb.DuckDBPyRelation,
 
     if verbose and len(distances_km):
         d = distances_km
+        # Distinct codes, not coordinate pairs: INMET moved A701's
+        # coordinates in 2019, and the pairs counted it as two stations.
         print(f"  Spatial matching: {len(mun_station_map)} municipality(ies) → "
-              f"{len(stations)} station(s)")
+              f"{len(set(station_codes_list))} station(s)")
         print(f"  Distance (km): min={d.min():.1f} | "
               f"median={np.median(d):.1f} | max={d.max():.1f}"
               + (f" | dropped beyond {limite:g}: {int(fora.sum())}"

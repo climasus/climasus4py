@@ -68,7 +68,7 @@ climática, janela temporal e modelo estatístico.
     Obtenha séries meteorológicas das estações do INMET, com controle de qualidade e
     preenchimento de falhas.
 
-    *Em preparação*
+    [Ver tutorial →](07-clima-estacoes.md)
 
 -   **Etapa 8 · Clima em Grade e Ambiental**
 

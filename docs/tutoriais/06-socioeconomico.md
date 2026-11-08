@@ -346,4 +346,4 @@ dos próximos tutoriais.
 
 - [Voltar para a Trilha do Pipeline](pipeline.md)
 - **Anterior:** [Tutorial 5 — Junção Espacial](05-juncao-espacial.md)
-- **Próximo:** Tutorial 7 — Clima por Estações (INMET) *(em preparação)*
+- **Próximo:** [Tutorial 7 — Clima por Estações (INMET)](07-clima-estacoes.md)

@@ -14,6 +14,10 @@
   primeira coluna com "station" no nome, que era `station_name`; com 2019 sem nome, uma série de
   2014–2019 era desenhada só até 2018. A estação agora é escolhida pelo código (`station_code`),
   que é o mesmo em todos os anos.
+- **`sus_climate_aggregate` contava estações a mais na mensagem.** O INMET mudou as coordenadas
+  da A701 em 2019, e a mensagem "N station(s)" contava cada par de coordenadas como uma estação
+  ("8 municípios → 2 estações" com só a A701). Agora conta códigos distintos. O casamento já
+  usava o código, então os resultados não mudam.
 
 ### Fixed — legenda dos mapas em escala logarítmica
 
