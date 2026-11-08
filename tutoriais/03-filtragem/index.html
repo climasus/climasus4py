@@ -16,7 +16,7 @@
         <link rel="prev" href="../02-limpeza-padronizacao/">
       
       
-        <link rel="next" href="../../querying/">
+        <link rel="next" href="../04-variaveis-agregacao/">
       
       
         
@@ -914,6 +914,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-variaveis-agregacao/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4. Variáveis e Agregação
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1452,8 +1480,8 @@ da RMSP. O resultado alimenta o Tutorial 4 (Variáveis e Agregação).</p>
 </tr>
 <tr>
 <td>RMSP</td>
-<td>códigos IBGE de 8 municípios</td>
-<td><code>municipality=[...]</code></td>
+<td>nomes de 8 municípios</td>
+<td><code>city=[...]</code></td>
 </tr>
 </tbody>
 </table>
@@ -1502,23 +1530,24 @@ I00–I99, <code>cs.sus_filter(obitos_padr, groups="cardiovascular")</code> devo
 registros que <code>cardio</code>.</p>
 <h3 id="filtrar-por-demografia-idosos-60-na-rmsp">Filtrar por demografia (idosos 60+ na RMSP)<a class="headerlink" href="#filtrar-por-demografia-idosos-60-na-rmsp" title="Permanent link">&para;</a></h3>
 <p>O recorte demográfico é aplicado sobre o subconjunto respiratório. A idade é calculada a partir
-do código de idade do DATASUS, sem precisar de nenhuma etapa anterior; o recorte espacial usa os
-<strong>códigos IBGE</strong> de oito municípios da Região Metropolitana de São Paulo:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Oito municípios da RMSP (códigos IBGE de 7 dígitos):</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">RMSP</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"3550308"</span><span class="p">,</span> <span class="s2">"3548708"</span><span class="p">,</span> <span class="s2">"3509502"</span><span class="p">,</span> <span class="s2">"3548500"</span><span class="p">,</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>        <span class="s2">"3547809"</span><span class="p">,</span> <span class="s2">"3530607"</span><span class="p">,</span> <span class="s2">"3534401"</span><span class="p">,</span> <span class="s2">"3505708"</span><span class="p">]</span>
+do código de idade do DATASUS, sem precisar de nenhuma etapa anterior; o recorte espacial usa o
+<strong>nome</strong> de oito municípios da Região Metropolitana de São Paulo, com o argumento <code>city</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Oito municípios da RMSP:</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">RMSP</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"São Paulo"</span><span class="p">,</span> <span class="s2">"Guarulhos"</span><span class="p">,</span> <span class="s2">"São Bernardo do Campo"</span><span class="p">,</span> <span class="s2">"Santo André"</span><span class="p">,</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>        <span class="s2">"Osasco"</span><span class="p">,</span> <span class="s2">"Mauá"</span><span class="p">,</span> <span class="s2">"Carapicuíba"</span><span class="p">,</span> <span class="s2">"Diadema"</span><span class="p">]</span>
 </span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">resp_idosos</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_filter</span><span class="p">(</span><span class="n">resp</span><span class="p">,</span> <span class="n">age_min</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">municipality</span><span class="o">=</span><span class="n">RMSP</span><span class="p">)</span>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="n">cardio_idosos</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_filter</span><span class="p">(</span><span class="n">cardio</span><span class="p">,</span> <span class="n">age_min</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">municipality</span><span class="o">=</span><span class="n">RMSP</span><span class="p">)</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">resp_idosos</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_filter</span><span class="p">(</span><span class="n">resp</span><span class="p">,</span> <span class="n">age_min</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">city</span><span class="o">=</span><span class="n">RMSP</span><span class="p">)</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="n">cardio_idosos</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_filter</span><span class="p">(</span><span class="n">cardio</span><span class="p">,</span> <span class="n">age_min</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">city</span><span class="o">=</span><span class="n">RMSP</span><span class="p">)</span>
 </span></code></pre></div>
 <p>Os critérios de doença e de demografia também podem ir <strong>na mesma chamada</strong> — o resultado é o
 mesmo:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">resp_idosos</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_filter</span><span class="p">(</span><span class="n">obitos_padr</span><span class="p">,</span> <span class="n">groups</span><span class="o">=</span><span class="s2">"respiratory"</span><span class="p">,</span> <span class="n">age_min</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">municipality</span><span class="o">=</span><span class="n">RMSP</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">resp_idosos</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_filter</span><span class="p">(</span><span class="n">obitos_padr</span><span class="p">,</span> <span class="n">groups</span><span class="o">=</span><span class="s2">"respiratory"</span><span class="p">,</span> <span class="n">age_min</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">city</span><span class="o">=</span><span class="n">RMSP</span><span class="p">)</span>
 </span></code></pre></div>
-<p>Você também pode filtrar por <strong>nome de cidade</strong>, por <strong>sexo, raça ou escolaridade</strong> ou por
-<strong>região</strong> predefinida:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Por nome de cidade (em vez de código) e por sexo:</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">mulheres_sp</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_filter</span><span class="p">(</span><span class="n">resp</span><span class="p">,</span> <span class="n">sex</span><span class="o">=</span><span class="s2">"Feminino"</span><span class="p">,</span> <span class="n">city</span><span class="o">=</span><span class="s2">"São Paulo"</span><span class="p">)</span>
+<p>Em vez do nome, você pode usar o <strong>código IBGE</strong> do município, com 6 ou 7 dígitos, no argumento
+<code>municipality</code>; e também filtrar por <strong>sexo, raça ou escolaridade</strong> ou por <strong>região</strong>
+predefinida:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Pelo código IBGE (São Paulo = 3550308) e por sexo:</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">mulheres_sp</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_filter</span><span class="p">(</span><span class="n">resp</span><span class="p">,</span> <span class="n">sex</span><span class="o">=</span><span class="s2">"Feminino"</span><span class="p">,</span> <span class="n">municipality</span><span class="o">=</span><span class="s2">"3550308"</span><span class="p">)</span>
 </span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
 </span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Por macrorregião (atalho que resolve para um conjunto de UFs):</span>
 </span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">sudeste</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_filter</span><span class="p">(</span><span class="n">resp</span><span class="p">,</span> <span class="n">region</span><span class="o">=</span><span class="s2">"sudeste"</span><span class="p">)</span>
@@ -1716,13 +1745,13 @@ parâmetro <code>match_type</code> define como cada código é comparado à colu
 </tr>
 <tr>
 <td>+ demografia: respiratório, 60+, 8 municípios da RMSP</td>
-<td>72.937</td>
-<td>4,1</td>
+<td>70.742</td>
+<td>4,0</td>
 </tr>
 <tr>
 <td>+ demografia: cardiovascular, 60+, 8 municípios da RMSP</td>
-<td>160.459</td>
-<td>9,1</td>
+<td>156.794</td>
+<td>8,9</td>
 </tr>
 </tbody>
 </table>
@@ -1756,7 +1785,7 @@ aparece no recorte e será confrontada com a temperatura nas etapas de clima e m
 <ul>
 <li><a href="../pipeline/">Voltar para a Trilha do Pipeline</a></li>
 <li><strong>Anterior:</strong> <a href="../02-limpeza-padronizacao/">Tutorial 2 — Limpeza e Padronização</a></li>
-<li><strong>Próximo:</strong> Tutorial 4 — Variáveis e Agregação <em>(em preparação)</em></li>
+<li><strong>Próximo:</strong> <a href="../04-variaveis-agregacao/">Tutorial 4 — Variáveis e Agregação</a></li>
 </ul>
 
 
@@ -1810,13 +1839,13 @@ aparece no recorte e será confrontada com a temperatura nas etapas de clima e m
         
         
           
-          <a href="../../querying/" class="md-footer__link md-footer__link--next" aria-label="Próximo: Como consultar">
+          <a href="../04-variaveis-agregacao/" class="md-footer__link md-footer__link--next" aria-label="Próximo: 4. Variáveis e Agregação">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Próximo
               </span>
               <div class="md-ellipsis">
-                Como consultar
+                4. Variáveis e Agregação
               </div>
             </div>
             <div class="md-footer__button md-icon">
