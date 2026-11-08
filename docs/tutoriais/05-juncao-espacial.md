@@ -264,4 +264,4 @@ geometria).
 
 - [Voltar para a Trilha do Pipeline](pipeline.md)
 - **Anterior:** [Tutorial 4 — Variáveis e Agregação](04-variaveis-agregacao.md)
-- **Próximo:** Tutorial 6 — Vínculo Socioeconômico *(em preparação)*
+- **Próximo:** [Tutorial 6 — Vínculo Socioeconômico](06-socioeconomico.md)

@@ -61,7 +61,7 @@ climática, janela temporal e modelo estatístico.
     Integre indicadores do Censo e dados socioeconômicos para contextualizar vulnerabilidades da
     população.
 
-    *Em preparação*
+    [Ver tutorial →](06-socioeconomico.md)
 
 -   **Etapa 7 · Clima por Estações (INMET)**
 
