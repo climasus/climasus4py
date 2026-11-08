@@ -76,8 +76,8 @@ def _age_groups_config() -> dict[str, Any]:
         },
         "climate_risk_labels": {
             "en": ["High Risk (0-4)", "Standard Risk (5-64)", "High Risk (65+)"],
-            "pt": ["Alto Risco (0-4)", "Risco Padrao (5-64)", "Alto Risco (65+)"],
-            "es": ["Alto Riesgo (0-4)", "Riesgo Estandar (5-64)", "Alto Riesgo (65+)"],
+            "pt": ["Alto Risco (0-4)", "Risco Padrão (5-64)", "Alto Risco (65+)"],
+            "es": ["Alto Riesgo (0-4)", "Riesgo Estándar (5-64)", "Alto Riesgo (65+)"],
         }
     }
 

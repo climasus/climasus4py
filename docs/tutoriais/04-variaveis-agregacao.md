@@ -319,7 +319,7 @@ calendário).
 | 2015-03-06 | 91 | 80+ | Alto Risco (65+) | 80+ | 2015 | 3 | 1 | Chuvosa | Chuvosa |
 | 2015-10-07 | 68 | 60-69 | Alto Risco (65+) | 65-69 | 2015 | 10 | 4 | Chuvosa | Chuvosa |
 | 2015-02-15 | 66 | 60-69 | Alto Risco (65+) | 65-69 | 2015 | 2 | 1 | Chuvosa | Chuvosa |
-| 2015-11-30 | 62 | 60-69 | Risco Padrao (5-64) | 60-64 | 2015 | 11 | 4 | Chuvosa | Chuvosa |
+| 2015-11-30 | 62 | 60-69 | Risco Padrão (5-64) | 60-64 | 2015 | 11 | 4 | Chuvosa | Chuvosa |
 
 **Tabela 2.** Resumo das séries agregadas: número de períodos, total de óbitos e intervalo de
 datas. As linhas são mais numerosas que os períodos porque cada série tem uma linha por período e

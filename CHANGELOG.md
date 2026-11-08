@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed — rótulos sem acento ou no idioma errado
+
+- O grupo de risco climático saía como "Risco Padrao (5-64)" em português e "Riesgo Estandar
+  (5-64)" em espanhol. Agora sai "Risco Padrão (5-64)" e "Riesgo Estándar (5-64)", tanto no
+  climasus-data quanto na lista de reserva do pacote. No dicionário em português do SIA, o sexo
+  feminino estava escrito "Femenino", como em espanhol; agora é "Feminino" (no climasus-data,
+  instale a versão atual pelo comando da documentação).
+
 ### Fixed — gráfico de tendência e paletas do mapa iguais aos do climasus4r
 
 - **`sus_data_plot_aggregate_ts(plot_type="trend")` desenhava outro gráfico (M245).** Mostrava a
