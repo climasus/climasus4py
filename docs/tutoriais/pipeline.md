@@ -82,7 +82,7 @@ climática, janela temporal e modelo estatístico.
     Relacione exposição climática e desfechos de saúde com modelos epidemiológicos (ex.: DLNM) e
     estime efeitos.
 
-    *Em preparação*
+    [Ver tutorial →](09-modelagem.md)
 
 </div>
 

@@ -146,6 +146,7 @@ nav:
       - "6. Vínculo Socioeconômico": tutoriais/06-socioeconomico.md
       - "7. Clima por Estações (INMET)": tutoriais/07-clima-estacoes.md
       - "8. Clima em Grade e Ambiental": tutoriais/08-clima-grade.md
+      - "9. Modelagem Epidemiológica": tutoriais/09-modelagem.md
   - "Como consultar": querying.md
   - "Ordem do pipeline": pipeline-order.md
   - "Materialize": materialize.md

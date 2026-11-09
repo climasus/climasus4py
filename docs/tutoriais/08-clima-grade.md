@@ -499,4 +499,4 @@ ilustrativos.
 
 - [Voltar para a Trilha do Pipeline](pipeline.md)
 - **Anterior:** [Tutorial 7 — Clima por Estações (INMET)](07-clima-estacoes.md)
-- **Próximo:** Tutorial 9 — Modelagem Epidemiológica *(em preparação)*
+- **Próximo:** [Tutorial 9 — Modelagem Epidemiológica](09-modelagem.md)
