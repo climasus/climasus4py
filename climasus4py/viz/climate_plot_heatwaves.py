@@ -208,7 +208,9 @@ def _get_hw_palette(color_palette: str) -> dict[str, str]:
 
 #: Colour of an event with no intensity class -- ggplot's default
 #: ``na.value``, which is what R's scale_color_manual falls back to.
-_NA_COLOR = "grey50"
+#: Written as hex: "grey50" is an R colour name that plotnine/mizani does not
+#: know, and drawing any event without a class raised "Unknown name 'grey50'".
+_NA_COLOR = "#7F7F7F"
 
 
 def _translate_intensity_class(
@@ -221,7 +223,8 @@ def _translate_intensity_class(
         "Extreme (EHW)": labels["extreme"],
         "Unknown": labels["unknown"],
     }
-    return series.replace(mapping)
+    # map, not replace: replace on an object column downcasts and warns.
+    return series.map(lambda v: mapping.get(v, v))
 
 
 def _hw_theme() -> Any:
@@ -257,6 +260,16 @@ def _prep_intensity_class(events: pd.DataFrame, labels: dict[str, str], lang: st
         events["intensity_class"] = _translate_intensity_class(
             events["intensity_class"], labels
         )
+    # Categorical, so the colour scale always sees a discrete variable. Only
+    # EHF grades intensity: with WHO/WMO/INMET alone the column is all NaN,
+    # plotnine read it as continuous and the manual (discrete) colour scale
+    # raised "Continuous value supplied to discrete scale" (M264). The
+    # missing classes stay NaN and take na_value (grey50), as in R.
+    conhecidas = [labels["low"], labels["severe"], labels["extreme"], labels["unknown"]]
+    outras = [v for v in events["intensity_class"].dropna().unique() if v not in conhecidas]
+    events["intensity_class"] = pd.Categorical(
+        events["intensity_class"], categories=conhecidas + outras
+    )
     return events
 
 

@@ -150,7 +150,21 @@ _I18N: dict[str, dict[str, str]] = {
 # See IDEIAS.md.
 #: Colour of an event with no intensity class (WHO/INMET events: only
 #: EHF grades cold-wave intensity) -- ggplot's default na.value, as in R.
-_NA_COLOR = "grey50"
+# Hex, not "grey50": that is an R colour name plotnine/mizani does not know,
+# and drawing any event without a class raised "Unknown name 'grey50'" (M264).
+_NA_COLOR = "#7F7F7F"
+
+
+def _as_class_categorical(series: pd.Series, labels: dict[str, str]) -> pd.Categorical:
+    """Intensity class as a categorical, so the colour scale is always discrete.
+
+    With methods that do not grade intensity the column is all NaN, and
+    plotnine read it as continuous: "Continuous value supplied to discrete
+    scale" (M264). Missing classes stay NaN and take ``_NA_COLOR``.
+    """
+    conhecidas = [labels["low"], labels["severe"], labels["extreme"], labels["unknown"]]
+    outras = [v for v in series.dropna().unique() if v not in conhecidas]
+    return pd.Categorical(series, categories=conhecidas + outras)
 
 _CW_COLORS = {
     "low": "#4DBBD5FF",
@@ -254,6 +268,7 @@ def _plot_cw_timeline(events: pd.DataFrame, strings: dict[str, str], labels: dic
     if "intensity_class" not in events.columns:
         events["intensity_class"] = _RAW_UNKNOWN
     events["intensity_class"] = _translate_intensity(events["intensity_class"], labels)
+    events["intensity_class"] = _as_class_categorical(events["intensity_class"], labels)
 
     color_values = {
         labels["low"]: _CW_COLORS["low"],
@@ -368,6 +383,7 @@ def _plot_cw_intensity(
     if "intensity_class" not in events.columns:
         events["intensity_class"] = _RAW_UNKNOWN
     events["intensity_class"] = _translate_intensity(events["intensity_class"], labels)
+    events["intensity_class"] = _as_class_categorical(events["intensity_class"], labels)
 
     color_values = {
         labels["low"]: _CW_COLORS["low"],

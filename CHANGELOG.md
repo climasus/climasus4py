@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fixed — download do ERA5-Land e gráficos de ondas de calor e de frio
+
+- **`sus_grid_era5` não baixava nada (M265).** O ERA5-Land vem do Zenodo, mas o pacote usava o
+  baixador do INMET, que se apresenta como navegador e informa o portal do INMET como origem. O
+  Zenodo respondia 403 a todos os arquivos, e o erro encerrava o download. Agora, para servidores
+  que não são o INMET, o pacote se identifica como `climasus4py/<versão>` e não envia a origem do
+  INMET; o download do INMET não mudou. Cada arquivo do ERA5-Land tem cerca de 95 MB (uma
+  variável, um mês, toda a América Latina).
+- **`sus_climate_plot_heatwaves` e `sus_climate_plot_coldwaves` falhavam ao desenhar (M264).**
+  Só o EHF classifica a intensidade dos eventos; com WHO, WMO e INMET, a coluna
+  `intensity_class` vinha toda vazia, o plotnine a lia como número e os gráficos `timeline` e
+  `intensity` paravam com "Continuous value supplied to discrete scale". A coluna agora é uma
+  categoria. Os eventos sem classe ficam cinza, como no R; a cor era escrita como `"grey50"`, nome
+  do R que o plotnine não reconhece, e agora é `#7F7F7F`, o mesmo cinza.
+
 ### Fixed — dados do INMET de 2019 sem nome da estação
 
 - **`sus_climate_inmet` lia 2019 sem nome, região e data de fundação da estação (M260).** Em

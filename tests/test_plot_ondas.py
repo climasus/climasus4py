@@ -217,3 +217,46 @@ class TestOSintomaOriginalNaoReproduz:
     def test_intensity_class_de_texto_nao_quebra(self):
         cs.sus_climate_plot_coldwaves(
             self._minimo(["Severe (SCW)"]), type="timeline")
+
+
+# --- 08/11/2026: M264 -- drawing, not only building, the plot ------------------------
+
+
+def _so_sem_classe(resultado: dict) -> dict:
+    """Keep only the events no method graded (intensity_class all NaN)."""
+    eventos = resultado["events"].copy()
+    eventos["intensity_class"] = np.nan
+    return {**resultado, "events": eventos}
+
+
+@pytest.mark.parametrize("tipo", ["timeline", "intensity"])
+def test_heatwave_plot_draws_events_without_intensity_class(calor, tipo):
+    """With WHO/WMO/INMET alone the class is all NaN; plotnine read it as
+    continuous and drawing raised "Continuous value supplied to discrete
+    scale". The tests above only BUILT the plot, which never draws."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    p = cs.sus_climate_plot_heatwaves(_so_sem_classe(calor), type=tipo,
+                                      interactive=False, lang="pt")
+    p.draw()
+
+
+@pytest.mark.parametrize("tipo", ["timeline", "intensity"])
+def test_coldwave_plot_draws_events_without_intensity_class(frio, tipo):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    p = cs.sus_climate_plot_coldwaves(_so_sem_classe(frio), type=tipo, lang="pt")
+    p.draw()
+
+
+def test_na_colour_is_a_name_plotnine_knows():
+    """'grey50' is an R colour name; mizani raised "Unknown name 'grey50'"."""
+    from mizani._colors.utils import to_rgba
+
+    from climasus4py.viz.climate_plot_coldwaves import _NA_COLOR as frio_na
+    from climasus4py.viz.climate_plot_heatwaves import _NA_COLOR as calor_na
+
+    for cor in (frio_na, calor_na):
+        to_rgba(cor, 1.0)

@@ -44,17 +44,18 @@ def test_heatwave_event_without_class_is_grey_not_severe():
                        "intensity_class": ["Low Intensity (LIHW)", np.nan, "Severe (SHW)"]})
     p = (p9.ggplot(ev, p9.aes("x", "y", color="intensity_class")) + p9.geom_point()
          + _intensity_color_scale(cores, rot))
-    assert _cores(p) == ["#4DBBD5FF", "grey50", "#3C5488FF"]
+    # grey50 of R, written as hex: plotnine/mizani does not know the R name (M264).
+    assert _cores(p) == ["#4DBBD5FF", "#7F7F7F", "#3C5488FF"]
 
 
 def test_coldwave_event_without_class_is_grey50():
     from climasus4py.viz import climate_plot_coldwaves as m
 
-    assert m._NA_COLOR == "grey50"
+    assert m._NA_COLOR == "#7F7F7F"  # R's grey50 (M264)
     ev = pd.DataFrame({"x": [1, 2], "y": [1, 1], "c": ["a", np.nan]})
     p = (p9.ggplot(ev, p9.aes("x", "y", color="c")) + p9.geom_point()
          + p9.scale_color_manual(values={"a": "#4DBBD5FF"}, na_value=m._NA_COLOR))
-    assert _cores(p) == ["#4DBBD5FF", "grey50"]
+    assert _cores(p) == ["#4DBBD5FF", "#7F7F7F"]
 
 
 def test_vulnerability_pillars_are_horizontal_bars_one_per_city():

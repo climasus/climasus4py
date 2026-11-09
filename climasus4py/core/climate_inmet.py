@@ -61,6 +61,34 @@ _UA = (
 )
 _REFERER = "https://portal.inmet.gov.br/dadoshistoricos"
 
+
+def _package_user_agent() -> str:
+    """User-Agent naming the package, for servers other than the INMET portal."""
+    try:
+        from importlib.metadata import version
+
+        versao = version("climasus4py")
+    except Exception:  # noqa: BLE001 - metadata missing in an editable checkout
+        versao = "dev"
+    return f"climasus4py/{versao} (+https://github.com/climasus/climasus4py)"
+
+
+def _download_headers(url: str) -> tuple[str, str | None]:
+    """``(User-Agent, Referer)`` for *url*.
+
+    The browser User-Agent and the INMET Referer exist for the INMET portal.
+    The same downloader also fetches ERA5-Land from Zenodo, which answered
+    those headers with HTTP 403 on every file, and a 4xx ends the download
+    (M265). Any other host now gets a User-Agent that names this package and
+    no Referer.
+    """
+    from urllib.parse import urlparse
+
+    host = (urlparse(url).hostname or "").lower()
+    if host == "inmet.gov.br" or host.endswith(".inmet.gov.br"):
+        return _UA, _REFERER
+    return _package_user_agent(), None
+
 _INMET_CATEGORY_COLUMNS: frozenset[str] = frozenset({
     "region",
     "UF",
@@ -423,6 +451,7 @@ def _download_robust(
     """
     tmp = Path(str(dest) + ".tmp")
     last_reason = "unknown error"
+    user_agent, referer = _download_headers(url)
 
     def _try_requests() -> bool | str:
         try:
@@ -431,10 +460,11 @@ def _download_robust(
             return False
         try:
             headers = {
-                "User-Agent": _UA,
+                "User-Agent": user_agent,
                 "Accept": "application/zip, application/octet-stream, */*",
-                "Referer": _REFERER,
             }
+            if referer:
+                headers["Referer"] = referer
             with requests.get(url, headers=headers, stream=True, timeout=3600) as r:
                 sc = r.status_code
                 if sc == 200:
@@ -455,9 +485,10 @@ def _download_robust(
     def _try_urllib() -> bool | str:
         import urllib.request
         try:
-            req = urllib.request.Request(
-                url, headers={"User-Agent": _UA, "Referer": _REFERER}
-            )
+            cabecalhos = {"User-Agent": user_agent}
+            if referer:
+                cabecalhos["Referer"] = referer
+            req = urllib.request.Request(url, headers=cabecalhos)
             with urllib.request.urlopen(req, timeout=3600) as resp:
                 if resp.status == 200:
                     with open(tmp, "wb") as f:
@@ -481,8 +512,8 @@ def _download_robust(
                     curl_bin, "--silent", "--show-error", "--location",
                     "--max-time", "3600",
                     "--write-out", "%{http_code}",
-                    "--user-agent", _UA,
-                    "--header", f"Referer: {_REFERER}",
+                    "--user-agent", user_agent,
+                    *(["--header", f"Referer: {referer}"] if referer else []),
                     "--output", str(tmp), url,
                 ],
                 capture_output=True, text=True,
@@ -509,8 +540,8 @@ def _download_robust(
             result = subprocess.run(
                 [
                     wget_bin, "--server-response", "--timeout=3600", "--tries=1",
-                    f"--user-agent={_UA}",
-                    f"--header=Referer: {_REFERER}",
+                    f"--user-agent={user_agent}",
+                    *([f"--header=Referer: {referer}"] if referer else []),
                     "--output-document", str(tmp), url,
                 ],
                 capture_output=True, text=True,

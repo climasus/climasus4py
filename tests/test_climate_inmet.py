@@ -306,3 +306,18 @@ def test_cache_without_station_names_is_flagged_for_rebuild():
     assert _cache_lacks_station_metadata(antigo) is True
     assert _cache_lacks_station_metadata(bom) is False
     assert _cache_lacks_station_metadata(con.sql("SELECT 1 AS x")) is False
+
+
+def test_download_headers_depend_on_the_host():
+    """The INMET browser headers went to Zenodo too, which answered 403 on
+    every ERA5-Land file (M265). Other hosts get a User-Agent that names the
+    package and no Referer; the INMET portal keeps what it has always had."""
+    from climasus4py.core.climate_inmet import _REFERER, _UA, _download_headers
+
+    assert _download_headers("https://portal.inmet.gov.br/uploads/dadoshistoricos/2019.zip") == (
+        _UA, _REFERER)
+    ua, ref = _download_headers(
+        "https://zenodo.org/records/10034523/files/x_day_mean.nc?download=1")
+    assert ua.startswith("climasus4py/") and "github.com/climasus/climasus4py" in ua
+    assert ref is None
+    assert _download_headers("https://inmet.gov.br.example.com/x")[1] is None
