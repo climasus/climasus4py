@@ -1,0 +1,2581 @@
+
+<!doctype html>
+<html lang="pt" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Fast SUS and climate data workflows for Brazil — Python edition">
+      
+      
+      
+        <link rel="canonical" href="https://climasus.github.io/climasus4py/tutoriais/08-clima-grade/">
+      
+      
+        <link rel="prev" href="../07-clima-estacoes/">
+      
+      
+        <link rel="next" href="../../querying/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+      
+        <title>8. Clima em Grade e Ambiental - climasus4py</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="https://climasus.github.io/design-system/assets/css/theme.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/climasus-extras.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#tutorial-8-clima-em-grade-e-dados-ambientais" class="md-skip">
+          Ir para o conteúdo
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Cabeçalho">
+    <a href="../.." title="climasus4py" class="md-header__button md-logo" aria-label="climasus4py" data-md-component="logo">
+      
+  <img src="../../assets/logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            climasus4py
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              8. Clima em Grade e Ambiental
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Modo escuro"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Modo escuro" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Modo claro"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Modo claro" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Buscar" placeholder="Buscar" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Pesquisar">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Limpar" aria-label="Limpar" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Inicializando a pesquisa
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/climasus/climasus4py" title="Ir ao repositório" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    climasus/climasus4py
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Abas" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="../" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Tutoriais
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../querying/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Como consultar
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../pipeline-order/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Ordem do pipeline
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../materialize/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Materialize
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../enrichments/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Enriquecimentos
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../migration-from-r-legacy/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Migração do R
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../reference/SUMMARY/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Referência API
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../pt/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Português
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../en/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  English
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../es/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Español
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navegação" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="climasus4py" class="md-nav__button md-logo" aria-label="climasus4py" data-md-component="logo">
+      
+  <img src="../../assets/logo.png" alt="logo">
+
+    </a>
+    climasus4py
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/climasus/climasus4py" title="Ir ao repositório" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    climasus/climasus4py
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutoriais
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutoriais
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trilha do Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-importacao/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1. Importação
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-limpeza-padronizacao/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2. Limpeza e Padronização
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-filtragem/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3. Filtragem
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-variaveis-agregacao/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4. Variáveis e Agregação
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-juncao-espacial/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5. Junção Espacial
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-socioeconomico/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6. Vínculo Socioeconômico
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-clima-estacoes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7. Clima por Estações (INMET)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    8. Clima em Grade e Ambiental
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    8. Clima em Grade e Ambiental
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+  
+
+<nav class="md-nav md-nav--secondary" aria-label="Nesta página">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Nesta página
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#objetivo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Objetivo
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contexto-cientifico" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contexto científico
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Contexto científico">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#estacao-vs-pixel-duas-formas-de-medir-a-exposicao" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Estação vs. pixel: duas formas de medir a exposição
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dos-campos-brutos-aos-indicadores-epidemiologicos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dos campos brutos aos indicadores epidemiológicos
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dados-utilizados" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dados utilizados
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline-completo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline completo
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pipeline completo">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#importar-o-era5-land-para-o-municipio-de-sao-paulo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Importar o ERA5-Land para o município de São Paulo
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#comparar-a-grade-com-a-estacao-validacao-cruzada" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparar a grade com a estação (validação cruzada)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#anomalias-climaticas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Anomalias climáticas
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#indicadores-bioclimaticos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Indicadores bioclimáticos
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ondas-de-calor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ondas de calor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#spi-e-spei-secas-e-periodos-umidos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SPI e SPEI: secas e períodos úmidos
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#encadeamento-juntar-a-grade-a-serie-de-saude" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Encadeamento: juntar a grade à série de saúde
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#caracteristicas-das-funcoes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Características das funções
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Características das funções">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sus_grid_era5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sus_grid_era5()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sus_climate_anomaly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sus_climate_anomaly()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sus_climate_compute_indicators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sus_climate_compute_indicators()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sus_climate_compute_heatwaves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sus_climate_compute_heatwaves()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sus_climate_compute_spi-e-sus_climate_compute_spei" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sus_climate_compute_spi() e sus_climate_compute_spei()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resultados-ilustrados" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resultados ilustrados
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#referencias" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Referências
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#navegacao" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Navegação
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../querying/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Como consultar
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../pipeline-order/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ordem do pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../materialize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Materialize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enrichments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Enriquecimentos
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../migration-from-r-legacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migração do R
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/SUMMARY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Referência API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../pt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Português
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    English
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../es/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Español
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+  
+
+<nav class="md-nav md-nav--secondary" aria-label="Nesta página">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Nesta página
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#objetivo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Objetivo
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contexto-cientifico" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contexto científico
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Contexto científico">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#estacao-vs-pixel-duas-formas-de-medir-a-exposicao" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Estação vs. pixel: duas formas de medir a exposição
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dos-campos-brutos-aos-indicadores-epidemiologicos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dos campos brutos aos indicadores epidemiológicos
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dados-utilizados" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dados utilizados
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline-completo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline completo
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pipeline completo">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#importar-o-era5-land-para-o-municipio-de-sao-paulo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Importar o ERA5-Land para o município de São Paulo
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#comparar-a-grade-com-a-estacao-validacao-cruzada" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparar a grade com a estação (validação cruzada)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#anomalias-climaticas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Anomalias climáticas
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#indicadores-bioclimaticos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Indicadores bioclimáticos
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ondas-de-calor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ondas de calor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#spi-e-spei-secas-e-periodos-umidos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SPI e SPEI: secas e períodos úmidos
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#encadeamento-juntar-a-grade-a-serie-de-saude" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Encadeamento: juntar a grade à série de saúde
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#caracteristicas-das-funcoes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Características das funções
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Características das funções">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sus_grid_era5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sus_grid_era5()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sus_climate_anomaly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sus_climate_anomaly()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sus_climate_compute_indicators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sus_climate_compute_indicators()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sus_climate_compute_heatwaves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sus_climate_compute_heatwaves()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sus_climate_compute_spi-e-sus_climate_compute_spei" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sus_climate_compute_spi() e sus_climate_compute_spei()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resultados-ilustrados" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resultados ilustrados
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#referencias" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Referências
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#navegacao" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Navegação
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="tutorial-8-clima-em-grade-e-dados-ambientais">Tutorial 8: Clima em Grade e Dados Ambientais<a class="headerlink" href="#tutorial-8-clima-em-grade-e-dados-ambientais" title="Permanent link">&para;</a></h1>
+<p><a href="../pipeline/">← Voltar para a Trilha do Pipeline</a></p>
+<h2 id="objetivo">Objetivo<a class="headerlink" href="#objetivo" title="Permanent link">&para;</a></h2>
+<p>Ao final deste tutorial você será capaz de <strong>integrar dados climáticos e ambientais em grade</strong>
+(sensoriamento remoto e reanálise) à sua série de saúde: importar o <strong>ERA5-Land</strong> (~10 km) com
+<code>sus_grid_era5()</code> e agregá-lo ao polígono municipal; conhecer a família completa <code>sus_grid_*</code>
+(precipitação CHIRPS, focos de queimada, secas PDSI/SMVI, desmatamento PRODES e poluição
+CAMS/GHAP/MERRA-2); e derivar <strong>indicadores climáticos para epidemiologia</strong>: anomalias, índices
+bioclimáticos (<code>sus_climate_compute_indicators()</code>), ondas de calor
+(<code>sus_climate_compute_heatwaves()</code> + <code>sus_climate_plot_heatwaves()</code>) e os índices de seca <strong>SPI</strong>
+(<code>sus_climate_compute_spi()</code>) e <strong>SPEI</strong> (<code>sus_climate_compute_spei()</code>).</p>
+<p>Esta é a <strong>oitava etapa</strong> do pipeline: enquanto o Tutorial 7 construiu a exposição climática a
+partir de <strong>estações</strong> do INMET (medições pontuais), aqui construímos uma exposição <strong>alternativa e
+complementar em grade</strong> — cobertura espacial contínua, sem lacunas de observação — que alimentará
+a modelagem do Tutorial 9.</p>
+<h2 id="contexto-cientifico">Contexto científico<a class="headerlink" href="#contexto-cientifico" title="Permanent link">&para;</a></h2>
+<h3 id="estacao-vs-pixel-duas-formas-de-medir-a-exposicao">Estação vs. pixel: duas formas de medir a exposição<a class="headerlink" href="#estacao-vs-pixel-duas-formas-de-medir-a-exposicao" title="Permanent link">&para;</a></h3>
+<p>Uma estação meteorológica mede o clima em um <strong>ponto</strong>; um produto em grade representa o valor
+<strong>médio de um pixel</strong> (uma célula de área fixa). O <strong>ERA5-Land</strong> (Muñoz-Sabater et al., 2021) é
+uma <strong>reanálise</strong>: um modelo físico de superfície terrestre alimentado por observações, que produz
+campos horários contínuos desde 1950 em resolução de ~0,1° (<strong>~10 km</strong> no equador). Para o Brasil,
+o projeto <em>ERA5-Land Daily Aggregates for Latin America</em> (Saldanha, Zenodo, CC-BY 4.0)
+disponibiliza agregados <strong>diários</strong> prontos, sem chave de API — é essa a fonte usada por
+<code>sus_grid_era5()</code>.</p>
+<p>Três cuidados de quem trabalha com sensoriamento remoto e reanálise:</p>
+<ol>
+<li><strong>Resolução e representatividade.</strong> Um pixel de ~10 km é uma média de área: suaviza extremos
+   locais (ilhas de calor urbanas, microclimas de vale) que uma estação pontual captura. Em
+   contrapartida, cobre municípios <strong>sem estação</strong> e não tem dados faltantes. Para um município
+   extenso como São Paulo (~1.500 km²), dezenas de pixels são agregados ao polígono, com média
+   <strong>ponderada pela área</strong> de interseção, o que evita viés de borda.</li>
+<li><strong>Unidades físicas.</strong> Os arquivos NetCDF originais vêm em unidades do sistema internacional:
+   temperatura em <strong>Kelvin</strong> (K → °C: subtrair 273,15), precipitação em <strong>metros</strong> (m → mm:
+   multiplicar por 1.000) e pressão em <strong>Pa</strong> (Pa → hPa: dividir por 100). <code>sus_grid_era5()</code>
+   aplica essas conversões automaticamente e entrega colunas canônicas (<code>tair_dry_bulb_c</code>,
+   <code>rainfall_mm</code>, ...).</li>
+<li><strong>Validação cruzada.</strong> Reanálise não substitui observação: o recomendado é comparar a série de
+   grade com a estação do INMET mais próxima (Tutorial 7) antes de escolher a exposição do modelo
+   — diferenças sistemáticas (viés) são esperadas e documentáveis. É o que fazemos na Figura 1.</li>
+</ol>
+<h3 id="dos-campos-brutos-aos-indicadores-epidemiologicos">Dos campos brutos aos indicadores epidemiológicos<a class="headerlink" href="#dos-campos-brutos-aos-indicadores-epidemiologicos" title="Permanent link">&para;</a></h3>
+<p>A literatura de clima-saúde raramente usa a temperatura bruta diretamente:</p>
+<ul>
+<li><strong>Anomalias</strong> (WMO, 2017) tornam cidades com climas distintos comparáveis e apontam os períodos
+  extremos a correlacionar com picos de mortalidade (Gasparrini et al., 2017);</li>
+<li><strong>Ondas de calor</strong> definidas por percentis e duração (Perkins &amp; Alexander, 2013; Geirinhas et
+  al., 2018) e pelo <em>Excess Heat Factor</em> — EHF (Nairn &amp; Fawcett, 2015) capturam o efeito agudo do
+  calor sustentado;</li>
+<li><strong>SPI</strong> (McKee et al., 1993) e <strong>SPEI</strong> (Vicente-Serrano et al., 2010) padronizam seca e umidade
+  em múltiplas escalas temporais — relevantes para doenças diarreicas, leptospirose e arboviroses;</li>
+<li><strong>Índices bioclimáticos</strong> (UTCI, Bröde et al., 2012; WBGT, Liljegren et al., 2008; HI, Rothfusz,
+  1990) combinam temperatura, umidade, vento e radiação em uma única medida de estresse térmico
+  humano.</li>
+</ul>
+<p><strong>Caso condutor.</strong> Seguimos com <strong>temperatura e desfechos de saúde em idosos (60+) na RM de São
+Paulo, 2014–2019</strong>. Neste tutorial importamos o ERA5-Land para o município de São Paulo, comparamos
+com a estação A701 e derivamos anomalias, ondas de calor e SPI/SPEI.</p>
+<h2 id="dados-utilizados">Dados utilizados<a class="headerlink" href="#dados-utilizados" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Fonte</th>
+<th>Função</th>
+<th>Resolução</th>
+<th>Período</th>
+<th>Papel no caso</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ERA5-Land (Zenodo)</td>
+<td><code>sus_grid_era5()</code></td>
+<td>~10 km, diária</td>
+<td>janeiro de 2014</td>
+<td>Exposição em grade e comparação com a estação</td>
+</tr>
+<tr>
+<td>Estação A701 (INMET)</td>
+<td><code>sus_climate_inmet()</code></td>
+<td>ponto, horária</td>
+<td>2014–2019</td>
+<td>Base dos índices (anomalia, ondas de calor, SPI/SPEI)</td>
+</tr>
+<tr>
+<td>Normais 1991–2020 (estação 83781)</td>
+<td><code>sus_climate_normals()</code></td>
+<td>ponto, mensal</td>
+<td>1991–2020</td>
+<td>Linha de base da anomalia</td>
+</tr>
+<tr>
+<td>Série de óbitos respiratórios de idosos</td>
+<td>Tutoriais 1 a 5</td>
+<td>município × dia</td>
+<td>2014–2019</td>
+<td>Desfecho de saúde</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Por que só um mês de ERA5-Land.</strong> O ERA5-Land é distribuído como <strong>um arquivo por variável e por
+mês</strong>, sempre com a América Latina inteira: cerca de <strong>95 MB</strong> cada. Um mês de temperatura e chuva
+são dois arquivos (~190 MB); seis anos das quatro variáveis do caso seriam 288 arquivos (~27 GB).
+Para mostrar a função e a comparação com a estação, um mês basta. Os índices precisam de anos de
+dados — o SPI e o SPEI, de pelo menos 24 meses; as ondas de calor, de um período de referência para
+os percentis — e por isso usam a série da estação A701 (2014–2019) do Tutorial 7. As funções são as
+mesmas com o ERA5-Land de vários anos: basta pedir mais anos a <code>sus_grid_era5()</code>.</p>
+<p>A família <code>sus_grid_*</code> cobre outras fontes ambientais com a <strong>mesma gramática</strong> (anos e meses,
+<code>municipalities</code> como <code>GeoDataFrame</code>, agregação pixel → polígono, cache):</p>
+<table>
+<thead>
+<tr>
+<th>Função</th>
+<th>Fonte</th>
+<th>Tema</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sus_grid_chirps()</code></td>
+<td>CHIRPS (0,05°)</td>
+<td>Precipitação (Funk et al., 2015)</td>
+</tr>
+<tr>
+<td><code>sus_grid_fires()</code></td>
+<td>INPE/Queimadas</td>
+<td>Focos de calor</td>
+</tr>
+<tr>
+<td><code>sus_grid_pdsi()</code></td>
+<td>PDSI</td>
+<td>Seca (índice de Palmer)</td>
+</tr>
+<tr>
+<td><code>sus_grid_smvi()</code></td>
+<td>SMVI</td>
+<td>Seca-relâmpago (umidade do solo)</td>
+</tr>
+<tr>
+<td><code>sus_grid_prodes()</code></td>
+<td>PRODES/TerraBrasilis</td>
+<td>Desmatamento</td>
+</tr>
+<tr>
+<td><code>sus_grid_pollution_cams()</code></td>
+<td>CAMS/Copernicus</td>
+<td>Poluição do ar (reanálise)</td>
+</tr>
+<tr>
+<td><code>sus_grid_pollution_ghap()</code></td>
+<td>GHAP</td>
+<td>PM2.5 em alta resolução</td>
+</tr>
+<tr>
+<td><code>sus_grid_pollution_merra2()</code></td>
+<td>MERRA-2/NASA</td>
+<td>Aerossóis e poluentes</td>
+</tr>
+<tr>
+<td><code>sus_grid_join()</code></td>
+<td>—</td>
+<td>Junta grades à base de saúde por município × data</td>
+</tr>
+</tbody>
+</table>
+<h2 id="pipeline-completo">Pipeline completo<a class="headerlink" href="#pipeline-completo" title="Permanent link">&para;</a></h2>
+<p>Os blocos abaixo reproduzem o que o script
+<a href="https://github.com/climasus/climasus4py/blob/main/tools/tutoriais/tutorial_08_clima_grade.py"><code>tools/tutoriais/tutorial_08_clima_grade.py</code></a>
+executa. Comece refazendo, a partir do cache, a série de saúde dos tutoriais anteriores — agora com
+contagem <strong>diária</strong> pelo município de residência — e a série horária da A701 (Tutorial 7):</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">climasus4py</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">cs</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">geopandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">gpd</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">obitos</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_data_import</span><span class="p">(</span><span class="n">system</span><span class="o">=</span><span class="s2">"SIM-DO"</span><span class="p">,</span> <span class="n">uf</span><span class="o">=</span><span class="s2">"SP"</span><span class="p">,</span> <span class="n">year</span><span class="o">=</span><span class="p">[</span><span class="mi">2014</span><span class="p">,</span> <span class="mi">2015</span><span class="p">,</span> <span class="mi">2016</span><span class="p">,</span> <span class="mi">2017</span><span class="p">,</span> <span class="mi">2018</span><span class="p">,</span> <span class="mi">2019</span><span class="p">])</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">obitos_limpo</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_data_clean_encoding</span><span class="p">(</span><span class="n">obitos</span><span class="p">)</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">obitos_padr</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_data_standardize</span><span class="p">(</span><span class="n">obitos_limpo</span><span class="p">,</span> <span class="n">lang</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">)</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="n">RMSP</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"São Paulo"</span><span class="p">,</span> <span class="s2">"Guarulhos"</span><span class="p">,</span> <span class="s2">"São Bernardo do Campo"</span><span class="p">,</span> <span class="s2">"Santo André"</span><span class="p">,</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>        <span class="s2">"Osasco"</span><span class="p">,</span> <span class="s2">"Mauá"</span><span class="p">,</span> <span class="s2">"Carapicuíba"</span><span class="p">,</span> <span class="s2">"Diadema"</span><span class="p">]</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="n">resp_idosos</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_filter</span><span class="p">(</span><span class="n">obitos_padr</span><span class="p">,</span> <span class="n">groups</span><span class="o">=</span><span class="s2">"respiratory"</span><span class="p">,</span> <span class="n">age_min</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">city</span><span class="o">=</span><span class="n">RMSP</span><span class="p">)</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="n">obitos_vars</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_data_create_variables</span><span class="p">(</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">resp_idosos</span><span class="p">,</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">age_breaks</span><span class="o">=</span><span class="p">[</span><span class="mi">60</span><span class="p">,</span> <span class="mi">70</span><span class="p">,</span> <span class="mi">80</span><span class="p">,</span> <span class="mi">999</span><span class="p">],</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">age_labels</span><span class="o">=</span><span class="p">[</span><span class="s2">"60-69"</span><span class="p">,</span> <span class="s2">"70-79"</span><span class="p">,</span> <span class="s2">"80+"</span><span class="p">],</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">climate_region</span><span class="o">=</span><span class="s2">"sudeste"</span><span class="p">,</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">lang</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">,</span>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="p">)</span>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="n">serie_diaria</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_data_aggregate</span><span class="p">(</span><span class="n">obitos_vars</span><span class="p">,</span> <span class="n">time_unit</span><span class="o">=</span><span class="s2">"day"</span><span class="p">,</span> <span class="n">join_col</span><span class="o">=</span><span class="s2">"residencia"</span><span class="p">,</span> <span class="n">lang</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">)</span>
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="n">caso_espacial</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_spatial_join</span><span class="p">(</span><span class="n">serie_diaria</span><span class="p">,</span> <span class="n">geo_level</span><span class="o">=</span><span class="s2">"municipality"</span><span class="p">,</span> <span class="n">join_col</span><span class="o">=</span><span class="s2">"residencia"</span><span class="p">,</span> <span class="n">lang</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">)</span>
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="n">clima_horario</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_climate_inmet</span><span class="p">(</span><span class="n">years</span><span class="o">=</span><span class="p">[</span><span class="mi">2014</span><span class="p">,</span> <span class="mi">2015</span><span class="p">,</span> <span class="mi">2016</span><span class="p">,</span> <span class="mi">2017</span><span class="p">,</span> <span class="mi">2018</span><span class="p">,</span> <span class="mi">2019</span><span class="p">],</span> <span class="n">uf</span><span class="o">=</span><span class="s2">"SP"</span><span class="p">,</span> <span class="n">station_code</span><span class="o">=</span><span class="s2">"A701"</span><span class="p">,</span> <span class="n">lang</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">)</span>
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="n">clima_df</span> <span class="o">=</span> <span class="n">clima_horario</span><span class="o">.</span><span class="n">df</span><span class="p">()</span>
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="n">clima_preenchido</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_climate_fill_inmet</span><span class="p">(</span><span class="n">clima_df</span><span class="p">,</span> <span class="n">target_var</span><span class="o">=</span><span class="s2">"tair_dry_bulb_c"</span><span class="p">,</span> <span class="n">lang</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">)</span>
+</span></code></pre></div>
+<h3 id="importar-o-era5-land-para-o-municipio-de-sao-paulo">Importar o ERA5-Land para o município de São Paulo<a class="headerlink" href="#importar-o-era5-land-para-o-municipio-de-sao-paulo" title="Permanent link">&para;</a></h3>
+<p><code>sus_grid_era5()</code> recebe os polígonos como um <code>GeoDataFrame</code> com a coluna <code>code_muni</code>. Usamos o
+polígono de São Paulo que a junção espacial do Tutorial 5 já trouxe. A função baixa os NetCDF do
+Zenodo (sem chave de API), converte as unidades (K → °C; m → mm) e agrega cada pixel ao polígono
+com média ponderada pela área:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">tabela</span> <span class="o">=</span> <span class="n">caso_espacial</span><span class="o">.</span><span class="n">df</span><span class="p">()</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">sp</span> <span class="o">=</span> <span class="n">tabela</span><span class="p">[</span><span class="n">tabela</span><span class="p">[</span><span class="s2">"spatial_name"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"São Paulo"</span><span class="p">]</span><span class="o">.</span><span class="n">drop_duplicates</span><span class="p">(</span><span class="s2">"code_muni_7"</span><span class="p">)</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">sp_geom</span> <span class="o">=</span> <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">(</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="p">{</span><span class="s2">"code_muni"</span><span class="p">:</span> <span class="n">sp</span><span class="p">[</span><span class="s2">"code_muni_7"</span><span class="p">]},</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">geometry</span><span class="o">=</span><span class="n">gpd</span><span class="o">.</span><span class="n">GeoSeries</span><span class="o">.</span><span class="n">from_wkt</span><span class="p">(</span><span class="n">sp</span><span class="p">[</span><span class="s2">"geometry_wkt"</span><span class="p">]),</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">crs</span><span class="o">=</span><span class="s2">"EPSG:4674"</span><span class="p">,</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="p">)</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">era5_sp</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_grid_era5</span><span class="p">(</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="n">years</span><span class="o">=</span><span class="mi">2014</span><span class="p">,</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    <span class="n">months</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>                  <span class="c1"># um mês: 2 arquivos de ~95 MB</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    <span class="nb">vars</span><span class="o">=</span><span class="p">[</span><span class="s2">"t2m"</span><span class="p">,</span> <span class="s2">"tp"</span><span class="p">],</span>          <span class="c1"># temperatura média e precipitação</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>    <span class="n">municipalities</span><span class="o">=</span><span class="n">sp_geom</span><span class="p">,</span>      <span class="c1"># agrega a grade ao polígono</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>    <span class="n">agg_fun</span><span class="o">=</span><span class="s2">"mean"</span><span class="p">,</span>              <span class="c1"># média ponderada pela área</span>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>    <span class="n">use_cache</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>              <span class="c1"># NetCDF reaproveitados em ~/.climasus4py_cache/era5</span>
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>    <span class="n">lang</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">,</span>
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="p">)</span>
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>
+</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="n">era5_sp</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="s2">"sus_meta"</span><span class="p">][</span><span class="s2">"stage"</span><span class="p">]</span>   <span class="c1"># "climate"</span>
+</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="n">era5_sp</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="s2">"sus_meta"</span><span class="p">][</span><span class="s2">"type"</span><span class="p">]</span>    <span class="c1"># "era5_land"</span>
+</span></code></pre></div>
+<p>O retorno é uma tabela com <code>code_muni</code>, <code>date</code> e uma coluna por variável: <code>tair_dry_bulb_c</code> (t2m)
+e <code>rainfall_mm</code> (tp).</p>
+<p><strong>Atenção à data da chuva.</strong> No ERA5-Land, a precipitação acumulada de um dia é gravada à
+meia-noite (UTC) do dia <strong>seguinte</strong>: o arquivo de janeiro traz a chuva datada de 02/01 a 01/02, e
+a tabela sai com 32 linhas para um mês de 31 dias. Para comparar com a estação dia a dia, subtraia
+um dia das datas da chuva:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">chuva_era5</span> <span class="o">=</span> <span class="n">era5_sp</span><span class="p">[[</span><span class="s2">"date"</span><span class="p">,</span> <span class="s2">"rainfall_mm"</span><span class="p">]]</span><span class="o">.</span><span class="n">dropna</span><span class="p">()</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">chuva_era5</span><span class="p">[</span><span class="s2">"date"</span><span class="p">]</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">to_datetime</span><span class="p">(</span><span class="n">chuva_era5</span><span class="p">[</span><span class="s2">"date"</span><span class="p">])</span> <span class="o">-</span> <span class="n">pd</span><span class="o">.</span><span class="n">DateOffset</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</span></code></pre></div>
+<h3 id="comparar-a-grade-com-a-estacao-validacao-cruzada">Comparar a grade com a estação (validação cruzada)<a class="headerlink" href="#comparar-a-grade-com-a-estacao-validacao-cruzada" title="Permanent link">&para;</a></h3>
+<p>Agregamos a A701 a valores diários e juntamos com o ERA5-Land de janeiro de 2014:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">a701_dia</span> <span class="o">=</span> <span class="n">clima_preenchido</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="s2">"date"</span><span class="p">)</span><span class="o">.</span><span class="n">resample</span><span class="p">(</span><span class="s2">"D"</span><span class="p">)</span><span class="o">.</span><span class="n">agg</span><span class="p">(</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="p">{</span><span class="s2">"tair_dry_bulb_c"</span><span class="p">:</span> <span class="s2">"mean"</span><span class="p">,</span> <span class="s2">"rainfall_mm"</span><span class="p">:</span> <span class="s2">"sum"</span><span class="p">})</span><span class="o">.</span><span class="n">reset_index</span><span class="p">()</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">a701_jan</span> <span class="o">=</span> <span class="n">a701_dia</span><span class="p">[(</span><span class="n">a701_dia</span><span class="p">[</span><span class="s2">"date"</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="s2">"2014-01-01"</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">a701_dia</span><span class="p">[</span><span class="s2">"date"</span><span class="p">]</span> <span class="o">&lt;</span> <span class="s2">"2014-02-01"</span><span class="p">)]</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">temperatura</span> <span class="o">=</span> <span class="n">era5_sp</span><span class="p">[[</span><span class="s2">"date"</span><span class="p">,</span> <span class="s2">"tair_dry_bulb_c"</span><span class="p">]]</span><span class="o">.</span><span class="n">merge</span><span class="p">(</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="n">a701_jan</span><span class="p">[[</span><span class="s2">"date"</span><span class="p">,</span> <span class="s2">"tair_dry_bulb_c"</span><span class="p">]],</span> <span class="n">on</span><span class="o">=</span><span class="s2">"date"</span><span class="p">,</span> <span class="n">suffixes</span><span class="o">=</span><span class="p">(</span><span class="s2">"_era5"</span><span class="p">,</span> <span class="s2">"_a701"</span><span class="p">))</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="n">chuva</span> <span class="o">=</span> <span class="n">chuva_era5</span><span class="o">.</span><span class="n">merge</span><span class="p">(</span><span class="n">a701_jan</span><span class="p">[[</span><span class="s2">"date"</span><span class="p">,</span> <span class="s2">"rainfall_mm"</span><span class="p">]],</span> <span class="n">on</span><span class="o">=</span><span class="s2">"date"</span><span class="p">,</span> <span class="n">suffixes</span><span class="o">=</span><span class="p">(</span><span class="s2">"_era5"</span><span class="p">,</span> <span class="s2">"_a701"</span><span class="p">))</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="n">temperatura</span><span class="p">[</span><span class="s2">"tair_dry_bulb_c_era5"</span><span class="p">]</span><span class="o">.</span><span class="n">corr</span><span class="p">(</span><span class="n">temperatura</span><span class="p">[</span><span class="s2">"tair_dry_bulb_c_a701"</span><span class="p">])</span>   <span class="c1"># 0,89</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="n">chuva</span><span class="p">[</span><span class="s2">"rainfall_mm_era5"</span><span class="p">]</span><span class="o">.</span><span class="n">corr</span><span class="p">(</span><span class="n">chuva</span><span class="p">[</span><span class="s2">"rainfall_mm_a701"</span><span class="p">])</span>                         <span class="c1"># 0,69</span>
+</span></code></pre></div>
+<h3 id="anomalias-climaticas">Anomalias climáticas<a class="headerlink" href="#anomalias-climaticas" title="Permanent link">&para;</a></h3>
+<p>A anomalia compara a observação com as <strong>normais climatológicas</strong> do INMET (Tutorial 7). A função
+<code>sus_climate_anomaly()</code> casa a série com as normais pelo código da estação, mas as normais são
+publicadas para as estações <strong>convencionais</strong> (o Mirante de Santana é a 83781) e a série horária
+vem da <strong>automática</strong> (A701), de modo que os códigos não casam. Como no tutorial original, fazemos
+a mesma conta à mão: média mensal observada menos a normal do mês.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">normais</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_climate_normals</span><span class="p">(</span><span class="n">period</span><span class="o">=</span><span class="s2">"1991-2020"</span><span class="p">,</span> <span class="n">target_var</span><span class="o">=</span><span class="p">[</span><span class="s2">"t_mean_comp"</span><span class="p">],</span> <span class="n">lang</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">)</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">MESES</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"janeiro"</span><span class="p">,</span> <span class="s2">"fevereiro"</span><span class="p">,</span> <span class="s2">"marco"</span><span class="p">,</span> <span class="s2">"abril"</span><span class="p">,</span> <span class="s2">"maio"</span><span class="p">,</span> <span class="s2">"junho"</span><span class="p">,</span> <span class="s2">"julho"</span><span class="p">,</span> <span class="s2">"agosto"</span><span class="p">,</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>         <span class="s2">"setembro"</span><span class="p">,</span> <span class="s2">"outubro"</span><span class="p">,</span> <span class="s2">"novembro"</span><span class="p">,</span> <span class="s2">"dezembro"</span><span class="p">]</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">normal_mirante</span> <span class="o">=</span> <span class="n">normais</span><span class="p">[(</span><span class="n">normais</span><span class="p">[</span><span class="s2">"codigo"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"83781"</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">normais</span><span class="p">[</span><span class="s2">"mes"</span><span class="p">]</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">MESES</span><span class="p">))]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">normal_mirante</span><span class="p">[</span><span class="s2">"mes"</span><span class="p">]</span> <span class="o">=</span> <span class="n">normal_mirante</span><span class="p">[</span><span class="s2">"mes"</span><span class="p">]</span><span class="o">.</span><span class="n">map</span><span class="p">({</span><span class="n">m</span><span class="p">:</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">1</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">m</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">MESES</span><span class="p">)})</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="n">mensal_obs</span> <span class="o">=</span> <span class="n">a701_dia</span><span class="o">.</span><span class="n">assign</span><span class="p">(</span><span class="n">ano</span><span class="o">=</span><span class="n">a701_dia</span><span class="p">[</span><span class="s2">"date"</span><span class="p">]</span><span class="o">.</span><span class="n">dt</span><span class="o">.</span><span class="n">year</span><span class="p">,</span> <span class="n">mes</span><span class="o">=</span><span class="n">a701_dia</span><span class="p">[</span><span class="s2">"date"</span><span class="p">]</span><span class="o">.</span><span class="n">dt</span><span class="o">.</span><span class="n">month</span><span class="p">)</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="n">mensal_obs</span> <span class="o">=</span> <span class="n">mensal_obs</span><span class="o">.</span><span class="n">groupby</span><span class="p">([</span><span class="s2">"ano"</span><span class="p">,</span> <span class="s2">"mes"</span><span class="p">],</span> <span class="n">as_index</span><span class="o">=</span><span class="kc">False</span><span class="p">)[</span><span class="s2">"tair_dry_bulb_c"</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="n">anomalia</span> <span class="o">=</span> <span class="n">mensal_obs</span><span class="o">.</span><span class="n">merge</span><span class="p">(</span><span class="n">normal_mirante</span><span class="p">[[</span><span class="s2">"mes"</span><span class="p">,</span> <span class="s2">"valor"</span><span class="p">]],</span> <span class="n">on</span><span class="o">=</span><span class="s2">"mes"</span><span class="p">)</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="n">anomalia</span><span class="p">[</span><span class="s2">"anomalia_c"</span><span class="p">]</span> <span class="o">=</span> <span class="n">anomalia</span><span class="p">[</span><span class="s2">"tair_dry_bulb_c"</span><span class="p">]</span> <span class="o">-</span> <span class="n">anomalia</span><span class="p">[</span><span class="s2">"valor"</span><span class="p">]</span>
+</span></code></pre></div>
+<h3 id="indicadores-bioclimaticos">Indicadores bioclimáticos<a class="headerlink" href="#indicadores-bioclimaticos" title="Permanent link">&para;</a></h3>
+<p><code>sus_climate_compute_indicators()</code> calcula WBGT, HI, THI, UTCI, PET, graus-dia (CDD/HDD/GDD) e
+outros a partir de dados <strong>horários</strong> com temperatura, umidade (<code>rh_mean_porc</code>), radiação
+(<code>sr_kj_m2</code>) e vento (<code>ws_2_m_s</code>) — por isso usamos a A701, que tem todas essas variáveis:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">jan_horario</span> <span class="o">=</span> <span class="n">clima_df</span><span class="p">[(</span><span class="n">clima_df</span><span class="p">[</span><span class="s2">"date"</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="s2">"2014-01-01"</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">clima_df</span><span class="p">[</span><span class="s2">"date"</span><span class="p">]</span> <span class="o">&lt;</span> <span class="s2">"2014-02-01"</span><span class="p">)]</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">indicadores</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_climate_compute_indicators</span><span class="p">(</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    <span class="n">jan_horario</span><span class="p">,</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">indicators</span><span class="o">=</span><span class="p">[</span><span class="s2">"wbgt"</span><span class="p">,</span> <span class="s2">"hi"</span><span class="p">,</span> <span class="s2">"utci"</span><span class="p">],</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">region</span><span class="o">=</span><span class="s2">"atlantic_forest"</span><span class="p">,</span>      <span class="c1"># limiares adaptados ao bioma</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="n">lang</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">,</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Em janeiro de 2014, as médias horárias foram 17,7 °C (WBGT), 28,3 °C (HI) e 27,2 °C (UTCI). O
+índice de calor (HI) só vale com calor e umidade altos; fora dessa faixa, a função deixa o valor
+vazio (529 das 744 horas do mês).</p>
+<h3 id="ondas-de-calor">Ondas de calor<a class="headerlink" href="#ondas-de-calor" title="Permanent link">&para;</a></h3>
+<p><code>sus_climate_compute_heatwaves()</code> agrega a série horária a valores diários e aplica os métodos
+escolhidos:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">hw</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_climate_compute_heatwaves</span><span class="p">(</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="n">clima_df</span><span class="p">,</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="n">method</span><span class="o">=</span><span class="p">[</span><span class="s2">"WHO"</span><span class="p">,</span> <span class="s2">"WMO"</span><span class="p">,</span> <span class="s2">"INMET"</span><span class="p">],</span>   <span class="c1"># ou a lista completa, que inclui EHF, UTCI, WBGT e HI</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="n">baseline_start</span><span class="o">=</span><span class="s2">"2014-01-01"</span><span class="p">,</span>      <span class="c1"># período de referência dos percentis</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="n">baseline_end</span><span class="o">=</span><span class="s2">"2019-12-31"</span><span class="p">,</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    <span class="n">percentile</span><span class="o">=</span><span class="mi">90</span><span class="p">,</span>                    <span class="c1"># P90 para WHO/WMO</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    <span class="n">lang</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">,</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="p">)</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="n">hw</span><span class="p">[</span><span class="s2">"events"</span><span class="p">]</span>    <span class="c1"># um evento por linha: início, fim, duração, pico, intensidade</span>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="n">hw</span><span class="p">[</span><span class="s2">"daily"</span><span class="p">]</span>     <span class="c1"># marcações diárias hw_who, hw_wmo, hw_inmet, hw_any</span>
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="n">hw</span><span class="p">[</span><span class="s2">"summary"</span><span class="p">]</span>   <span class="c1"># resumo anual por estação e método</span>
+</span></code></pre></div>
+<p>A visualização pronta vem de <code>sus_climate_plot_heatwaves()</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">cs</span><span class="o">.</span><span class="n">sus_climate_plot_heatwaves</span><span class="p">(</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    <span class="n">hw</span><span class="p">,</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    <span class="nb">type</span><span class="o">=</span><span class="s2">"trend"</span><span class="p">,</span>          <span class="c1"># ou "timeline", "calendar", "intensity"</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="n">interactive</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>     <span class="c1"># True -&gt; gráfico interativo</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    <span class="n">lang</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">,</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="p">)</span>
+</span></code></pre></div>
+<h3 id="spi-e-spei-secas-e-periodos-umidos">SPI e SPEI: secas e períodos úmidos<a class="headerlink" href="#spi-e-spei-secas-e-periodos-umidos" title="Permanent link">&para;</a></h3>
+<p>Ambas as funções exigem dados <strong>mensais</strong> (uma linha por local × mês, com <code>date</code> no 1º dia do mês
+e a coluna <code>code_muni</code>). Agregamos a série diária: precipitação por <strong>soma</strong>, temperatura por
+<strong>média</strong>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">mensal</span> <span class="o">=</span> <span class="n">clima_preenchido</span><span class="o">.</span><span class="n">assign</span><span class="p">(</span><span class="n">date</span><span class="o">=</span><span class="n">clima_preenchido</span><span class="p">[</span><span class="s2">"date"</span><span class="p">]</span><span class="o">.</span><span class="n">dt</span><span class="o">.</span><span class="n">to_period</span><span class="p">(</span><span class="s2">"M"</span><span class="p">)</span><span class="o">.</span><span class="n">dt</span><span class="o">.</span><span class="n">to_timestamp</span><span class="p">())</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">mensal</span> <span class="o">=</span> <span class="n">mensal</span><span class="o">.</span><span class="n">groupby</span><span class="p">([</span><span class="s2">"station_code"</span><span class="p">,</span> <span class="s2">"date"</span><span class="p">],</span> <span class="n">as_index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span><span class="o">.</span><span class="n">agg</span><span class="p">(</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>    <span class="n">rainfall_mm</span><span class="o">=</span><span class="p">(</span><span class="s2">"rainfall_mm"</span><span class="p">,</span> <span class="s2">"sum"</span><span class="p">),</span> <span class="n">tair_dry_bulb_c</span><span class="o">=</span><span class="p">(</span><span class="s2">"tair_dry_bulb_c"</span><span class="p">,</span> <span class="s2">"mean"</span><span class="p">))</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="n">mensal</span> <span class="o">=</span> <span class="n">mensal</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s2">"station_code"</span><span class="p">:</span> <span class="s2">"code_muni"</span><span class="p">})</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="c1"># SPI: apenas precipitação (distribuição gama + meses sem chuva)</span>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="n">spi</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_climate_compute_spi</span><span class="p">(</span>
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>    <span class="n">mensal</span><span class="p">,</span>
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>    <span class="n">var</span><span class="o">=</span><span class="s2">"rainfall_mm"</span><span class="p">,</span>      <span class="c1"># padrão é "rainfall_chirps_mm" (sus_grid_chirps)</span>
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>    <span class="n">scales</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">6</span><span class="p">],</span>       <span class="c1"># série de 6 anos: escalas curtas</span>
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>    <span class="n">min_n</span><span class="o">=</span><span class="mi">24</span><span class="p">,</span>               <span class="c1"># mínimo de 24 meses para ajustar a distribuição</span>
+</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>    <span class="n">lang</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">,</span>
+</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="p">)</span>
+</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>
+</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="c1"># SPEI: balanço hídrico P - PET (PET de Thornthwaite, só temperatura)</span>
+</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a><span class="n">spei</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_climate_compute_spei</span><span class="p">(</span>
+</span><span id="__span-8-17"><a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>    <span class="n">spi</span><span class="p">,</span>
+</span><span id="__span-8-18"><a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a>    <span class="n">rain_var</span><span class="o">=</span><span class="s2">"rainfall_mm"</span><span class="p">,</span>
+</span><span id="__span-8-19"><a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a>    <span class="n">pet_method</span><span class="o">=</span><span class="s2">"thornthwaite"</span><span class="p">,</span>   <span class="c1"># ou "column" com pet_var="pet_mm"</span>
+</span><span id="__span-8-20"><a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a>    <span class="n">temp_var</span><span class="o">=</span><span class="s2">"tair_dry_bulb_c"</span><span class="p">,</span>
+</span><span id="__span-8-21"><a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a>    <span class="n">scales</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">6</span><span class="p">],</span>
+</span><span id="__span-8-22"><a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a>    <span class="n">min_n</span><span class="o">=</span><span class="mi">24</span><span class="p">,</span>
+</span><span id="__span-8-23"><a id="__codelineno-8-23" name="__codelineno-8-23" href="#__codelineno-8-23"></a>    <span class="n">lang</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">,</span>
+</span><span id="__span-8-24"><a id="__codelineno-8-24" name="__codelineno-8-24" href="#__codelineno-8-24"></a><span class="p">)</span>
+</span></code></pre></div>
+<p><strong>Nota metodológica.</strong> A OMM recomenda <strong>pelo menos 30 anos</strong> de calibração para SPI e SPEI
+(<code>ref_start</code>/<code>ref_end</code>). Com 6 anos (72 meses), os índices deste caso são <strong>ilustrativos</strong>: em
+pesquisa real, calibre com o CHIRPS 1981–2010 (<code>sus_grid_chirps()</code>) ou o ERA5-Land desde 1950.</p>
+<h3 id="encadeamento-juntar-a-grade-a-serie-de-saude">Encadeamento: juntar a grade à série de saúde<a class="headerlink" href="#encadeamento-juntar-a-grade-a-serie-de-saude" title="Permanent link">&para;</a></h3>
+<p><code>sus_grid_join()</code> junta a grade à série de saúde por município e data. O ERA5-Land identifica o
+município pelo código de 6 dígitos (<code>code_muni</code>), o mesmo da coluna de residência da série de
+saúde:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">saude_sp</span> <span class="o">=</span> <span class="n">tabela</span><span class="p">[</span><span class="n">tabela</span><span class="p">[</span><span class="s2">"spatial_name"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"São Paulo"</span><span class="p">][[</span><span class="s2">"date"</span><span class="p">,</span> <span class="s2">"codigo_municipio_residencia"</span><span class="p">,</span> <span class="s2">"n_obitos"</span><span class="p">]]</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">saude_sp</span> <span class="o">=</span> <span class="n">saude_sp</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s2">"codigo_municipio_residencia"</span><span class="p">:</span> <span class="s2">"code_muni"</span><span class="p">})</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">saude_sp</span><span class="p">[</span><span class="s2">"date"</span><span class="p">]</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">to_datetime</span><span class="p">(</span><span class="n">saude_sp</span><span class="p">[</span><span class="s2">"date"</span><span class="p">])</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="n">saude_jan</span> <span class="o">=</span> <span class="n">saude_sp</span><span class="p">[</span><span class="n">saude_sp</span><span class="p">[</span><span class="s2">"date"</span><span class="p">]</span> <span class="o">&lt;</span> <span class="s2">"2014-02-01"</span><span class="p">]</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="n">saude_grade</span> <span class="o">=</span> <span class="n">cs</span><span class="o">.</span><span class="n">sus_grid_join</span><span class="p">(</span><span class="n">saude_jan</span><span class="p">,</span> <span class="n">era5_sp</span><span class="p">,</span> <span class="n">by</span><span class="o">=</span><span class="p">[</span><span class="s2">"code_muni"</span><span class="p">,</span> <span class="s2">"date"</span><span class="p">],</span> <span class="n">lang</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">)</span>
+</span></code></pre></div>
+<p>O resultado tem os 31 dias de janeiro de 2014 com os óbitos e a temperatura e a chuva do ERA5-Land
+— sem a correção da data da chuva, que fica a seu cargo.</p>
+<h2 id="caracteristicas-das-funcoes">Características das funções<a class="headerlink" href="#caracteristicas-das-funcoes" title="Permanent link">&para;</a></h2>
+<h3 id="sus_grid_era5"><code>sus_grid_era5()</code><a class="headerlink" href="#sus_grid_era5" title="Permanent link">&para;</a></h3>
+<p>Porta de entrada do ERA5-Land: baixa os agregados diários do Zenodo (Saldanha, 1950–2025) e agrega
+os pixels a polígonos municipais.</p>
+<table>
+<thead>
+<tr>
+<th>Argumento</th>
+<th>Essencial?</th>
+<th>Descrição</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>years</code></td>
+<td>sim</td>
+<td>Ano(s), de 1950 a 2025 (ex.: <code>[2014, 2015]</code>)</td>
+</tr>
+<tr>
+<td><code>months</code></td>
+<td>opcional</td>
+<td>Meses de 1 a 12 (padrão: todos)</td>
+</tr>
+<tr>
+<td><code>vars</code></td>
+<td>opcional</td>
+<td>Apelidos ERA5: <code>"t2m"</code>, <code>"t2m_max"</code>, <code>"t2m_min"</code>, <code>"td2m"</code>, <code>"u10"</code>, <code>"v10"</code>, <code>"sp"</code>, <code>"tp"</code> ou <code>"all"</code> (padrão <code>["t2m", "tp"]</code>)</td>
+</tr>
+<tr>
+<td><code>municipalities</code></td>
+<td>recomendado</td>
+<td><code>GeoDataFrame</code> com os polígonos (detecta <code>code_muni</code>/<code>CD_MUN</code>); sem ele, devolve só os caminhos dos NetCDF</td>
+</tr>
+<tr>
+<td><code>agg_fun</code></td>
+<td>opcional</td>
+<td>Agregação pixel → polígono: <code>"mean"</code> (padrão, ponderada pela área), <code>"sum"</code>, <code>"median"</code>, <code>"min"</code>, <code>"max"</code></td>
+</tr>
+<tr>
+<td><code>use_cache</code> / <code>cache_dir</code></td>
+<td>recomendado</td>
+<td>Reaproveita os NetCDF baixados (<code>~/.climasus4py_cache/era5</code>)</td>
+</tr>
+<tr>
+<td><code>parallel</code> / <code>workers</code></td>
+<td>opcional</td>
+<td>Downloads em paralelo</td>
+</tr>
+<tr>
+<td><code>lang</code> / <code>verbose</code></td>
+<td>opcional</td>
+<td>Idioma (<code>"pt"</code>, <code>"en"</code>, <code>"es"</code>) e mensagens</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Retorno:</strong> uma tabela com <code>code_muni</code>, <code>date</code> e colunas canônicas já em unidades práticas
+(<code>tair_dry_bulb_c</code> em °C, <code>rainfall_mm</code> em mm, <code>patm_hpa</code> em hPa), com o estágio <code>climate</code> e o tipo
+<code>era5_land</code> em <code>attrs["sus_meta"]</code>. Cada variável × mês é um arquivo de ~95 MB.</p>
+<h3 id="sus_climate_anomaly"><code>sus_climate_anomaly()</code><a class="headerlink" href="#sus_climate_anomaly" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Argumento</th>
+<th>Descrição</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>observed</code></td>
+<td>Série de <code>sus_climate_inmet()</code> ou <code>sus_climate_aggregate()</code></td>
+</tr>
+<tr>
+<td><code>normals</code></td>
+<td>Saída de <code>sus_climate_normals()</code> (colunas <code>codigo</code>, <code>mes</code>, <code>decada</code>, <code>var_code</code>, <code>valor</code>)</td>
+</tr>
+<tr>
+<td><code>vars</code></td>
+<td>Dicionário coluna observada → <code>var_code</code> das normais, ex.: <code>{"tair_max_c": "t_max"}</code>; sem ele, detecta</td>
+</tr>
+<tr>
+<td><code>method</code></td>
+<td><code>"absolute"</code> (padrão), <code>"relative"</code>, <code>"standardized"</code> ou <code>"all"</code></td>
+</tr>
+<tr>
+<td><code>time_scale</code></td>
+<td><code>"monthly"</code> (padrão) ou <code>"decadal"</code> (decêndios de 10 dias)</td>
+</tr>
+<tr>
+<td><code>station_col</code> / <code>date_col</code></td>
+<td>Nomes das colunas de estação e data (<code>"station_code"</code>, <code>"date"</code>)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Retorno:</strong> uma linha por estação × ano × mês, com <code>{v}_obs</code>, <code>{v}_normal</code>, <code>{v}_anomaly</code> e,
+conforme o método, <code>{v}_anomaly_pct</code> e <code>{v}_anomaly_std</code>. A estação da série precisa ter o mesmo
+código da estação das normais.</p>
+<h3 id="sus_climate_compute_indicators"><code>sus_climate_compute_indicators()</code><a class="headerlink" href="#sus_climate_compute_indicators" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Argumento</th>
+<th>Descrição</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rel</code></td>
+<td>Dados horários de <code>sus_climate_inmet()</code> ou <code>sus_climate_fill_inmet()</code></td>
+</tr>
+<tr>
+<td><code>indicators</code></td>
+<td>Todos (padrão) ou códigos: <code>"wbgt"</code>, <code>"hi"</code>, <code>"thi"</code>, <code>"wcet"</code>, <code>"wct"</code>, <code>"et"</code>, <code>"utci"</code>, <code>"pet"</code>, <code>"cdd"</code>, <code>"hdd"</code>, <code>"gdd"</code>, <code>"diurnal_range"</code>, <code>"vapor_pressure"</code>, <code>"heat_stress_risk"</code>, <code>"koppen_humidity"</code></td>
+</tr>
+<tr>
+<td><code>region</code></td>
+<td><code>"auto"</code> (padrão) ou bioma: <code>"amazon"</code>, <code>"cerrado"</code>, <code>"caatinga"</code>, <code>"atlantic_forest"</code>, <code>"pampa"</code>, <code>"pantanal"</code>, <code>"southeast"</code>, <code>"south"</code></td>
+</tr>
+<tr>
+<td><code>apply_validity_mask</code></td>
+<td><code>True</code> (padrão) deixa vazio o índice fora da faixa em que a fórmula vale</td>
+</tr>
+<tr>
+<td><code>confidence_flags</code></td>
+<td>Marcações <code>_flag_extreme</code>/<code>_flag_high</code>/<code>_flag_low</code> por indicador</td>
+</tr>
+<tr>
+<td><code>verify_physics</code></td>
+<td>Confere a radiação solar contra o limite fora da atmosfera</td>
+</tr>
+<tr>
+<td><code>compute_uncertainty</code></td>
+<td>IC 95% por Monte Carlo (200 simulações)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Retorno:</strong> uma relação do DuckDB com colunas como <code>wbgt_c</code>, <code>hi_c</code> e <code>utci_c</code> — pré-requisito dos
+métodos UTCI/WBGT/HI de ondas de calor.</p>
+<h3 id="sus_climate_compute_heatwaves"><code>sus_climate_compute_heatwaves()</code><a class="headerlink" href="#sus_climate_compute_heatwaves" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Argumento</th>
+<th>Descrição</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>df</code></td>
+<td>Série climática com <code>date</code>, <code>station_code</code> e temperaturas (horária ou diária)</td>
+</tr>
+<tr>
+<td><code>method</code></td>
+<td><code>"WHO"</code>, <code>"WMO"</code>, <code>"INMET"</code>, <code>"EHF"</code>, <code>"UTCI"</code>, <code>"WBGT"</code>, <code>"HI"</code> ou uma lista (métodos sem coluna necessária são pulados com aviso)</td>
+</tr>
+<tr>
+<td><code>baseline_start</code> / <code>baseline_end</code></td>
+<td>Período de referência dos limiares; sem eles, a série toda</td>
+</tr>
+<tr>
+<td><code>percentile</code></td>
+<td>Percentil dos limiares (padrão 90)</td>
+</tr>
+<tr>
+<td><code>min_duration</code></td>
+<td>Dias consecutivos mínimos; sem ele, o padrão de cada método (WHO=3, WMO=5, INMET=5, EHF=3...)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Retorno:</strong> um dicionário com <code>events</code> (eventos), <code>daily</code> (marcações diárias <code>hw_&lt;método&gt;</code> e
+<code>hw_any</code>) e <code>summary</code> (resumo anual). Visualização com <code>sus_climate_plot_heatwaves(hw, type=
+"timeline" | "calendar" | "intensity" | "trend", interactive, lang)</code>.</p>
+<h3 id="sus_climate_compute_spi-e-sus_climate_compute_spei"><code>sus_climate_compute_spi()</code> e <code>sus_climate_compute_spei()</code><a class="headerlink" href="#sus_climate_compute_spi-e-sus_climate_compute_spei" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Argumento</th>
+<th>SPI</th>
+<th>SPEI</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>df</code></td>
+<td>mensal, com <code>code_muni</code> + <code>date</code></td>
+<td>idem</td>
+</tr>
+<tr>
+<td>variável de chuva</td>
+<td><code>var</code> (padrão <code>"rainfall_chirps_mm"</code>)</td>
+<td><code>rain_var</code></td>
+</tr>
+<tr>
+<td>PET</td>
+<td>—</td>
+<td><code>pet_method="column"</code> (<code>pet_var</code>) ou <code>"thornthwaite"</code> (<code>temp_var</code>)</td>
+</tr>
+<tr>
+<td><code>scales</code></td>
+<td>escalas em meses (padrão <code>[1, 3, 6, 12]</code>)</td>
+<td>idem</td>
+</tr>
+<tr>
+<td><code>ref_start</code> / <code>ref_end</code></td>
+<td>período de calibração (OMM: ≥ 30 anos)</td>
+<td>idem</td>
+</tr>
+<tr>
+<td><code>min_n</code></td>
+<td>mínimo de meses válidos por local (padrão 24)</td>
+<td>idem</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Retorno:</strong> a tabela de entrada com as colunas <code>spi_{s}mo</code> / <code>spei_{s}mo</code>. Distribuições: gama com
+mistura para zeros (SPI); log-logística de 3 parâmetros via L-momentos (SPEI). Valores ≤ −1 indicam
+seca moderada; ≤ −1,5, severa; ≤ −2, extrema.</p>
+<h2 id="resultados-ilustrados">Resultados ilustrados<a class="headerlink" href="#resultados-ilustrados" title="Permanent link">&para;</a></h2>
+<p><img alt="ERA5-Land e estação A701" src="../figuras/grid_serie.png" /></p>
+<p><strong>Figura 1.</strong> Temperatura média diária de janeiro de 2014 no município de São Paulo: ERA5-Land
+(média do polígono, ~10 km) e estação A701 (Mirante de Santana). As duas séries sobem e descem
+juntas (correlação de 0,89), mas a grade fica, em média, 1,1 °C abaixo da estação: a média de
+dezenas de pixels inclui áreas mais frias e menos urbanizadas do município, enquanto a estação mede
+um ponto da cidade. É a diferença que se documenta antes de escolher a exposição do modelo.</p>
+<p><strong>Tabela 1.</strong> Comparação diária entre o ERA5-Land e a estação A701, janeiro de 2014.</p>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Valor</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Período</td>
+<td>01/01/2014 a 31/01/2014</td>
+</tr>
+<tr>
+<td>Dias</td>
+<td>31</td>
+</tr>
+<tr>
+<td>Temperatura média — ERA5-Land (°C)</td>
+<td>23,8</td>
+</tr>
+<tr>
+<td>Temperatura média — A701 (°C)</td>
+<td>25,0</td>
+</tr>
+<tr>
+<td>Diferença média ERA5 − A701 (°C)</td>
+<td>-1,1</td>
+</tr>
+<tr>
+<td>Correlação diária da temperatura</td>
+<td>0,89</td>
+</tr>
+<tr>
+<td>Chuva no mês — ERA5-Land (mm)</td>
+<td>147,1</td>
+</tr>
+<tr>
+<td>Chuva no mês — A701 (mm)</td>
+<td>223,0</td>
+</tr>
+<tr>
+<td>Correlação diária da chuva (data do arquivo)</td>
+<td>0,16</td>
+</tr>
+<tr>
+<td>Correlação diária da chuva (data corrigida, −1 dia)</td>
+<td>0,69</td>
+</tr>
+</tbody>
+</table>
+<p><img alt="Anomalia mensal de temperatura" src="../figuras/grid_anomalia.png" /></p>
+<p><strong>Figura 2.</strong> Anomalia mensal de temperatura no Mirante de Santana, 2014–2019: média mensal da
+A701 menos a normal 1991–2020. Barras laranjas (positivas) marcam meses mais quentes que a
+climatologia local — 44 dos 72 meses, com média de +0,3 °C e o maior desvio em abril de 2016
+(+2,5 °C). É este sinal, e não a temperatura absoluta, que viaja entre cidades em análises
+multicêntricas.</p>
+<p><strong>Tabela 2.</strong> Ondas de calor detectadas na A701 (as oito primeiras, em ordem de início).</p>
+<table>
+<thead>
+<tr>
+<th>Método</th>
+<th>Início</th>
+<th>Fim</th>
+<th>Dias</th>
+<th>Pico (°C)</th>
+<th>Anomalia média (°C)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>WHO</td>
+<td>31/01/2014</td>
+<td>10/02/2014</td>
+<td>11</td>
+<td>36,5</td>
+<td>1,4</td>
+</tr>
+<tr>
+<td>WMO</td>
+<td>02/02/2014</td>
+<td>08/02/2014</td>
+<td>7</td>
+<td>36,5</td>
+<td>1,4</td>
+</tr>
+<tr>
+<td>INMET</td>
+<td>05/02/2014</td>
+<td>10/02/2014</td>
+<td>6</td>
+<td>36,5</td>
+<td>6,0</td>
+</tr>
+<tr>
+<td>WHO</td>
+<td>14/03/2014</td>
+<td>18/03/2014</td>
+<td>5</td>
+<td>33,4</td>
+<td>1,1</td>
+</tr>
+<tr>
+<td>WHO</td>
+<td>30/10/2014</td>
+<td>01/11/2014</td>
+<td>3</td>
+<td>34,0</td>
+<td>1,2</td>
+</tr>
+<tr>
+<td>WHO</td>
+<td>10/01/2015</td>
+<td>14/01/2015</td>
+<td>5</td>
+<td>35,4</td>
+<td>1,1</td>
+</tr>
+<tr>
+<td>WHO</td>
+<td>17/01/2015</td>
+<td>20/01/2015</td>
+<td>4</td>
+<td>36,7</td>
+<td>2,2</td>
+</tr>
+<tr>
+<td>WHO</td>
+<td>13/07/2015</td>
+<td>15/07/2015</td>
+<td>3</td>
+<td>29,1</td>
+<td>1,0</td>
+</tr>
+</tbody>
+</table>
+<p><img alt="Ondas de calor por ano e método" src="../figuras/grid_ondas_calor.png" /></p>
+<p><strong>Figura 3.</strong> Ondas de calor por ano e método na A701, 2014–2019, desenhadas por
+<code>sus_climate_plot_heatwaves(type="trend")</code>: 20 eventos pelo critério WHO, 3 pelo INMET e 1 pelo
+WMO. Métodos mais exigentes (WMO: limiar duplo de máxima <strong>e</strong> mínima por ≥ 5 dias) detectam menos
+eventos que o critério WHO (P90 da máxima por ≥ 3 dias) — a escolha deve refletir o mecanismo
+fisiológico de interesse (calor diurno vs. noites quentes sem alívio). No gráfico, INMET e WMO
+saem com a mesma cor: em 2014, a barra clara à esquerda é o INMET e a da direita, o WMO.</p>
+<p><img alt="SPI-3 e SPEI-3" src="../figuras/grid_spi_spei.png" /></p>
+<p><strong>Figura 4.</strong> SPI-3 e SPEI-3 mensais da A701 (linhas tracejadas: ±1, limiar moderado). Os dois
+caem abaixo de −1 no inverno de 2014 — o início da crise hídrica paulista de 2014–2015 — e de novo
+em 2018. Quando a temperatura sobe sem mudança na chuva, o SPEI cai mais que o SPI: a
+evapotranspiração potencial amplia o déficit hídrico. Com 6 anos de calibração, os valores são
+ilustrativos.</p>
+<h2 id="referencias">Referências<a class="headerlink" href="#referencias" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Bröde, P., et al. (2012). Deriving the operational procedure for the Universal Thermal Climate
+  Index (UTCI). <em>International Journal of Biometeorology</em>, 56(3), 481–494.</li>
+<li>Funk, C., et al. (2015). The climate hazards infrared precipitation with stations — a new
+  environmental record for monitoring extremes. <em>Scientific Data</em>, 2, 150066.</li>
+<li>Gasparrini, A., et al. (2017). Projections of temperature-related excess mortality under climate
+  change scenarios. <em>The Lancet Planetary Health</em>, 1(9), e360–e367.</li>
+<li>Geirinhas, J. L., et al. (2018). Climatic and synoptic characterization of heat waves in Brazil.
+  <em>International Journal of Climatology</em>, 38(4), 1760–1776.</li>
+<li>Liljegren, J. C., et al. (2008). Modeling the wet bulb globe temperature using standard
+  meteorological measurements. <em>Journal of Occupational and Environmental Hygiene</em>, 5(10),
+  645–655.</li>
+<li>McKee, T. B., Doesken, N. J., &amp; Kleist, J. (1993). The relationship of drought frequency and
+  duration to time scales. <em>Proceedings of the 8th Conference on Applied Climatology</em>, AMS,
+  179–184.</li>
+<li>Muñoz-Sabater, J., et al. (2021). ERA5-Land: a state-of-the-art global reanalysis dataset for land
+  applications. <em>Earth System Science Data</em>, 13(9), 4349–4383.</li>
+<li>Nairn, J. R., &amp; Fawcett, R. J. B. (2015). The Excess Heat Factor: a metric for heatwave intensity
+  and its use in classifying heatwave severity. <em>International Journal of Environmental Research
+  and Public Health</em>, 12(1), 227–253.</li>
+<li>Perkins, S. E., &amp; Alexander, L. V. (2013). On the measurement of heat waves. <em>Journal of
+  Climate</em>, 26(13), 4500–4517.</li>
+<li>Rothfusz, L. P. (1990). The heat index "equation". NWS Technical Attachment SR/SSD 90-23.</li>
+<li>Saldanha, R. ERA5-Land Daily Aggregates for Latin America (1950–2025). Zenodo.
+  <a href="https://zenodo.org/doi/10.5281/zenodo.10013254">https://zenodo.org/doi/10.5281/zenodo.10013254</a>. CC-BY 4.0.</li>
+<li>Thornthwaite, C. W. (1948). An approach toward a rational classification of climate.
+  <em>Geographical Review</em>, 38(1), 55–94.</li>
+<li>Vicente-Serrano, S. M., Beguería, S., &amp; López-Moreno, J. I. (2010). A multiscalar drought index
+  sensitive to global warming: the Standardized Precipitation Evapotranspiration Index. <em>Journal of
+  Climate</em>, 23(7), 1696–1718.</li>
+<li>WMO (2017). <em>WMO Guidelines on the Calculation of Climate Normals</em> (WMO-No. 1203). Genebra.</li>
+</ul>
+<h2 id="navegacao">Navegação<a class="headerlink" href="#navegacao" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../pipeline/">Voltar para a Trilha do Pipeline</a></li>
+<li><strong>Anterior:</strong> <a href="../07-clima-estacoes/">Tutorial 7 — Clima por Estações (INMET)</a></li>
+<li><strong>Próximo:</strong> Tutorial 9 — Modelagem Epidemiológica <em>(em preparação)</em></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Voltar ao topo
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Rodapé" >
+        
+          
+          <a href="../07-clima-estacoes/" class="md-footer__link md-footer__link--prev" aria-label="Anterior: 7. Clima por Estações (INMET)">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Anterior
+              </span>
+              <div class="md-ellipsis">
+                7. Clima por Estações (INMET)
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../../querying/" class="md-footer__link md-footer__link--next" aria-label="Próximo: Como consultar">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Próximo
+              </span>
+              <div class="md-ellipsis">
+                Como consultar
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      © 2024 CLIMA-SUS — MIT License
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/climasus" target="_blank" rel="noopener" title="climasus no GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://pypi.org/project/climasus4py/" target="_blank" rel="noopener" title="climasus4py no PyPI" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.8 200.5c-7.7-30.9-22.3-54.2-53.4-54.2h-40.1v47.4c0 36.8-31.2 67.8-66.8 67.8H172.7c-29.2 0-53.4 25-53.4 54.3v101.8c0 29 25.2 46 53.4 54.3 33.8 9.9 66.3 11.7 106.8 0 26.9-7.8 53.4-23.5 53.4-54.3v-40.7H226.2v-13.6h160.2c31.1 0 42.6-21.7 53.4-54.2 11.2-33.5 10.7-65.7 0-108.6M286.2 444.7a20.4 20.4 0 1 1 0-40.7 20.4 20.4 0 1 1 0 40.7M167.8 248.1h106.8c29.7 0 53.4-24.5 53.4-54.3V91.9c0-29-24.4-50.7-53.4-55.6-35.8-5.9-74.7-5.6-106.8.1-45.2 8-53.4 24.7-53.4 55.6v40.7h106.9v13.6h-147c-31.1 0-58.3 18.7-66.8 54.2-9.8 40.7-10.2 66.1 0 108.6 7.6 31.6 25.7 54.2 56.8 54.2H101v-48.8c0-35.3 30.5-66.4 66.8-66.4m-6.6-183.4a20.4 20.4 0 1 1 0 40.8 20.4 20.4 0 1 1 0-40.8"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.top", "navigation.footer", "search.highlight", "search.suggest", "content.code.copy", "content.code.annotate", "toc.follow"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copiado para \u00e1rea de transfer\u00eancia", "clipboard.copy": "Copiar para \u00e1rea de transfer\u00eancia", "search.result.more.one": "Mais 1 nesta p\u00e1gina", "search.result.more.other": "Mais # nesta p\u00e1gina", "search.result.none": "Nenhum resultado encontrado", "search.result.one": "1 resultado encontrado", "search.result.other": "# resultados encontrados", "search.result.placeholder": "Digite para iniciar a busca", "search.result.term.missing": "Ausente", "select.version": "Selecione a vers\u00e3o"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+        <script src="../../assets/climasus.js"></script>
+      
+    
+  </body>
+</html>
