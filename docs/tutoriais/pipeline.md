@@ -75,7 +75,7 @@ climática, janela temporal e modelo estatístico.
     Use dados climáticos em grade (ERA5-Land) e camadas ambientais como alternativa e complemento
     às estações.
 
-    *Em preparação*
+    [Ver tutorial →](08-clima-grade.md)
 
 -   **Etapa 9 · Modelagem Epidemiológica**
 

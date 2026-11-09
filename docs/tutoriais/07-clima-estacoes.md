@@ -400,4 +400,4 @@ mesmo dia é a lacuna preenchida da Figura 2 chegando ao alinhamento.
 
 - [Voltar para a Trilha do Pipeline](pipeline.md)
 - **Anterior:** [Tutorial 6 — Vínculo Socioeconômico](06-socioeconomico.md)
-- **Próximo:** Tutorial 8 — Clima em Grade e Dados Ambientais *(em preparação)*
+- **Próximo:** [Tutorial 8 — Clima em Grade e Dados Ambientais](08-clima-grade.md)
